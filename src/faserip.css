@@ -99,7 +99,7 @@
 
         /* Content area */
         .fsr-content {
-            @apply flex-1 p-3 overflow-y-auto;
+            @apply flex-1 px-3 pt-3 overflow-y-auto;
         }
 
         /* Buttons */
