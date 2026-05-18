@@ -94,12 +94,17 @@ export class FaseripActor extends Actor {
     );
 
     if (currentForm) {
-      // Calculate max health from endurance
-      const enduranceRank = currentForm.attributes.endurance.rank;
-      const calculatedHealth = calculateHealth(enduranceRank);
+      // Calculate max health from FASE attributes (Fighting + Agility + Strength + Endurance)
+      const calculatedHealth = calculateHealth(currentForm);
 
-      if (system.resources.health.max === 0) {
-        system.resources.health.max = calculatedHealth;
+      // Always update max health when attributes change
+      system.resources.health.max = calculatedHealth;
+
+      // If health was never set or is 0, initialize it to max
+      if (
+        !system.resources.health.value ||
+        system.resources.health.value === 0
+      ) {
         system.resources.health.value = calculatedHealth;
       }
 

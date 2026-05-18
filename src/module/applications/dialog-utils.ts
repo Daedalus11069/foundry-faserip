@@ -3,7 +3,7 @@ import TalentSelectionDialog from "./dialogs/TalentSelectionDialog.vue";
 import KarmaSpendDialog from "./dialogs/KarmaSpendDialog.vue";
 import ComboDialog from "./dialogs/ComboDialog.vue";
 import { Rank } from "../enums";
-import { Talent, SelectedTalent } from "../types";
+import type { Talent, SelectedTalent } from "../types";
 
 interface KarmaSpendResult {
   karmaSpent: number;

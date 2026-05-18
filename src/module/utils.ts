@@ -34,12 +34,18 @@ export function getInitiativeDie(rank: Rank | string): number {
 }
 
 /**
- * Calculate health based on endurance rank
+ * Calculate health based on FASE attributes (Fighting + Agility + Strength + Endurance)
  */
-export function calculateHealth(enduranceRank: Rank | string): number {
-  const baseValue = getRankValue(enduranceRank);
-  // Health is typically rank value * some multiplier, adjust as needed
-  return baseValue * 2;
+export function calculateHealth(form: any): number {
+  if (!form || !form.attributes) return 24; // Default for 4x typical (6)
+
+  const fighting = form.attributes.fighting?.value || 0;
+  const agility = form.attributes.agility?.value || 0;
+  const strength = form.attributes.strength?.value || 0;
+  const endurance = form.attributes.endurance?.value || 0;
+
+  // Health is the sum of FASE attributes
+  return fighting + agility + strength + endurance;
 }
 
 /**
