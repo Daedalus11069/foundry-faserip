@@ -1,0 +1,71 @@
+{
+  "TYPES.Actor": {
+    "pc": "Player Character",
+    "npc": "Non-Player Character"
+  },
+  "FASERIP": {
+    "Attributes": {
+      "fighting": "Fighting",
+      "agility": "Agility",
+      "strength": "Strength",
+      "endurance": "Endurance",
+      "reasoning": "Reasoning",
+      "intuition": "Intuition",
+      "psyche": "Psyche"
+    },
+    "Resources": {
+      "health": "Health",
+      "karma": "Karma"
+    },
+    "Ranks": {
+      "feeble": "Feeble (2)",
+      "poor": "Poor (4)",
+      "typical": "Typical (6)",
+      "good": "Good (10)",
+      "excellent": "Excellent (20)",
+      "remarkable": "Remarkable (30)",
+      "incredible": "Incredible (40)",
+      "amazing": "Amazing (50)",
+      "monstrous": "Monstrous (75)",
+      "unearthly": "Unearthly (100)",
+      "shift_x": "Shift X (150)",
+      "shift_y": "Shift Y (200)",
+      "shift_z": "Shift Z (500)",
+      "class_1000": "Class 1000 (1000)",
+      "class_3000": "Class 3000 (3000)",
+      "class_5000": "Class 5000 (5000)",
+      "beyond": "Beyond"
+    },
+    "Tabs": {
+      "stats": "Stats",
+      "powers": "Powers",
+      "talents": "Talents",
+      "equipment": "Equipment",
+      "contacts": "Contacts",
+      "biography": "Biography"
+    },
+    "Settings": {
+      "charmanApiUrl": {
+        "name": "Charman API URL",
+        "hint": "The base URL for your Charman character management API (e.g., https://charman.example.com). Leave empty to disable Charman integration."
+      },
+      "charmanApiPath": {
+        "name": "Charman API Path",
+        "hint": "The API path prefix for your Charman API endpoints (e.g., /charman/api/foundry or /myextension/api/foundry). Default is /charman/api/foundry."
+      },
+      "charmanApiKey": {
+        "name": "Charman API Key",
+        "hint": "Optional API key for authenticating with your Charman API. Leave empty if your API doesn't require authentication."
+      }
+    },
+    "Labels": {
+      "forms": "Forms",
+      "primaryForm": "Primary Form",
+      "importFromCharman": "Import from Charman",
+      "charmanUsername": "Charman Username",
+      "characterName": "Character Name",
+      "import": "Import",
+      "cancel": "Cancel"
+    }
+  }
+}

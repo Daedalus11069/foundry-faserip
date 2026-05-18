@@ -1,0 +1,40 @@
+{
+  "Actor": {
+    "templates": {
+      "base": {
+        "biography": "",
+        "notes": ""
+      }
+    },
+    "pc": {
+      "templates": ["base"]
+    },
+    "npc": {
+      "templates": ["base"]
+    }
+  },
+  "Item": {
+    "templates": {
+      "base": {
+        "description": ""
+      }
+    },
+    "power": {
+      "templates": ["base"],
+      "rank": "",
+      "category": ""
+    },
+    "talent": {
+      "templates": ["base"],
+      "bonus": 0
+    },
+    "equipment": {
+      "templates": ["base"],
+      "quantity": 1
+    },
+    "contact": {
+      "templates": ["base"],
+      "relationship": ""
+    }
+  }
+}

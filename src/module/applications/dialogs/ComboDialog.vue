@@ -1,0 +1,267 @@
+<script setup lang="ts">
+import { ref, computed, watch } from "vue";
+import type { VueDialog } from "@src/module/applications/vue-dialog";
+import {
+  Rank,
+  RANK_VALUES,
+  applyChartShift,
+  formatRankDisplay
+} from "../../enums";
+
+interface Props {
+  attributeName: string;
+  attributeRank: Rank;
+  availableKarma: number;
+  dialog: VueDialog;
+}
+
+interface AttackKarma {
+  columnShifts: number;
+  resultShift: number;
+}
+
+const props = defineProps<Props>();
+
+const comboCount = ref(1);
+const attackKarmaSettings = ref<AttackKarma[]>([
+  { columnShifts: 0, resultShift: 0 }
+]);
+
+// Watch combo count and adjust karma settings array
+watch(comboCount, (newCount, oldCount) => {
+  if (newCount > oldCount) {
+    // Add new entries
+    for (let i = oldCount; i < newCount; i++) {
+      attackKarmaSettings.value.push({ columnShifts: 0, resultShift: 0 });
+    }
+  } else if (newCount < oldCount) {
+    // Remove excess entries
+    attackKarmaSettings.value = attackKarmaSettings.value.slice(0, newCount);
+  }
+});
+
+const totalKarmaCost = computed(() => {
+  let total = 0;
+
+  attackKarmaSettings.value.forEach((attack, index) => {
+    // Pre-roll cost (column shifts)
+    if (attack.columnShifts > 0) {
+      const currentValue = RANK_VALUES[props.attributeRank] || 6;
+      const comboPenalty = -(index + 1);
+      const effectiveRank = applyChartShift(props.attributeRank, comboPenalty);
+      const shiftedRank = applyChartShift(effectiveRank, attack.columnShifts);
+      const shiftedValue = RANK_VALUES[shiftedRank] || 6;
+      const effectiveValue = RANK_VALUES[effectiveRank] || 6;
+      const scoreDiff = Math.abs(shiftedValue - effectiveValue);
+      total += Math.max(10, scoreDiff);
+    }
+
+    // Post-roll cost (result shift)
+    if (attack.resultShift > 0) {
+      total += Math.max(10, attack.resultShift);
+    }
+  });
+
+  return total;
+});
+
+const canAfford = computed(() => totalKarmaCost.value <= props.availableKarma);
+
+function getAttackPenalty(attackIndex: number): number {
+  // Only apply penalty if there's more than 1 attack
+  if (comboCount.value === 1) return 0;
+  return -(attackIndex + 1);
+}
+
+function getEffectiveRank(attackIndex: number, columnShifts: number = 0): Rank {
+  const comboPenalty = getAttackPenalty(attackIndex);
+  const baseRank = applyChartShift(props.attributeRank, comboPenalty);
+  return applyChartShift(baseRank, columnShifts);
+}
+
+function getPreRollCost(attackIndex: number, columnShifts: number): number {
+  if (columnShifts === 0) return 0;
+
+  const comboPenalty = getAttackPenalty(attackIndex);
+  const effectiveRank = applyChartShift(props.attributeRank, comboPenalty);
+  const shiftedRank = applyChartShift(effectiveRank, columnShifts);
+
+  const effectiveValue = RANK_VALUES[effectiveRank] || 6;
+  const shiftedValue = RANK_VALUES[shiftedRank] || 6;
+  const scoreDiff = Math.abs(shiftedValue - effectiveValue);
+
+  return Math.max(10, scoreDiff);
+}
+
+function getPostRollCost(resultShift: number): number {
+  if (resultShift === 0) return 0;
+  return Math.max(10, resultShift);
+}
+
+function handleSubmit() {
+  if (!canAfford.value) {
+    return;
+  }
+
+  props.dialog.submit({
+    comboCount: comboCount.value,
+    attackKarmaSettings: attackKarmaSettings.value
+  });
+}
+
+function handleCancel() {
+  props.dialog.submit(null);
+}
+</script>
+
+<template>
+  <div class="combo-dialog">
+    <div class="mb-4 p-3 bg-blue-900/30 rounded">
+      <div class="text-sm mb-2">
+        <strong>Available Karma:</strong> {{ availableKarma }}
+      </div>
+      <div class="text-xs text-gray-400">
+        <div>
+          • Pre-roll: Column Shift cost based on rank difference (min 10)
+        </div>
+        <div>• Post-roll: 1:1 karma per die point (min 10)</div>
+      </div>
+    </div>
+
+    <div class="f-group mb-4">
+      <label class="font-semibold text-sm">Number of Attacks in Combo</label>
+      <input
+        type="number"
+        v-model.number="comboCount"
+        :min="1"
+        :max="10"
+        class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded"
+        placeholder="Enter number of attacks"
+      />
+    </div>
+
+    <!-- Attack-by-attack karma settings -->
+    <div class="mb-4 space-y-3 max-h-96 overflow-y-auto">
+      <div
+        v-for="(attack, index) in attackKarmaSettings"
+        :key="index"
+        class="p-3 bg-gray-800 rounded border border-gray-700"
+      >
+        <div class="flex justify-between items-center mb-2">
+          <div class="font-semibold text-sm text-yellow-400">
+            Attack {{ index + 1
+            }}<span v-if="getAttackPenalty(index) !== 0">
+              ({{ getAttackPenalty(index) }} CS penalty)</span
+            >
+          </div>
+          <div class="text-xs text-gray-400">
+            Base Rank: {{ formatRankDisplay(getEffectiveRank(index, 0)) }}
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <!-- Pre-roll: Column Shifts -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Pre-roll CS</label>
+            <input
+              type="number"
+              v-model.number="attack.columnShifts"
+              :min="0"
+              :max="5"
+              class="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm"
+              placeholder="0"
+            />
+            <div v-if="attack.columnShifts > 0" class="text-xs mt-1">
+              <div class="text-blue-400">
+                →
+                {{
+                  formatRankDisplay(
+                    getEffectiveRank(index, attack.columnShifts)
+                  )
+                }}
+              </div>
+              <div class="text-yellow-500">
+                Cost: {{ getPreRollCost(index, attack.columnShifts) }} karma
+              </div>
+            </div>
+          </div>
+
+          <!-- Post-roll: Result Shift -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1"
+              >Post-roll +dice</label
+            >
+            <input
+              type="number"
+              v-model.number="attack.resultShift"
+              :min="0"
+              :max="100"
+              class="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm"
+              placeholder="0"
+            />
+            <div v-if="attack.resultShift > 0" class="text-xs mt-1">
+              <div class="text-green-400">
+                +{{ attack.resultShift }} to roll
+              </div>
+              <div class="text-yellow-500">
+                Cost: {{ getPostRollCost(attack.resultShift) }} karma
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Total karma cost display -->
+    <div
+      class="mb-4 p-3 rounded border"
+      :class="
+        canAfford
+          ? 'bg-green-900/20 border-green-700'
+          : 'bg-red-900/20 border-red-700'
+      "
+    >
+      <div class="flex justify-between items-center">
+        <span class="text-sm font-semibold">Total Karma Cost:</span>
+        <span
+          class="text-lg font-bold"
+          :class="canAfford ? 'text-green-400' : 'text-red-400'"
+        >
+          {{ totalKarmaCost }} / {{ availableKarma }}
+        </span>
+      </div>
+      <div v-if="!canAfford" class="text-xs text-red-400 mt-1">
+        Insufficient karma! Reduce karma spending.
+      </div>
+    </div>
+
+    <div class="dialog-buttons flex gap-2 justify-end">
+      <button
+        @click="handleCancel"
+        class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600"
+      >
+        Cancel
+      </button>
+      <button
+        @click="handleSubmit"
+        :disabled="!canAfford"
+        :class="[
+          'px-4 py-2 rounded',
+          canAfford
+            ? 'bg-blue-600 hover:bg-blue-500'
+            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+        ]"
+      >
+        Execute Combo
+      </button>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.combo-dialog {
+  padding: 1rem;
+  min-width: 600px;
+  max-width: 700px;
+}
+</style>

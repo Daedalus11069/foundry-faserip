@@ -1,0 +1,43 @@
+{
+  "id": "faserip",
+  "title": "FASERIP",
+  "description": "Marvel Super Heroes RPG (FASERIP) system for Foundry VTT with charman API integration",
+  "version": "0.1.0",
+  "authors": [
+    {
+      "name": "Daedalus11069"
+    }
+  ],
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "esmodules": ["dev-env.js"],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "gridDistance": 5,
+  "gridUnits": "ft",
+  "primaryTokenAttribute": "resources.health",
+  "initiative": "@initiativeDice",
+  "documentTypes": {
+    "Actor": {
+      "pc": {},
+      "npc": {}
+    },
+    "Item": {
+      "power": {},
+      "talent": {},
+      "equipment": {},
+      "contact": {}
+    }
+  },
+  "url": "",
+  "manifest": "",
+  "download": "",
+  "socket": false
+}
