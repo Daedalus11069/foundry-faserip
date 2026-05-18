@@ -327,10 +327,16 @@ export class FaseripRoll {
       const comboPenalty = comboCount > 1 ? -i : 0;
       const totalCS = chartShift + comboPenalty;
 
-      // Get karma settings for this attack (if provided)
+      // Get karma settings for this attack
       const karmaSettings = attackKarmaSettings?.[i - 1];
-      const preSpecifiedKarmaShifts = karmaSettings?.columnShifts || undefined;
-      const preSpecifiedResultShift = karmaSettings?.resultShift || undefined;
+      // If attackKarmaSettings provided (combo dialog was shown), always pass numbers to prevent additional dialogs
+      // If not provided, pass undefined to allow dialogs
+      const preSpecifiedKarmaShifts = attackKarmaSettings
+        ? (karmaSettings?.columnShifts ?? 0)
+        : undefined;
+      const preSpecifiedResultShift = attackKarmaSettings
+        ? (karmaSettings?.resultShift ?? 0)
+        : undefined;
 
       // Execute the attack roll with karma settings
       const roll = await this.rollAttribute(

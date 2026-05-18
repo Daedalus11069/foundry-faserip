@@ -24,6 +24,7 @@ export enum Attribute {
  * Each rank has a numerical value used for rolls and calculations
  */
 export enum Rank {
+  Shift0 = "shift_0",
   Feeble = "feeble",
   Poor = "poor",
   Typical = "typical",
@@ -47,6 +48,7 @@ export enum Rank {
  * Ordered array of ranks for Chart Shift calculations
  */
 export const RANK_ORDER: Rank[] = [
+  Rank.Shift0,
   Rank.Feeble,
   Rank.Poor,
   Rank.Typical,
@@ -98,6 +100,7 @@ export function formatRankDisplay(rank: Rank | string): string {
  * Rank values for rolls and calculations
  */
 export const RANK_VALUES: Record<Rank, number> = {
+  [Rank.Shift0]: 0,
   [Rank.Feeble]: 2,
   [Rank.Poor]: 4,
   [Rank.Typical]: 6,
@@ -131,6 +134,7 @@ export enum RollResult {
  * Rank short codes for Universal Table lookup
  */
 export const RANK_SHORTS: Record<Rank, string> = {
+  [Rank.Shift0]: "s0",
   [Rank.Feeble]: "fe",
   [Rank.Poor]: "pr",
   [Rank.Typical]: "ty",
@@ -159,6 +163,7 @@ export const RANK_SHORTS: Record<Rank, string> = {
  * Red: redStart to 100
  */
 export const UNIVERSAL_TABLE: Record<string, [number, number, number]> = {
+  s0: [66, 95, 100], // Shift 0
   fe: [61, 91, 100], // Feeble
   pr: [56, 86, 100], // Poor
   ty: [51, 81, 98], // Typical

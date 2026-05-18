@@ -29,8 +29,8 @@ export function valueToRank(value: number): Rank {
  */
 export function getInitiativeDie(rank: Rank | string): number {
   const value = getRankValue(rank);
-  // Cap at d100 for very high ranks
-  return Math.min(value, 100);
+  // Minimum 1d2 for Shift 0, cap at d100 for very high ranks
+  return Math.min(Math.max(value, 2), 100);
 }
 
 /**
@@ -56,6 +56,8 @@ export function calculateHealth(form: any): number {
 export function stringToRank(rankStr: string): Rank {
   const rankMap: Record<string, Rank> = {
     // Full names
+    shift_0: Rank.Shift0,
+    shift0: Rank.Shift0,
     feeble: Rank.Feeble,
     poor: Rank.Poor,
     typical: Rank.Typical,
@@ -80,6 +82,8 @@ export function stringToRank(rankStr: string): Rank {
     class5000: Rank.Class5000,
     beyond: Rank.Beyond,
     // Shorthand abbreviations
+    s0: Rank.Shift0,
+    "0": Rank.Shift0,
     fe: Rank.Feeble,
     pr: Rank.Poor,
     ty: Rank.Typical,

@@ -124,7 +124,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         comboResult.attackKarmaSettings
       );
     } else {
-      // Single attack - use karma settings from first attack if any
+      // Single attack - use karma settings from first attack
+      // Since combo dialog was shown, always pass numbers (even 0) to prevent additional karma dialogs
       const firstAttackKarma = comboResult.attackKarmaSettings[0];
       await FaseripRoll.rollAttribute(
         attrLabel,
@@ -134,8 +135,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         actor,
         talentNames,
         undefined,
-        firstAttackKarma?.columnShifts || undefined,
-        firstAttackKarma?.resultShift || undefined
+        firstAttackKarma?.columnShifts ?? 0,
+        firstAttackKarma?.resultShift ?? 0
       );
     }
   } else {

@@ -40,6 +40,25 @@ watch(comboCount, (newCount, oldCount) => {
   }
 });
 
+// Check if first attack is using karma
+const firstAttackUsesKarma = computed(() => {
+  const firstAttack = attackKarmaSettings.value[0];
+  return (
+    firstAttack && (firstAttack.columnShifts > 0 || firstAttack.resultShift > 0)
+  );
+});
+
+// Watch first attack karma usage and clear subsequent attacks if it becomes 0
+watch(firstAttackUsesKarma, usesKarma => {
+  if (!usesKarma) {
+    // Clear karma from all subsequent attacks
+    for (let i = 1; i < attackKarmaSettings.value.length; i++) {
+      attackKarmaSettings.value[i].columnShifts = 0;
+      attackKarmaSettings.value[i].resultShift = 0;
+    }
+  }
+});
+
 const totalKarmaCost = computed(() => {
   let total = 0;
 
@@ -168,7 +187,8 @@ function handleCancel() {
               v-model.number="attack.columnShifts"
               :min="0"
               :max="5"
-              class="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm"
+              :disabled="index > 0 && !firstAttackUsesKarma"
+              class="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="0"
             />
             <div v-if="attack.columnShifts > 0" class="text-xs mt-1">
@@ -184,6 +204,12 @@ function handleCancel() {
                 Cost: {{ getPreRollCost(index, attack.columnShifts) }} karma
               </div>
             </div>
+            <div
+              v-if="index > 0 && !firstAttackUsesKarma"
+              class="text-xs text-gray-500 mt-1 italic"
+            >
+              Enable karma on Attack 1 first
+            </div>
           </div>
 
           <!-- Post-roll: Result Shift -->
@@ -196,7 +222,8 @@ function handleCancel() {
               v-model.number="attack.resultShift"
               :min="0"
               :max="100"
-              class="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm"
+              :disabled="index > 0 && !firstAttackUsesKarma"
+              class="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="0"
             />
             <div v-if="attack.resultShift > 0" class="text-xs mt-1">
@@ -206,6 +233,12 @@ function handleCancel() {
               <div class="text-yellow-500">
                 Cost: {{ getPostRollCost(attack.resultShift) }} karma
               </div>
+            </div>
+            <div
+              v-if="index > 0 && !firstAttackUsesKarma"
+              class="text-xs text-gray-500 mt-1 italic"
+            >
+              Enable karma on Attack 1 first
             </div>
           </div>
         </div>

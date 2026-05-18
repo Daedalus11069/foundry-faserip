@@ -91,25 +91,7 @@ async function importFromCharman() {
       actor
     );
 
-    // Force sync reactive actor with updated data
-    reactiveActor.name = actor.name;
-    reactiveActor.img = actor.img;
-
-    // Sync prototypeToken
-    const freshToken = JSON.parse(JSON.stringify(actor.prototypeToken));
-    for (const key of Object.keys(freshToken)) {
-      (reactiveActor.prototypeToken as any)[key] = freshToken[key];
-    }
-
-    // Deep sync system data
-    const freshSystem = JSON.parse(JSON.stringify(actor.system)) as Record<
-      string,
-      unknown
-    >;
-    for (const key of Object.keys(freshSystem)) {
-      (reactiveActor.system as Record<string, unknown>)[key] = freshSystem[key];
-    }
-
+    // Base sheet's updateActor hook will automatically sync reactive actor
     showImportDialog.value = false;
     importUsername.value = "";
     importCharacterName.value = "";
@@ -140,25 +122,7 @@ async function resyncFromCharman() {
       actor
     );
 
-    // Force sync reactive actor with updated data
-    reactiveActor.name = actor.name;
-    reactiveActor.img = actor.img;
-
-    // Sync prototypeToken
-    const freshToken = JSON.parse(JSON.stringify(actor.prototypeToken));
-    for (const key of Object.keys(freshToken)) {
-      (reactiveActor.prototypeToken as any)[key] = freshToken[key];
-    }
-
-    // Deep sync system data
-    const freshSystem = JSON.parse(JSON.stringify(actor.system)) as Record<
-      string,
-      unknown
-    >;
-    for (const key of Object.keys(freshSystem)) {
-      (reactiveActor.system as Record<string, unknown>)[key] = freshSystem[key];
-    }
-
+    // Base sheet's updateActor hook will automatically sync reactive actor
     // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
     ui.notifications?.success("Character re-synced from Charman");
   } catch (error) {
