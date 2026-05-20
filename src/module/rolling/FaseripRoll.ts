@@ -136,9 +136,11 @@ export class FaseripRoll {
     talentNames?: string[],
     additionalFlags?: Record<string, any>,
     preSpecifiedKarmaShifts?: number,
-    preSpecifiedResultShift?: number
+    preSpecifiedResultShift?: number,
+    skipMessage: boolean = false,
+    manualChartShift: number = 0
   ): Promise<FaseripRoll> {
-    let totalChartShift = chartShift;
+    let totalChartShift = chartShift + manualChartShift;
     let preRollKarma = 0;
     let postRollKarma = 0;
     let karmaColumnShifts = 0;
@@ -185,11 +187,17 @@ export class FaseripRoll {
           attributeRank
         );
 
-        if (preRollResult && preRollResult.karmaSpent > 0) {
-          preRollKarma = preRollResult.karmaSpent;
-          // Use the column shifts returned from the dialog
-          karmaColumnShifts = preRollResult.columnShifts || 0;
-          totalChartShift += karmaColumnShifts;
+        if (preRollResult) {
+          if (preRollResult.karmaSpent > 0) {
+            preRollKarma = preRollResult.karmaSpent;
+            // Use the column shifts returned from the dialog
+            karmaColumnShifts = preRollResult.columnShifts || 0;
+            totalChartShift += karmaColumnShifts;
+          }
+          // Always apply manual chart shift if provided
+          if (preRollResult.manualChartShift) {
+            totalChartShift += preRollResult.manualChartShift;
+          }
         }
       }
     }
@@ -234,11 +242,17 @@ export class FaseripRoll {
           rollTotal
         );
 
-        if (postRollResult && postRollResult.karmaSpent > 0) {
-          postRollKarma = postRollResult.karmaSpent;
-          // Use the die modifier returned from the dialog
-          const actualShift = postRollResult.dieModifier || 0;
-          rollTotal += actualShift;
+        if (postRollResult) {
+          if (postRollResult.karmaSpent > 0) {
+            postRollKarma = postRollResult.karmaSpent;
+            // Use the die modifier returned from the dialog
+            const actualShift = postRollResult.dieModifier || 0;
+            rollTotal += actualShift;
+          }
+          // Always apply manual chart shift if provided
+          if ((postRollResult as any).manualChartShift) {
+            totalChartShift += (postRollResult as any).manualChartShift;
+          }
         }
       }
     }
@@ -291,16 +305,28 @@ export class FaseripRoll {
       totalChartShift
     );
 
-    // Create chat message
-    await faseripRoll.toMessage(
+    // Store metadata on the roll for later use (e.g., combo attacks)
+    (faseripRoll as any).metadata = {
       attributeName,
-      actor,
       talentNames,
       preRollKarma,
       postRollKarma,
       karmaColumnShifts,
       additionalFlags
-    );
+    };
+
+    // Create chat message unless skipped (for combo attacks that combine messages)
+    if (!skipMessage) {
+      await faseripRoll.toMessage(
+        attributeName,
+        actor,
+        talentNames,
+        preRollKarma,
+        postRollKarma,
+        karmaColumnShifts,
+        additionalFlags
+      );
+    }
 
     return faseripRoll;
   }
@@ -318,14 +344,16 @@ export class FaseripRoll {
     actor?: Actor,
     talentNames?: string[],
     additionalFlags?: Record<string, any>,
-    attackKarmaSettings?: Array<{ columnShifts: number; resultShift: number }>
-  ): Promise<FaseripRoll[]> {
-    const rolls: FaseripRoll[] = [];
+    attackKarmaSettings?: Array<{ columnShifts: number; resultShift: number }>,
+    manualChartShift: number = 0
+  ): Promise<void> {
+    const rolls: Array<FaseripRoll & { comboPenalty: number; index: number }> =
+      [];
 
     for (let i = 1; i <= comboCount; i++) {
       // Each attack gets an increasing CS penalty (only if comboCount > 1)
       const comboPenalty = comboCount > 1 ? -i : 0;
-      const totalCS = chartShift + comboPenalty;
+      const totalCS = chartShift + comboPenalty + manualChartShift;
 
       // Get karma settings for this attack
       const karmaSettings = attackKarmaSettings?.[i - 1];
@@ -338,7 +366,7 @@ export class FaseripRoll {
         ? (karmaSettings?.resultShift ?? 0)
         : undefined;
 
-      // Execute the attack roll with karma settings
+      // Execute the attack roll with karma settings (skipMessage=true to combine later)
       const roll = await this.rollAttribute(
         `${attributeName} (Attack ${i}${comboCount > 1 ? ` of ${comboCount}` : ""})`,
         attributeRank,
@@ -354,13 +382,143 @@ export class FaseripRoll {
           comboPenalty
         },
         preSpecifiedKarmaShifts,
-        preSpecifiedResultShift
+        preSpecifiedResultShift,
+        true, // skipMessage - we'll send one combined message
+        0 // manualChartShift is already included in totalCS
       );
 
-      rolls.push(roll);
+      // Store combo metadata on the roll
+      (roll as any).comboPenalty = comboPenalty;
+      (roll as any).index = i;
+
+      rolls.push(roll as any);
     }
 
-    return rolls;
+    // Send one combined message for all attacks
+    await this.createCombinedComboMessage(
+      rolls,
+      attributeName,
+      actor,
+      talentNames,
+      additionalFlags
+    );
+  }
+
+  /**
+   * Create a single combined chat message for all combo attacks
+   */
+  private static async createCombinedComboMessage(
+    rolls: Array<FaseripRoll & { comboPenalty: number; index: number }>,
+    attributeName: string,
+    actor: Actor | undefined,
+    talentNames: string[] | undefined,
+    additionalFlags: Record<string, any> | undefined
+  ): Promise<void> {
+    if (rolls.length === 0) return;
+
+    // Build attack details sections with individual result colors
+    const attackDetails = await Promise.all(
+      rolls.map(async (roll: any) => {
+        const metadata = roll.metadata || {};
+        const resultText = roll.getResultText();
+        const resultClass = roll.getResultClass();
+        const penaltyText =
+          roll.comboPenalty !== 0 ? `${roll.comboPenalty} CS` : "";
+
+        // Get color and text styling for this result
+        let borderColor = "#4b5563"; // default white
+        let textColor = "#9ca3af";
+
+        if (resultClass.includes("perfect")) {
+          borderColor = "#fbbf24";
+          textColor = "#fffacd";
+        } else if (resultClass.includes("ultimate-botch")) {
+          borderColor = "#4b5563";
+          textColor = "#fca5a5";
+        } else if (resultClass.includes("botch")) {
+          borderColor = "#991b1b";
+          textColor = "#fca5a5";
+        } else if (resultClass.includes("red")) {
+          borderColor = "#dc2626";
+          textColor = "#fca5a5";
+        } else if (resultClass.includes("yellow")) {
+          borderColor = "#eab308";
+          textColor = "#fcd34d";
+        } else if (resultClass.includes("green")) {
+          borderColor = "#22c55e";
+          textColor = "#86efac";
+        }
+
+        let chartShiftText = "";
+        if (roll.chartShift !== 0) {
+          chartShiftText =
+            roll.chartShift > 0
+              ? `+${roll.chartShift} CS`
+              : `${roll.chartShift} CS`;
+        }
+
+        let karmaSpentText = "";
+        const totalKarmaSpent =
+          (metadata.preRollKarma || 0) + (metadata.postRollKarma || 0);
+        if (totalKarmaSpent > 0) {
+          const karmaDetails = [];
+          if (metadata.preRollKarma > 0) {
+            karmaDetails.push(
+              `${metadata.preRollKarma} karma for ${metadata.karmaColumnShifts || 0} CS`
+            );
+          }
+          if (metadata.postRollKarma > 0) {
+            karmaDetails.push(`${metadata.postRollKarma} karma to modify roll`);
+          }
+          karmaSpentText = `${totalKarmaSpent} (${karmaDetails.join(", ")})`;
+        }
+
+        return await foundry.applications.handlebars.renderTemplate(
+          "/systems/faserip/templates/chat/roll-card.hbs",
+          {
+            attackIndex: roll.index,
+            penaltyText,
+            resultText,
+            resultClass,
+            borderColor,
+            textColor,
+            rankDisplay: formatRankDisplay(roll.rank),
+            rollTotal: roll.roll.total,
+            chartShiftText,
+            karmaSpent: karmaSpentText
+          }
+        );
+      })
+    );
+
+    const attackDetailsHtml = attackDetails.join("");
+
+    let talentSection = "";
+    if (talentNames && talentNames.length > 0) {
+      talentSection = `<div class="fsr-roll-card-detail">
+        <strong>Talents:</strong> <span>${talentNames.join(", ")}</span>
+      </div>`;
+    }
+
+    const comboLabel =
+      rolls.length > 1 ? `(Combo - ${rolls.length} Attacks)` : "";
+
+    const content = `<div class="fsr-roll-card-combo">
+      <h3>${attributeName} ${comboLabel}</h3>
+      <div class="fsr-roll-card-details">
+        ${talentSection}
+      </div>
+      ${attackDetailsHtml}
+    </div>`;
+    // Collect all rolls for the message
+    const allRolls = rolls.map((r: any) => r.roll);
+
+    await ChatMessage.create({
+      speaker: actor ? ChatMessage.getSpeaker({ actor }) : undefined,
+      content,
+      rolls: allRolls,
+      flags: (additionalFlags ?? {}) as Record<string, any>
+    });
   }
 
   /**
@@ -431,7 +589,7 @@ export class FaseripRoll {
       </div>`;
     }
 
-    let karmaSection = "";
+    let karmaSpentText = "";
     const totalKarmaSpent = preRollKarma + postRollKarma;
     if (totalKarmaSpent > 0) {
       const karmaDetails = [];
@@ -441,33 +599,31 @@ export class FaseripRoll {
       if (postRollKarma > 0) {
         karmaDetails.push(`${postRollKarma} karma to modify roll`);
       }
-      karmaSection = `<div class="fsr-roll-card-detail">
-        <strong>Karma Spent:</strong> <span class="text-yellow-400">${totalKarmaSpent} (${karmaDetails.join(", ")})</span>
-      </div>`;
+      karmaSpentText = `${totalKarmaSpent} (${karmaDetails.join(", ")})`;
     }
+
+    const chartShiftText =
+      this.chartShift > 0 ? `+${this.chartShift} CS` : `${this.chartShift} CS`;
+
+    const content = await foundry.applications.handlebars.renderTemplate(
+      "/systems/faserip/templates/chat/roll-card.hbs",
+      {
+        checkName,
+        resultText,
+        resultClass,
+        rankDisplay: formatRankDisplay(this.rank),
+        targetValue: this.targetValue,
+        rollTotal: this.roll.total,
+        chartShift: this.chartShift,
+        chartShiftText,
+        karmaSpent: karmaSpentText,
+        talentNames: talentNames ? talentNames.join(", ") : undefined
+      }
+    );
 
     return await ChatMessage.create({
       speaker: actor ? ChatMessage.getSpeaker({ actor }) : undefined,
-      content: `<div class="fsr-roll-card ${resultClass}">
-        <h3>${checkName}</h3>
-        <div class="fsr-roll-card-result">
-          ${resultText}
-        </div>
-        <div class="fsr-roll-card-details">
-          <div class="fsr-roll-card-detail">
-            <strong>Rank:</strong> <span>${formatRankDisplay(this.rank)}</span>
-          </div>
-          <div class="fsr-roll-card-detail">
-            <strong>Value:</strong> <span>${this.targetValue}</span>
-          </div>
-          <div class="fsr-roll-card-detail">
-            <strong>Roll:</strong> <span>${this.roll.total}%</span>
-          </div>
-          ${csSection}
-          ${karmaSection}
-          ${talentSection}
-        </div>
-      </div>`,
+      content,
       rolls: [this.roll],
       flags: additionalFlags || {}
     });

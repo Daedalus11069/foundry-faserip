@@ -1,0 +1,43 @@
+<div
+  class="fsr-roll-card {{resultClass}}"
+  style="border-color: {{borderColor}}; margin-bottom: 8px;"
+>
+  <h3>{{checkName}}</h3>
+  <div class="fsr-roll-card-result">
+    {{resultText}}
+  </div>
+  <div class="fsr-roll-card-details">
+    <div class="fsr-roll-card-detail">
+      <strong>Rank:</strong>
+      <span>{{rankDisplay}}</span>
+    </div>
+    {{#if targetValue}}
+      <div class="fsr-roll-card-detail">
+        <strong>Value:</strong>
+        <span>{{targetValue}}</span>
+      </div>
+    {{/if}}
+    <div class="fsr-roll-card-detail">
+      <strong>Roll:</strong>
+      <span>{{rollTotal}}%</span>
+    </div>
+    {{#if chartShift}}
+      <div class="fsr-roll-card-detail">
+        <strong>Chart Shift:</strong>
+        <span>{{chartShiftText}}</span>
+      </div>
+    {{/if}}
+    {{#if karmaSpent}}
+      <div class="fsr-roll-card-detail">
+        <strong>Karma Spent:</strong>
+        <span class="text-yellow-400">{{karmaSpent}}</span>
+      </div>
+    {{/if}}
+    {{#if talentNames}}
+      <div class="fsr-roll-card-detail">
+        <strong>Talents:</strong>
+        <span>{{talentNames}}</span>
+      </div>
+    {{/if}}
+  </div>
+</div>

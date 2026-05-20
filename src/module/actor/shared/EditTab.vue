@@ -223,13 +223,13 @@ const ripAttributes = [
           </button>
           <button
             @click="startEditingLink"
-            class="fsr-btn bg-blue-600 hover:bg-blue-700 text-white text-sm"
+            class="fsr-btn bg-blue-900 hover:bg-blue-950 text-white text-sm"
           >
             ✏️ Edit Link
           </button>
           <button
             @click="unlinkCharacter"
-            class="fsr-btn bg-red-600 hover:bg-red-700 text-white text-sm"
+            class="fsr-btn bg-red-900 hover:bg-red-950 text-white text-sm"
           >
             🔗 Unlink
           </button>

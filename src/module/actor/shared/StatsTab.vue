@@ -103,7 +103,13 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
     const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
 
     // Prompt for combo attack with karma options
-    const comboResult = await showComboDialog(attrLabel, rank, availableKarma);
+    const comboResult = await showComboDialog(
+      attrLabel,
+      rank,
+      availableKarma,
+      talentNames,
+      totalCS - (attr.bonus || 0)
+    );
 
     if (comboResult === null) {
       // User cancelled
@@ -121,7 +127,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         actor,
         talentNames,
         undefined,
-        comboResult.attackKarmaSettings
+        comboResult.attackKarmaSettings,
+        comboResult.manualChartShift ?? 0
       );
     } else {
       // Single attack - use karma settings from first attack
@@ -136,7 +143,9 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         talentNames,
         undefined,
         firstAttackKarma?.columnShifts ?? 0,
-        firstAttackKarma?.resultShift ?? 0
+        firstAttackKarma?.resultShift ?? 0,
+        false,
+        comboResult.manualChartShift ?? 0
       );
     }
   } else {

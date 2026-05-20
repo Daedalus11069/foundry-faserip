@@ -9,6 +9,7 @@ interface KarmaSpendResult {
   karmaSpent: number;
   columnShifts?: number;
   dieModifier?: number;
+  manualChartShift?: number;
 }
 
 /**
@@ -86,7 +87,9 @@ export async function showKarmaSpendDialog(
 export async function showComboDialog(
   attributeName: string,
   attributeRank: Rank,
-  availableKarma: number
+  availableKarma: number,
+  talentNames?: string[],
+  talentCS?: number
 ): Promise<{
   comboCount: number;
   attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
@@ -96,7 +99,9 @@ export async function showComboDialog(
     {
       attributeName,
       attributeRank,
-      availableKarma
+      availableKarma,
+      talentNames: talentNames || [],
+      talentCS: talentCS || 0
     },
     {
       window: {

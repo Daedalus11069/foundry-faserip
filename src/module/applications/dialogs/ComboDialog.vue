@@ -12,6 +12,8 @@ interface Props {
   attributeName: string;
   attributeRank: Rank;
   availableKarma: number;
+  talentNames?: string[];
+  talentCS?: number;
   dialog: VueDialog;
 }
 
@@ -23,6 +25,7 @@ interface AttackKarma {
 const props = defineProps<Props>();
 
 const comboCount = ref(1);
+const manualChartShift = ref(0);
 const attackKarmaSettings = ref<AttackKarma[]>([
   { columnShifts: 0, resultShift: 0 }
 ]);
@@ -68,7 +71,9 @@ const totalKarmaCost = computed(() => {
       const currentValue = RANK_VALUES[props.attributeRank] || 6;
       const comboPenalty = -(index + 1);
       const effectiveRank = applyChartShift(props.attributeRank, comboPenalty);
-      const shiftedRank = applyChartShift(effectiveRank, attack.columnShifts);
+      // Include talent CS in shift calculations
+      const totalShifts = attack.columnShifts + (props.talentCS || 0);
+      const shiftedRank = applyChartShift(effectiveRank, totalShifts);
       const shiftedValue = RANK_VALUES[shiftedRank] || 6;
       const effectiveValue = RANK_VALUES[effectiveRank] || 6;
       const scoreDiff = Math.abs(shiftedValue - effectiveValue);
@@ -95,15 +100,19 @@ function getAttackPenalty(attackIndex: number): number {
 function getEffectiveRank(attackIndex: number, columnShifts: number = 0): Rank {
   const comboPenalty = getAttackPenalty(attackIndex);
   const baseRank = applyChartShift(props.attributeRank, comboPenalty);
-  return applyChartShift(baseRank, columnShifts);
+  // Include talent CS and manual chart shift in the effective rank calculation
+  const totalShifts =
+    columnShifts + (props.talentCS || 0) + manualChartShift.value;
+  return applyChartShift(baseRank, totalShifts);
 }
 
 function getPreRollCost(attackIndex: number, columnShifts: number): number {
-  if (columnShifts === 0) return 0;
+  const totalShifts = columnShifts + (props.talentCS || 0);
+  if (totalShifts === 0) return 0;
 
   const comboPenalty = getAttackPenalty(attackIndex);
   const effectiveRank = applyChartShift(props.attributeRank, comboPenalty);
-  const shiftedRank = applyChartShift(effectiveRank, columnShifts);
+  const shiftedRank = applyChartShift(effectiveRank, totalShifts);
 
   const effectiveValue = RANK_VALUES[effectiveRank] || 6;
   const shiftedValue = RANK_VALUES[shiftedRank] || 6;
@@ -124,7 +133,8 @@ function handleSubmit() {
 
   props.dialog.submit({
     comboCount: comboCount.value,
-    attackKarmaSettings: attackKarmaSettings.value
+    attackKarmaSettings: attackKarmaSettings.value,
+    manualChartShift: manualChartShift.value
   });
 }
 
@@ -147,6 +157,22 @@ function handleCancel() {
       </div>
     </div>
 
+    <!-- Display applied talents -->
+    <div
+      v-if="talentNames && talentNames.length > 0"
+      class="mb-4 p-3 bg-green-900/30 rounded border border-green-700"
+    >
+      <div class="text-sm font-semibold text-green-300 mb-1">
+        Applied Talents:
+      </div>
+      <div class="text-sm text-green-200">
+        {{ talentNames.join(", ") }}
+        <span v-if="talentCS && talentCS !== 0" class="ml-2 font-semibold">
+          ({{ talentCS > 0 ? "+" : "" }}{{ talentCS }} CS)
+        </span>
+      </div>
+    </div>
+
     <div class="f-group mb-4">
       <label class="font-semibold text-sm">Number of Attacks in Combo</label>
       <input
@@ -157,6 +183,32 @@ function handleCancel() {
         class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded"
         placeholder="Enter number of attacks"
       />
+    </div>
+
+    <div class="f-group mb-4">
+      <label class="font-semibold text-sm">Manual Chart Shift</label>
+      <div class="text-xs text-gray-400 mb-2">
+        Optional bonus or penalty to all rolls (e.g., +2 or -1)
+      </div>
+      <input
+        type="number"
+        v-model.number="manualChartShift"
+        :min="-10"
+        :max="10"
+        class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded"
+        placeholder="0"
+      />
+      <div
+        v-if="manualChartShift !== 0"
+        class="text-sm mt-2 p-2 rounded"
+        :class="
+          manualChartShift > 0
+            ? 'bg-green-900/30 text-green-300'
+            : 'bg-red-900/30 text-red-300'
+        "
+      >
+        {{ manualChartShift > 0 ? "+" : "" }}{{ manualChartShift }} Chart Shift
+      </div>
     </div>
 
     <!-- Attack-by-attack karma settings -->
@@ -174,7 +226,13 @@ function handleCancel() {
             >
           </div>
           <div class="text-xs text-gray-400">
-            Base Rank: {{ formatRankDisplay(getEffectiveRank(index, 0)) }}
+            <span v-if="talentCS && talentCS !== 0">
+              Rank with Talents:
+              {{ formatRankDisplay(getEffectiveRank(index, 0)) }}
+            </span>
+            <span v-else>
+              Base Rank: {{ formatRankDisplay(getEffectiveRank(index, 0)) }}
+            </span>
           </div>
         </div>
 

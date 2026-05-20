@@ -13,6 +13,35 @@
     </div>
 
     <div class="space-y-3">
+      <div class="space-y-2">
+        <label class="font-semibold text-sm"
+          >Manual Chart Shift (Optional)</label
+        >
+        <div class="text-xs text-gray-400 mb-1">
+          Bonus or penalty to the roll (e.g., +2 or -1)
+        </div>
+        <input
+          type="number"
+          v-model.number="manualChartShift"
+          :min="-10"
+          :max="10"
+          class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded"
+          placeholder="0"
+        />
+        <div
+          v-if="manualChartShift !== 0"
+          class="text-sm mt-1 p-2 rounded"
+          :class="
+            manualChartShift > 0
+              ? 'bg-green-900/30 text-green-300'
+              : 'bg-red-900/30 text-red-300'
+          "
+        >
+          {{ manualChartShift > 0 ? "+" : "" }}{{ manualChartShift }} Chart
+          Shift
+        </div>
+      </div>
+
       <div v-if="phase === 'pre-roll'" class="space-y-2">
         <label class="font-semibold text-sm">Column Shifts to Apply</label>
         <input
@@ -107,6 +136,7 @@ const props = defineProps<Props>();
 // Separate inputs for pre-roll (column shifts) and post-roll (die modifier)
 const columnShifts = ref(0);
 const dieModifier = ref(0);
+const manualChartShift = ref(0);
 
 // Calculate karma cost for pre-roll (based on rank score difference)
 const preRollKarmaCost = computed(() => {
@@ -197,18 +227,28 @@ function handleConfirm() {
   if (props.phase === "pre-roll" && columnShifts.value > 0) {
     props.dialog.submit({
       karmaSpent: preRollKarmaCost.value,
-      columnShifts: columnShifts.value
+      columnShifts: columnShifts.value,
+      manualChartShift: manualChartShift.value
     });
   } else if (props.phase === "post-roll" && dieModifier.value > 0) {
     props.dialog.submit({
       karmaSpent: postRollKarmaCost.value,
-      dieModifier: dieModifier.value
+      dieModifier: dieModifier.value,
+      manualChartShift: manualChartShift.value
     });
   }
 }
 
 function handleSkip() {
-  props.dialog.submit(null);
+  // Return manualChartShift even if skipping karma
+  if (manualChartShift.value !== 0) {
+    props.dialog.submit({
+      karmaSpent: 0,
+      manualChartShift: manualChartShift.value
+    });
+  } else {
+    props.dialog.submit(null);
+  }
 }
 </script>
 

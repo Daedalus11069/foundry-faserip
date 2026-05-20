@@ -62,7 +62,7 @@ async function rollWithTalent(talent: Talent) {
           />
           <button
             @click="removeTalent(index)"
-            class="fsr-btn fsr-btn-sm bg-red-700 hover:bg-red-800 text-white px-2"
+            class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white px-2"
           >
             ✕
           </button>

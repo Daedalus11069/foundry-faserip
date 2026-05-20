@@ -66,22 +66,15 @@ export class FaseripActor extends Actor {
       system.currentFormId = primaryForm ? primaryForm.id : system.forms[0].id;
     }
 
-    // Sync attribute values with their ranks for all forms
+    // Initialize bonus field for all attributes (but don't override values)
     if (system.forms) {
       for (const form of system.forms) {
         if (form.attributes) {
           for (const attrKey of Object.keys(form.attributes)) {
             const attr = form.attributes[attrKey];
-            if (attr && attr.rank) {
+            if (attr && attr.bonus === undefined) {
               // Ensure bonus field exists
-              if (attr.bonus === undefined) {
-                attr.bonus = 0;
-              }
-              // Always sync value to match rank
-              const correctValue = getRankValue(attr.rank);
-              if (attr.value !== correctValue) {
-                attr.value = correctValue;
-              }
+              attr.bonus = 0;
             }
           }
         }

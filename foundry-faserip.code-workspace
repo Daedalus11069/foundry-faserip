@@ -1,20 +1,20 @@
 {
-    "folders": [
-        {
-            "path": "."
-        }
-    ],
-    "settings": {
-        "typescript.tsdk": "node_modules/typescript/lib",
-        "files.exclude": {
-            "**/.git": true,
-            "**/.DS_Store": true,
-            "**/node_modules": true,
-            "**/dist": true
-        },
-        "search.exclude": {
-            "**/node_modules": true,
-            "**/dist": true
-        }
-    }
+  "folders": [
+	{
+		"path": "."
+	},
+	{
+		"path": "../foundry-dimensionalwar-system"
+	},
+	{
+		"path": "../../../new_earth/ext/newearth/charman"
+	},
+	{
+		"path": "../../../pico-bot"
+	},
+	{
+		"path": "../foundry-rifts-palladium"
+	}
+],
+  "settings": {}
 }

@@ -379,18 +379,6 @@ Hooks.once("ready", () => {
   console.log("FASERIP | System ready");
 });
 
-// Add custom CSS to chat messages for better formatting
-Hooks.on("renderChatMessageHTML", (_app: ChatMessage, html: HTMLElement) => {
-  // Add custom styling for FASERIP roll cards
-  const rollCard = html.querySelector(".fsr-roll-card") as HTMLElement;
-  if (rollCard) {
-    rollCard.style.padding = "12px";
-    rollCard.style.backgroundColor = "#1f2937";
-    rollCard.style.borderRadius = "8px";
-    rollCard.style.marginTop = "8px";
-  }
-});
-
 // Export for global access if needed
 export { FaseripActor } from "./module/documents";
 export { ActorType, Rank, Attribute } from "./module/enums";

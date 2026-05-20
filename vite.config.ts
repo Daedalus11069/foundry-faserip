@@ -157,7 +157,11 @@ export default defineConfig(({ mode }) => ({
     mode === "production"
       ? viteStaticCopy({
           targets: [
-            // { src: "src/module/templates", dest: "" },
+            {
+              src: "src/module/templates",
+              dest: "templates",
+              rename: { stripBase: 3 }
+            },
             { src: "template.json", dest: "" },
             { src: "lang", dest: "" }
           ]

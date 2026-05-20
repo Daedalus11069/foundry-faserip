@@ -348,10 +348,13 @@ export class CharmanService {
       })
     );
 
-    // Calculate initial health from first form's endurance
+    // Calculate initial health from first form's FASE attributes (Fighting + Agility + Strength + Endurance)
     const firstForm = forms[0];
-    const enduranceValue = firstForm.attributes.endurance.value;
-    const initialHealth = enduranceValue * 2;
+    const initialHealth =
+      firstForm.attributes.fighting.value +
+      firstForm.attributes.agility.value +
+      firstForm.attributes.strength.value +
+      firstForm.attributes.endurance.value;
 
     // Name is the main character name (displayed as actor name)
     // Callname is the civilian/call name (displayed below as smaller text)
