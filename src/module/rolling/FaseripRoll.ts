@@ -138,7 +138,8 @@ export class FaseripRoll {
     preSpecifiedKarmaShifts?: number,
     preSpecifiedResultShift?: number,
     skipMessage: boolean = false,
-    manualChartShift: number = 0
+    manualChartShift: number = 0,
+    flavor?: string
   ): Promise<FaseripRoll> {
     let totalChartShift = chartShift + manualChartShift;
     let preRollKarma = 0;
@@ -314,6 +315,12 @@ export class FaseripRoll {
       karmaColumnShifts,
       additionalFlags
     };
+
+    // Set flavor on the roll for display in chat
+    if (flavor) {
+      // @ts-expect-error - TypeScript doesn't recognize the flavor property on Roll
+      faseripRoll.roll.flavor = flavor;
+    }
 
     // Create chat message unless skipped (for combo attacks that combine messages)
     if (!skipMessage) {
@@ -510,6 +517,136 @@ export class FaseripRoll {
       </div>
       ${attackDetailsHtml}
     </div>`;
+    // Collect all rolls for the message
+    const allRolls = rolls.map((r: any) => r.roll);
+
+    await ChatMessage.create({
+      speaker: actor ? ChatMessage.getSpeaker({ actor }) : undefined,
+      content,
+      rolls: allRolls,
+      flags: (additionalFlags ?? {}) as Record<string, any>
+    });
+  }
+
+  /**
+   * Create a combined chat message for multiple rolls (e.g., /r in in in)
+   */
+  static async createCombinedRollMessage(
+    rolls: FaseripRoll[],
+    actor: Actor | undefined,
+    additionalFlags?: Record<string, any>,
+    globalReason?: string
+  ): Promise<void> {
+    if (rolls.length === 0) return;
+
+    // Build roll cards with individual result colors
+    const rollCards = await Promise.all(
+      rolls.map(async (roll: any, index: number) => {
+        const resultText = roll.getResultText();
+        const resultClass = roll.getResultClass();
+
+        // Get color and text styling for this result
+        let borderColor = "#4b5563"; // default white
+        let textColor = "#9ca3af";
+
+        if (resultClass.includes("perfect")) {
+          borderColor = "#fbbf24";
+          textColor = "#fffacd";
+        } else if (resultClass.includes("ultimate-botch")) {
+          borderColor = "#4b5563";
+          textColor = "#fca5a5";
+        } else if (resultClass.includes("botch")) {
+          borderColor = "#991b1b";
+          textColor = "#fca5a5";
+        } else if (resultClass.includes("red")) {
+          borderColor = "#dc2626";
+          textColor = "#fca5a5";
+        } else if (resultClass.includes("yellow")) {
+          borderColor = "#eab308";
+          textColor = "#fcd34d";
+        } else if (resultClass.includes("green")) {
+          borderColor = "#22c55e";
+          textColor = "#86efac";
+        }
+
+        const metadata = roll.metadata || {};
+
+        let chartShiftText = "";
+        if (roll.chartShift !== 0) {
+          chartShiftText =
+            roll.chartShift > 0
+              ? `+${roll.chartShift} CS`
+              : `${roll.chartShift} CS`;
+        }
+
+        let karmaSpentText = "";
+        const totalKarmaSpent =
+          (metadata.preRollKarma || 0) + (metadata.postRollKarma || 0);
+        if (totalKarmaSpent > 0) {
+          const karmaDetails = [];
+          if (metadata.preRollKarma > 0) {
+            karmaDetails.push(
+              `${metadata.preRollKarma} karma for ${metadata.karmaColumnShifts || 0} CS`
+            );
+          }
+          if (metadata.postRollKarma > 0) {
+            karmaDetails.push(`${metadata.postRollKarma} karma to modify roll`);
+          }
+          karmaSpentText = `${totalKarmaSpent} (${karmaDetails.join(", ")})`;
+        }
+
+        const flavor = (roll.roll as any).flavor;
+
+        return await foundry.applications.handlebars.renderTemplate(
+          "/systems/faserip/templates/chat/roll-card.hbs",
+          {
+            attackIndex: index + 1,
+            penaltyText: "",
+            resultText,
+            resultClass,
+            borderColor,
+            textColor,
+            rankDisplay: formatRankDisplay(roll.rank),
+            rollTotal: roll.roll.total,
+            chartShiftText,
+            karmaSpent: karmaSpentText,
+            flavor
+          }
+        );
+      })
+    );
+
+    const rollCardsHtml = rollCards.join("");
+
+    // Try to extract a meaningful title from the rolls
+    let title = "Multiple Rolls";
+    const metadata = (rolls[0] as any).metadata;
+    if (metadata?.attributeName) {
+      // Extract the base attribute name (remove "Roll X:" prefix if present)
+      const baseName = metadata.attributeName.replace(/^Roll \d+: /, "");
+      // Check if all rolls have the same base attribute
+      const allSame = rolls.every((r: any) => {
+        const name = ((r as any).metadata?.attributeName || "").replace(
+          /^Roll \d+: /,
+          ""
+        );
+        return name === baseName;
+      });
+      if (allSame) {
+        title = baseName;
+      }
+    }
+
+    // Add global reason to title if provided
+    if (globalReason) {
+      title = `${title} - ${globalReason}`;
+    }
+
+    const content = `<div class="fsr-roll-card-combo">
+      <h3>${title}</h3>
+      ${rollCardsHtml}
+    </div>`;
+
     // Collect all rolls for the message
     const allRolls = rolls.map((r: any) => r.roll);
 

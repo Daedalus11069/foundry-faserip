@@ -182,7 +182,11 @@ export async function handleRollCommand(message: string): Promise<boolean> {
     return true;
   }
 
-  // Roll each rank
+  // Collect all rolls
+  const rolls: FaseripRoll[] = [];
+  // @ts-expect-error - game.user exists at runtime
+  const actor = game.user?.character as Actor | undefined;
+
   for (let i = 0; i < parsed.length; i++) {
     const { rank, chartShift, karmaShifts, resultShift, reason } = parsed[i];
     const shiftedRank = applyChartShift(rank, chartShift);
@@ -212,22 +216,32 @@ export async function handleRollCommand(message: string): Promise<boolean> {
       label = `${label} - ${reason}`;
     }
 
-    // Add global reason if provided
-    if (globalReason) {
-      label = `${label} - ${globalReason}`;
-    }
-
-    await FaseripRoll.rollAttribute(
+    // Roll with skipMessage to combine later, passing individual reason as flavor
+    const roll = await FaseripRoll.rollAttribute(
       label,
       rank,
       value,
       chartShift,
-      // @ts-expect-error - game.user exists at runtime
-      game.user?.character as Actor | undefined,
+      actor,
       undefined,
       undefined,
       karmaShifts,
-      resultShift
+      resultShift,
+      true, // skipMessage
+      0, // manualChartShift
+      reason || undefined // flavor (undefined if no individual reason)
+    );
+
+    rolls.push(roll);
+  }
+
+  // Create combined message for all rolls
+  if (rolls.length > 0) {
+    await FaseripRoll.createCombinedRollMessage(
+      rolls,
+      actor,
+      undefined,
+      globalReason ?? ""
     );
   }
 
