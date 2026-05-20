@@ -15,7 +15,8 @@
     },
     "Resources": {
       "health": "Health",
-      "karma": "Karma"
+      "karma": "Karma",
+      "mentalPoints": "Mental Points"
     },
     "Ranks": {
       "feeble": "Feeble (2)",
@@ -56,6 +57,10 @@
       "charmanApiKey": {
         "name": "Charman API Key",
         "hint": "Optional API key for authenticating with your Charman API. Leave empty if your API doesn't require authentication."
+      },
+      "mpEnabled": {
+        "name": "Enable Mental Points (MP) System",
+        "hint": "Enable the houserule Mental Points system. When enabled, characters gain MP equal to their RIP (Reasoning + Intuition + Psyche) attributes. Powers can then have MP costs."
       }
     },
     "Labels": {

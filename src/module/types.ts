@@ -30,6 +30,7 @@ export interface Power {
   category?: string;
   value: number;
   description?: string;
+  mpCost?: number; // Mental Points cost (houserule: MP system)
 }
 
 /**

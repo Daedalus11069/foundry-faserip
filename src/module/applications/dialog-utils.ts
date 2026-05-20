@@ -93,6 +93,7 @@ export async function showComboDialog(
 ): Promise<{
   comboCount: number;
   attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
+  manualChartShift?: number;
 } | null> {
   const result = await VueDialog.show(
     ComboDialog,
@@ -119,5 +120,6 @@ export async function showComboDialog(
   return result as {
     comboCount: number;
     attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
+    manualChartShift?: number;
   } | null;
 }

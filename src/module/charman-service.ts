@@ -502,6 +502,49 @@ export class CharmanService {
       return false;
     }
   }
+
+  /**
+   * Update character Mental Points in Charman (called when MP is spent)
+   */
+  async updateMP(
+    username: string,
+    characterName: string,
+    newMPValue: number
+  ): Promise<boolean> {
+    try {
+      const apiPath = this.config.apiPath || "/charman/api/foundry";
+      const url = `${this.config.baseUrl}${apiPath}/character/mentalpoints`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(this.config.apiKey && {
+            Authorization: `Bearer ${this.config.apiKey}`
+          })
+        },
+        body: JSON.stringify({
+          username,
+          callname: characterName,
+          mentalpoints: newMPValue
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to update Mental Points: ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+      return data.success;
+    } catch (error) {
+      console.error("Error updating Mental Points in Charman:", error);
+      // Don't show error notification to user - this is a background sync
+      return false;
+    }
+  }
 }
 
 /**

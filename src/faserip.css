@@ -75,7 +75,7 @@
         }
 
         .fsr-avatar {
-            @apply w-16 h-16 rounded-full border-2 border-red-500 object-cover;
+            @apply w-32 h-32 rounded-full border-2 border-red-500 object-cover;
         }
 
         .fsr-title {

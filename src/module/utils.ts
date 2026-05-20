@@ -49,6 +49,20 @@ export function calculateHealth(form: any): number {
 }
 
 /**
+ * Calculate mental points based on RIP attributes (Reasoning + Intuition + Psyche)
+ */
+export function calculateMentalPoints(form: any): number {
+  if (!form || !form.attributes) return 18; // Default for 3x typical (6)
+
+  const reasoning = form.attributes.reasoning?.value || 0;
+  const intuition = form.attributes.intuition?.value || 0;
+  const psyche = form.attributes.psyche?.value || 0;
+
+  // Mental points are the sum of RIP attributes
+  return reasoning + intuition + psyche;
+}
+
+/**
  * Convert string rank to Rank enum
  * Supports full names (e.g., "excellent"), internal format (e.g., "shift_x"),
  * and shorthand abbreviations (e.g., "ex", "x", "rm")

@@ -1,4 +1,11 @@
 import { Rank } from "../enums";
+import type {
+  CharmanData,
+  FormData,
+  PowerData,
+  TalentData,
+  ResourcesData
+} from "../types/actor-system";
 
 const { ArrayField, BooleanField, NumberField, SchemaField, StringField } =
   foundry.data.fields;
@@ -118,6 +125,18 @@ export class ActorDataModel extends TypeDataModel<
   // @ts-expect-error - Document.Any namespace issue
   Document.Any
 > {
+  // Explicit property declarations matching defineSchema() so TypeScript knows about them
+  declare currentFormId: string;
+  declare forms: FormData[];
+  declare resources: ResourcesData;
+  declare callname: string;
+  declare biography: string;
+  declare notes: string;
+  declare publicNotes: string;
+  declare gmNotes: string;
+  declare powers: PowerData[];
+  declare talents: TalentData[];
+  declare charman: CharmanData;
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
       // Current form (active form for characters with multiple forms)
@@ -129,7 +148,24 @@ export class ActorDataModel extends TypeDataModel<
       // Resources
       resources: new SchemaField({
         health: defineResourceSchema(),
-        karma: defineKarmaSchema()
+        karma: defineKarmaSchema(),
+        mentalPoints: new SchemaField(
+          {
+            value: new NumberField({
+              required: true,
+              integer: true,
+              min: 0,
+              initial: 0
+            }),
+            max: new NumberField({
+              required: true,
+              integer: true,
+              min: 0,
+              initial: 0
+            })
+          },
+          { required: false }
+        )
       }),
 
       // Character callname (displayed under the main name)
@@ -184,6 +220,8 @@ export class ActorDataModel extends TypeDataModel<
  * PC-specific data model
  */
 export class PcDataModel extends ActorDataModel {
+  declare popularity: number;
+
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
       ...super.defineSchema(),

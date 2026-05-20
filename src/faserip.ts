@@ -138,6 +138,22 @@ const initHandler = () => {
     }
   });
 
+  // House Rules: Mental Points (MP) system
+  game.settings.register("faserip", "mpEnabled", {
+    name: "FASERIP.Settings.mpEnabled.name",
+    hint: "FASERIP.Settings.mpEnabled.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: () => {
+      // Refresh all actors to recalculate resources
+      for (const actor of game.actors ?? []) {
+        actor.render();
+      }
+    }
+  });
+
   // Register the custom Actor document class
   // @ts-expect-error - TypeScript doesn't recognize custom Actor subclass
   CONFIG.Actor.documentClass = FaseripActor;

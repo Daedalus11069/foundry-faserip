@@ -1,11 +1,76 @@
 import type { Component, App } from "vue";
 import { createApp, reactive, h } from "vue";
 
+// TypeScript cannot resolve `foundry.applications.api.ApplicationV2` as a
+// constructor expression in `extends` (the value-space path doesn't fully
+// resolve), so we declare a typed shim and cast the runtime constructor to it.
+// The shim methods are never executed — Foundry's real implementations run.
+class _AppV2Shim {
+  get element(): HTMLElement {
+    throw Error("shim");
+  }
+  get options(): {
+    position?: Partial<{
+      height: number | "auto";
+      width: number | "auto";
+      top: number;
+      left: number;
+      scale: number;
+      zIndex: number;
+    }>;
+  } & Record<string, unknown> {
+    throw Error("shim");
+  }
+  setPosition(
+    _pos?: Partial<{
+      height: number | "auto";
+      width: number | "auto";
+      top: number;
+      left: number;
+      scale: number;
+      zIndex: number;
+    }>
+  ): void {
+    /* runtime */
+  }
+  render(_options?: boolean | Record<string, unknown>): Promise<this> {
+    throw Error("shim");
+  }
+  close(_options?: Record<string, unknown>): Promise<this> {
+    throw Error("shim");
+  }
+  protected _onRender(
+    _context: Record<string, unknown>,
+    _options: Record<string, unknown>
+  ): void | Promise<void> {
+    /* runtime */
+  }
+  protected _renderHTML(
+    _context: Record<string, unknown>,
+    _options: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    throw Error("shim");
+  }
+  protected _replaceHTML(
+    _result: Record<string, unknown>,
+    _content: HTMLElement,
+    _options: Record<string, unknown>
+  ): void {
+    /* runtime */
+  }
+  constructor(_options?: Record<string, unknown>) {}
+}
+const _AppV2 = (
+  foundry.applications as unknown as {
+    api: { ApplicationV2: typeof _AppV2Shim };
+  }
+).api.ApplicationV2;
+
 /**
  * A base class for creating Foundry ApplicationV2 dialogs with Vue components.
  * This provides proper integration with Foundry's dialog system while maintaining Vue reactivity.
  */
-export class VueDialog extends foundry.applications.api.ApplicationV2 {
+export class VueDialog extends _AppV2 {
   /** The Vue app instance */
   #instance: App | null = null;
 
@@ -13,13 +78,16 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
   protected component: Component;
 
   /** Props to pass to the Vue component */
-  #props: Record<string, any> = {};
+  #props: Record<string, unknown> = {};
+
+  /** Stored escape key handler for cleanup */
+  #escapeHandler: ((event: KeyboardEvent) => void) | null = null;
 
   /** Promise resolve function for returning values */
-  #resolve: ((value: any) => void) | null = null;
+  #resolve: ((value: unknown) => void) | null = null;
 
   /** Promise for waiting on dialog result */
-  #promise: Promise<any> | null = null;
+  #promise: Promise<unknown> | null = null;
 
   static DEFAULT_OPTIONS = {
     classes: ["fsr-dialog", "dialog-sheet"],
@@ -46,13 +114,12 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
 
   constructor(
     component: Component,
-    props: Record<string, any> = {},
-    options: Record<string, any> = {}
+    props: Record<string, unknown> = {},
+    options: Record<string, unknown> = {}
   ) {
-    // Ensure the dialog has no parent (renders at body level)
-    options.window = options.window || {};
-    if (!options.window.positioned) {
-      options.window.positioned = true;
+    options.window = (options.window as Record<string, unknown>) || {};
+    if (!(options.window as Record<string, unknown>).positioned) {
+      (options.window as Record<string, unknown>).positioned = true;
     }
 
     super(options);
@@ -71,14 +138,14 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
    * Render the application HTML
    */
   async _renderHTML(
-    _context: Record<string, any>,
-    options: Record<string, any>
-  ): Promise<Record<string, any>> {
-    const rendered: Record<string, any> = {};
+    _context: Record<string, unknown>,
+    options: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    const rendered: Record<string, unknown> = {};
 
     // Merge any new props provided during render
     if (options?.props) {
-      foundry.utils.mergeObject(this.#props, options.props, {
+      foundry.utils.mergeObject(this.#props, options.props as object, {
         inplace: true,
         insertKeys: true
       });
@@ -94,9 +161,9 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
    * Replace the HTML content in the application
    */
   _replaceHTML(
-    result: Record<string, string>,
-    content: Record<string, any>,
-    _options: Record<string, any>
+    result: Record<string, unknown>,
+    content: HTMLElement,
+    _options: Record<string, unknown>
   ): void {
     // Check if the Vue Instance exists, if not create it
     if (!this.#instance) {
@@ -111,7 +178,7 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
               {
                 "data-application-part": key
               },
-              [h(component, { ...this.#props, dialog: this })]
+              [h(component as Component, { ...this.#props, dialog: this })]
             )
           )
       });
@@ -139,8 +206,8 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
    * Called after the application is rendered
    */
   _onRender(
-    _context: Record<string, any>,
-    _options: Record<string, any>
+    _context: Record<string, unknown>,
+    _options: Record<string, unknown>
   ): void {
     super._onRender?.(_context, _options);
 
@@ -168,10 +235,7 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
       }
     };
 
-    // Store the handler so we can remove it later
-    (this.element as any)._escapeHandler = handleKeyDown;
-
-    // Add event listener to the window when dialog is focused
+    this.#escapeHandler = handleKeyDown;
     this.element.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keydown", handleKeyDown);
   }
@@ -179,7 +243,7 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
   /**
    * Submit a value and close the dialog
    */
-  submit(value: any): void {
+  submit(value: unknown): void {
     if (this.#resolve) {
       this.#resolve(value);
     }
@@ -189,7 +253,7 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
   /**
    * Wait for the dialog to be submitted or closed
    */
-  wait(): Promise<any> {
+  wait(): Promise<unknown> {
     if (!this.#promise) {
       this.#promise = new Promise(resolve => {
         this.#resolve = resolve;
@@ -201,7 +265,7 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
   /**
    * Clean up Vue app when dialog closes
    */
-  async close(options?: Record<string, any>): Promise<this> {
+  async close(options?: Record<string, unknown>): Promise<this> {
     // Resolve with null if not already resolved (e.g., user pressed Escape or X button)
     if (this.#resolve) {
       this.#resolve(null);
@@ -209,16 +273,10 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
     }
 
     // Remove escape key handler
-    if (this.element && (this.element as any)._escapeHandler) {
-      this.element.removeEventListener(
-        "keydown",
-        (this.element as any)._escapeHandler
-      );
-      window.removeEventListener(
-        "keydown",
-        (this.element as any)._escapeHandler
-      );
-      delete (this.element as any)._escapeHandler;
+    if (this.#escapeHandler) {
+      this.element?.removeEventListener("keydown", this.#escapeHandler);
+      window.removeEventListener("keydown", this.#escapeHandler);
+      this.#escapeHandler = null;
     }
 
     if (this.#instance) {
@@ -233,9 +291,9 @@ export class VueDialog extends foundry.applications.api.ApplicationV2 {
    */
   static async show(
     component: Component,
-    props: Record<string, any> = {},
-    options: Record<string, any> = {}
-  ): Promise<any> {
+    props: Record<string, unknown> = {},
+    options: Record<string, unknown> = {}
+  ): Promise<unknown> {
     const dialog = new VueDialog(component, props, options);
     await dialog.render(true);
     return dialog.wait();

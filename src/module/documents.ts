@@ -1,5 +1,5 @@
 import { ActorType } from "./enums";
-import { calculateHealth, getRankValue } from "./utils";
+import { calculateHealth, calculateMentalPoints, getRankValue } from "./utils";
 
 /**
  * Custom Actor document for FASERIP
@@ -109,6 +109,42 @@ export class FaseripActor extends Actor {
 
       // Clamp karma (no max, just ensure non-negative)
       system.resources.karma.value = Math.max(0, system.resources.karma.value);
+
+      // Handle Mental Points (houserule: mental points enabled)
+      const mpEnabled = game.settings.get("faserip", "mpEnabled") || false;
+
+      if (mpEnabled) {
+        // Initialize MP resources if not present
+        if (!system.resources.mentalPoints) {
+          system.resources.mentalPoints = { value: 0, max: 0 };
+        }
+
+        // Calculate max mental points from RIP attributes (Reasoning + Intuition + Psyche)
+        const calculatedMP = calculateMentalPoints(currentForm);
+        system.resources.mentalPoints.max = calculatedMP;
+
+        // If MP was never set or is 0, initialize it to max
+        if (
+          !system.resources.mentalPoints.value ||
+          system.resources.mentalPoints.value === 0
+        ) {
+          system.resources.mentalPoints.value = calculatedMP;
+        }
+
+        // Clamp MP
+        system.resources.mentalPoints.value = Math.max(
+          0,
+          Math.min(
+            system.resources.mentalPoints.value,
+            system.resources.mentalPoints.max
+          )
+        );
+      } else {
+        // Ensure MP resources don't exist if disabled
+        if (system.resources?.mentalPoints) {
+          delete system.resources.mentalPoints;
+        }
+      }
     }
   }
 

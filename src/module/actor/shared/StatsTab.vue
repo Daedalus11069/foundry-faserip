@@ -3,6 +3,7 @@ import { inject, computed, ref } from "vue";
 import { formatRankDisplay } from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
 import { stringToRank } from "../../utils";
+import { getCharmanService } from "../../charman-service";
 import {
   showTalentSelectionDialog,
   showComboDialog
@@ -10,7 +11,7 @@ import {
 import type { Talent, Power, Form } from "../../types";
 
 const reactiveActor = inject("reactiveActor") as any;
-const actor = inject("actor") as Actor;
+const actor = inject("actor") as Actor<"pc" | "npc">;
 
 const currentForm = computed<Form | undefined>(() => {
   const forms = reactiveActor.system.forms || [];
@@ -22,6 +23,11 @@ const currentForm = computed<Form | undefined>(() => {
 
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
 const powers = computed<Power[]>(() => reactiveActor.system.powers || []);
+
+// Check if MP (Mental Points) system is enabled
+const mpEnabled = computed(
+  () => game.settings.get("faserip", "mpEnabled") ?? false
+);
 
 // Damage/Healing
 const damageAmount = ref(0);
@@ -170,6 +176,18 @@ async function rollPower(power: any) {
   const rank = stringToRank(power.rank);
   const rankValue = currentForm.value.attributes.psyche.value; // Use psyche value as base
 
+  // Check MP cost if enabled
+  const mpCost = mpEnabled.value && power.mpCost ? power.mpCost : 0;
+  if (mpCost > 0) {
+    const currentMP = reactiveActor.system.resources?.mentalPoints?.value ?? 0;
+    if (currentMP < mpCost) {
+      ui.notifications?.error(
+        `Not enough Mental Points. Required: ${mpCost}, Available: ${currentMP}`
+      );
+      return;
+    }
+  }
+
   // Show talent selection dialog if talents are available
   let totalCS = 0;
   let talentNames: string[] = [];
@@ -193,6 +211,7 @@ async function rollPower(power: any) {
     }
   }
 
+  // Roll the power
   await FaseripRoll.rollAttribute(
     power.name,
     rank,
@@ -204,6 +223,42 @@ async function rollPower(power: any) {
     undefined,
     undefined
   );
+
+  // Deduct MP after successful roll
+  if (mpCost > 0) {
+    const currentMP = reactiveActor.system.resources.mentalPoints.value;
+    reactiveActor.system.resources.mentalPoints.value = Math.max(
+      0,
+      currentMP - mpCost
+    );
+
+    // Persist to actor
+    await actor.update({
+      system: {
+        resources: {
+          mentalPoints: {
+            value: reactiveActor.system.resources.mentalPoints!.value
+          }
+        }
+      }
+    });
+
+    // Sync MP with Charman if character is linked
+    const charmanData = actor.system.charman;
+    if (charmanData?.username && charmanData?.characterName) {
+      try {
+        const service = getCharmanService();
+        await service.updateMP(
+          charmanData.username,
+          charmanData.characterName,
+          reactiveActor.system.resources.mentalPoints.value
+        );
+      } catch (error) {
+        // Service not initialized or sync failed - ignore silently
+        console.warn("Could not sync MP to Charman:", error);
+      }
+    }
+  }
 }
 </script>
 
@@ -336,9 +391,14 @@ async function rollPower(power: any) {
           :key="power.id"
           @click="rollPower(power)"
           class="fsr-btn fsr-btn-secondary text-xs px-3 py-1"
-          :title="`${power.name} (${formatRankDisplay(power.rank)})`"
+          :title="`${power.name} (${formatRankDisplay(power.rank)})${
+            mpEnabled && power.mpCost ? ` - MP Cost: ${power.mpCost}` : ''
+          }`"
         >
           ⚡ {{ power.name }}
+          <span v-if="mpEnabled && power.mpCost" class="ml-1 text-yellow-400">
+            ({{ power.mpCost }} MP)
+          </span>
         </button>
       </div>
     </div>

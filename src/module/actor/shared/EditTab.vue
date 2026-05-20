@@ -11,6 +11,11 @@ const actor = inject("actor") as Actor;
 // @ts-expect-error - TypeScript doesn't recognize game.user
 const isGM = computed(() => game.user?.isGM ?? false);
 
+// Check if MP (Mental Points) system is enabled
+const mpEnabled = computed(
+  () => game.settings.get("faserip", "mpEnabled") ?? false
+);
+
 // Update rank and sync value immediately
 function updateRank(attrKey: string, newRank: string) {
   const currentForm = reactiveActor.system.forms?.find(
@@ -422,28 +427,56 @@ const ripAttributes = [
       </div>
 
       <!-- Resources Edit -->
-      <div class="mt-3 fsr-grid fsr-grid-2">
-        <div class="fsr-form-group">
-          <label class="fsr-form-label">Health</label>
-          <div class="flex gap-1">
-            <input
-              v-model.number="reactiveActor.system.resources.health.value"
-              type="number"
-              class="fsr-input basis-1/2"
-              min="0"
-              :max="reactiveActor.system.resources.health.max"
-            />
-            <input
-              v-model.number="reactiveActor.system.resources.health.max"
-              type="number"
-              class="fsr-input basis-1/2"
-              min="1"
-              placeholder="Max"
-            />
+      <div class="mt-3">
+        <!-- Header row for resource categories -->
+        <div :class="['grid gap-2', mpEnabled ? 'grid-cols-2' : 'grid-cols-1']">
+          <!-- Health Column -->
+          <div class="fsr-form-group">
+            <label class="fsr-form-label">Health</label>
+            <div class="flex gap-1">
+              <input
+                v-model.number="reactiveActor.system.resources.health.value"
+                type="number"
+                class="fsr-input basis-1/2"
+                min="0"
+                :max="reactiveActor.system.resources.health.max"
+              />
+              <input
+                v-model.number="reactiveActor.system.resources.health.max"
+                type="number"
+                class="fsr-input basis-1/2"
+                min="1"
+                placeholder="Max"
+              />
+            </div>
+          </div>
+
+          <!-- Mental Points Column (if enabled) -->
+          <div v-if="mpEnabled" class="fsr-form-group">
+            <label class="fsr-form-label">Mental Points</label>
+            <div class="flex gap-1">
+              <input
+                v-model.number="
+                  reactiveActor.system.resources.mentalPoints.value
+                "
+                type="number"
+                class="fsr-input basis-1/2"
+                min="0"
+                :max="reactiveActor.system.resources.mentalPoints.max"
+              />
+              <input
+                v-model.number="reactiveActor.system.resources.mentalPoints.max"
+                type="number"
+                class="fsr-input basis-1/2"
+                min="1"
+                placeholder="Max"
+              />
+            </div>
           </div>
         </div>
 
-        <div class="fsr-form-group">
+        <!-- Karma row (spans full width) -->
+        <div class="fsr-form-group mt-2">
           <label class="fsr-form-label">Karma</label>
           <input
             v-model.number="reactiveActor.system.resources.karma.value"

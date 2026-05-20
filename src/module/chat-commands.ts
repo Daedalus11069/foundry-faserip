@@ -286,9 +286,7 @@ function findActorByCallname(callname: string): FaseripActor | null {
   // If no user, fail
   if (!currentUser) return null;
 
-  // @ts-expect-error - game.actors exists at runtime
-  for (const actor of game.actors as any) {
-    // Check if this actor matches the callname
+  for (const actor of (game.actors ?? []) as Iterable<Actor<"pc" | "npc">>) {
     const actorCallname = actor.system?.charman?.characterName?.toLowerCase();
     const nameMatch =
       actorCallname === searchName || actor.name?.toLowerCase() === searchName;
@@ -300,7 +298,7 @@ function findActorByCallname(callname: string): FaseripActor | null {
     const isOwner = actor.testUserPermission(currentUser, "OWNER");
 
     if (isGM || isOwner) {
-      return actor as FaseripActor;
+      return actor as unknown as FaseripActor;
     }
   }
 

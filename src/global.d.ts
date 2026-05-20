@@ -9,8 +9,8 @@ declare global {
 
   interface DataModelConfig {
     Actor: {
-      pc: PcDataModel;
-      npc: NpcDataModel;
+      pc: typeof PcDataModel;
+      npc: typeof NpcDataModel;
     };
   }
 
@@ -83,6 +83,7 @@ declare global {
       [key: string]: any;
     };
     itempiles: any;
+    actors: Iterable<Actor> | null | undefined;
     packs: Map<string, any>;
     settings: {
       get(namespace: "faserip", key: keyof FaseripSettingConfig): any;

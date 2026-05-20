@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import type { VueDialog } from "@src/module/applications/vue-dialog";
+import type { VueDialog } from "../vue-dialog";
 import {
   Rank,
   RANK_VALUES,
