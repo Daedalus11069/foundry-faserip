@@ -160,7 +160,13 @@ export class CharmanService {
   ): Promise<string | null> {
     try {
       // Fetch the remote image
-      const response = await fetch(imageUrl);
+      const response = await fetch(imageUrl, {
+        headers: {
+          ...(this.config.apiKey && {
+            Authorization: `Bearer ${this.config.apiKey}`
+          })
+        }
+      });
       if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.statusText}`);
       }
