@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, computed, ref, watch } from "vue";
+import { inject, computed, ref, watch, watchEffect } from "vue";
 import { getCharmanService } from "../../charman-service";
 import { getRankValue } from "../../utils";
 import type { Form } from "../../types";
@@ -7,37 +7,101 @@ import type { Form } from "../../types";
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
 
-// Check if current user is a GM
 // @ts-expect-error - TypeScript doesn't recognize game.user
 const isGM = computed(() => game.user?.isGM ?? false);
-
-// Check if MP (Mental Points) system is enabled
 const mpEnabled = computed(
   () => game.settings.get("faserip", "mpEnabled") ?? false
 );
 
 const mp = computed(() => {
-  if (!mpEnabled.value) {
-    return { value: 0, max: 0 };
-  }
+  if (!mpEnabled.value) return { value: 0, max: 0 };
   if (!reactiveActor.system.resources.mentalPoints) {
-    // Initialize mentalPoints if it doesn't exist
     reactiveActor.system.resources.mentalPoints = { value: 0, max: 0 };
   }
   return reactiveActor.system.resources.mentalPoints;
 });
 
-// Update rank and sync value immediately
-function updateRank(attrKey: string, newRank: string) {
-  const currentForm = reactiveActor.system.forms?.find(
-    (f: Form) => f.id === reactiveActor.system.currentFormId
-  );
+// ── Form management ───────────────────────────────────────────────────────────
 
-  if (currentForm?.attributes[attrKey]) {
-    currentForm.attributes[attrKey].rank = newRank;
-    currentForm.attributes[attrKey].value = getRankValue(newRank);
+const forms = computed<Form[]>(() => reactiveActor.system.forms || []);
+
+// Local ref: which form is being edited (independent of the active combat form)
+const editFormId = ref("");
+
+// Keep editFormId pointing at a valid form
+watchEffect(() => {
+  const list = forms.value;
+  if (!editFormId.value || !list.find(f => f.id === editFormId.value)) {
+    editFormId.value = list[0]?.id ?? "";
+  }
+});
+
+const editForm = computed<Form | undefined>(
+  () => forms.value.find(f => f.id === editFormId.value) ?? forms.value[0]
+);
+
+function addForm() {
+  const newForm: Form = {
+    id: crypto.randomUUID(),
+    name: "New-Form",
+    isPrimary: false,
+    attributes: {
+      fighting:  { rank: "typical", value: 6 },
+      agility:   { rank: "typical", value: 6 },
+      strength:  { rank: "typical", value: 6 },
+      endurance: { rank: "typical", value: 6 },
+      reasoning: { rank: "typical", value: 6 },
+      intuition: { rank: "typical", value: 6 },
+      psyche:    { rank: "typical", value: 6 }
+    }
+  };
+  reactiveActor.system.forms.push(newForm);
+  editFormId.value = newForm.id;
+}
+
+async function deleteForm(formId: string) {
+  const list: Form[] = reactiveActor.system.forms;
+  if (list.length <= 1) {
+    ui.notifications?.warn("Cannot delete the last form.");
+    return;
+  }
+  const form = list.find(f => f.id === formId);
+  // @ts-expect-error - DialogV2 path not fully typed
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Delete form <strong>${form?.name ?? formId}</strong>? This cannot be undone.</p>`,
+    modal: true
+  });
+  if (!confirmed) return;
+  const idx = list.findIndex(f => f.id === formId);
+  if (idx !== -1) list.splice(idx, 1);
+  if (editFormId.value === formId) editFormId.value = list[0]?.id ?? "";
+  if (reactiveActor.system.currentFormId === formId) {
+    reactiveActor.system.currentFormId = list[0]?.id ?? "";
   }
 }
+
+function setPrimary(formId: string) {
+  for (const f of reactiveActor.system.forms) {
+    f.isPrimary = f.id === formId;
+  }
+}
+
+function sanitizeFormName(form: Form) {
+  // Form names are used in chat commands (/callname/formname) so spaces break parsing
+  form.name = form.name.trim().replace(/\s+/g, "-") || "unnamed";
+}
+
+// ── Rank editing ──────────────────────────────────────────────────────────────
+
+function updateRank(attrKey: string, newRank: string) {
+  const form = editForm.value;
+  if (form?.attributes[attrKey]) {
+    form.attributes[attrKey].rank = newRank;
+    form.attributes[attrKey].value = getRankValue(newRank);
+  }
+}
+
+// ── Charman integration ───────────────────────────────────────────────────────
 
 const showImportDialog = ref(false);
 const importUsername = ref("");
@@ -187,31 +251,6 @@ function cancelEditingLink() {
   editingLink.value = false;
 }
 
-const currentForm = computed(() => {
-  const forms = reactiveActor.system.forms || [];
-  if (forms.length === 0) {
-    // initialize new form if none exist
-    const newForm = {
-      id: crypto.randomUUID(),
-      name: "Default Form",
-      attributes: {
-        fighting: { rank: "typical", value: 0 },
-        agility: { rank: "typical", value: 0 },
-        strength: { rank: "typical", value: 0 },
-        endurance: { rank: "typical", value: 0 },
-        reasoning: { rank: "typical", value: 0 },
-        intuition: { rank: "typical", value: 0 },
-        psyche: { rank: "typical", value: 0 }
-      }
-    };
-    forms.push(newForm);
-  }
-  return (
-    forms.find((f: any) => f.id === reactiveActor.system.currentFormId) ||
-    forms[0]
-  );
-});
-
 const faseAttributes = [
   { key: "fighting", label: "Fighting", icon: "⚔️" },
   { key: "agility", label: "Agility", icon: "🏃" },
@@ -228,6 +267,18 @@ const ripAttributes = [
 
 <template>
   <div>
+    <!-- Call Name -->
+    <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+      <h3 class="text-sm font-bold text-yellow-400 mb-2">Call Name</h3>
+      <input
+        v-model="reactiveActor.system.callname"
+        type="text"
+        class="fsr-input"
+        placeholder="e.g. Spider-Man"
+      />
+      <p class="text-xs text-gray-500 mt-1">Used in chat commands: <code>/cr &lt;callname&gt; ...</code></p>
+    </div>
+
     <!-- Charman Link Section -->
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
       <h3 class="text-sm font-bold text-blue-400 mb-2">Charman Integration</h3>
@@ -359,7 +410,64 @@ const ripAttributes = [
       </div>
     </div>
 
-    <div v-if="currentForm">
+    <!-- Form Manager -->
+    <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="text-sm font-bold text-yellow-400">Forms</h3>
+        <button @click="addForm" class="fsr-btn fsr-btn-primary fsr-btn-sm">
+          + Add Form
+        </button>
+      </div>
+      <div class="space-y-1">
+        <div
+          v-for="form in forms"
+          :key="form.id"
+          :class="[
+            'flex items-center gap-2 p-1 rounded cursor-pointer transition-colors',
+            editFormId === form.id
+              ? 'bg-yellow-900/40 border border-yellow-600'
+              : 'hover:bg-gray-700 border border-transparent'
+          ]"
+          @click="editFormId = form.id"
+        >
+          <input
+            v-model="form.name"
+            type="text"
+            class="fsr-input flex-1 text-sm h-7 py-0"
+            placeholder="Form name"
+            @click.stop
+            @change="sanitizeFormName(form)"
+          />
+          <button
+            v-if="!form.isPrimary"
+            @click.stop="setPrimary(form.id)"
+            class="fsr-btn fsr-btn-sm bg-gray-600 hover:bg-yellow-800 text-white text-xs px-2"
+            title="Set as primary form"
+          >
+            ☆
+          </button>
+          <span
+            v-else
+            class="text-yellow-400 text-xs px-2 select-none"
+            title="Primary form"
+            >★</span
+          >
+          <button
+            v-if="forms.length > 1"
+            @click.stop="deleteForm(form.id)"
+            class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white text-xs px-2"
+            title="Delete form"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+      <div v-if="editForm" class="mt-2 text-xs text-gray-500">
+        Editing: <span class="text-yellow-300">{{ editForm.name }}</span>
+      </div>
+    </div>
+
+    <div v-if="editForm">
       <!-- PHYSICAL Group -->
       <div class="mb-3">
         <h3
@@ -376,7 +484,7 @@ const ripAttributes = [
             <div class="fsr-form-group">
               <label class="text-xs text-gray-400">Rank</label>
               <select
-                :value="currentForm.attributes[attr.key].rank"
+                :value="editForm.attributes[attr.key].rank"
                 @change="
                   e =>
                     updateRank(attr.key, (e.target as HTMLSelectElement).value)
@@ -423,7 +531,7 @@ const ripAttributes = [
             <div class="fsr-form-group">
               <label class="text-xs text-gray-400">Rank</label>
               <select
-                :value="currentForm.attributes[attr.key].rank"
+                :value="editForm.attributes[attr.key].rank"
                 @change="
                   e =>
                     updateRank(attr.key, (e.target as HTMLSelectElement).value)

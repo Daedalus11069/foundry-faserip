@@ -147,7 +147,21 @@ const initHandler = () => {
     type: Boolean,
     default: false,
     onChange: () => {
-      // Refresh all actors to recalculate resources
+      for (const actor of game.actors ?? []) {
+        actor.render();
+      }
+    }
+  });
+
+  // House Rules: Armor / Equipment system
+  game.settings.register("faserip", "armorEnabled", {
+    name: "FASERIP.Settings.armorEnabled.name",
+    hint: "FASERIP.Settings.armorEnabled.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: () => {
       for (const actor of game.actors ?? []) {
         actor.render();
       }
@@ -213,6 +227,17 @@ const initHandler = () => {
 
   // Register chat commands
   registerChatCommands();
+
+  // Hook: Ensure PC actors default to linked tokens
+  Hooks.on(
+    "preCreateActor",
+    (document: Actor, _data: any, _options: any, _userId: string) => {
+      if (document.type === ActorType.Pc) {
+        // @ts-expect-error - TypeScript doesn't recognize the prototypeToken property on Actor
+        document.updateSource({ "prototypeToken.actorLink": true });
+      }
+    }
+  );
 
   // Hook: Ensure tokens have proper bar configuration when created
   Hooks.on(

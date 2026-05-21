@@ -287,9 +287,12 @@ function findActorByCallname(callname: string): FaseripActor | null {
   if (!currentUser) return null;
 
   for (const actor of (game.actors ?? []) as Iterable<Actor<"pc" | "npc">>) {
-    const actorCallname = actor.system?.charman?.characterName?.toLowerCase();
+    const charmanName = actor.system?.charman?.characterName?.toLowerCase();
+    const standaloneName = (actor.system as any)?.callname?.toLowerCase();
     const nameMatch =
-      actorCallname === searchName || actor.name?.toLowerCase() === searchName;
+      charmanName === searchName ||
+      standaloneName === searchName ||
+      actor.name?.toLowerCase() === searchName;
 
     if (!nameMatch) continue;
 
@@ -408,14 +411,16 @@ function parseStatExpression(
     const expandedStat = STAT_ABBREV[statName] || statName;
 
     if (attributes[expandedStat]) {
-      // Find the talent
+      // Find the talent — must apply to the active form
       // @ts-expect-error - talents exists on PC/NPC data model
       const talents = actor.system.talents || [];
+      const activeFormId = form?.id;
       const talent = talents.find(
         (t: any) =>
-          t.name.toLowerCase().replace(/\s+/g, "-") === talentName ||
-          t.name.toLowerCase().replace(/\s+/g, "") ===
-            talentName.replace(/-/g, "")
+          (t.name.toLowerCase().replace(/\s+/g, "-") === talentName ||
+            t.name.toLowerCase().replace(/\s+/g, "") ===
+              talentName.replace(/-/g, "")) &&
+          (!t.formIds?.length || t.formIds.includes(activeFormId))
       );
 
       if (talent) {
@@ -431,13 +436,15 @@ function parseStatExpression(
     }
   }
 
-  // Otherwise, treat as power name
+  // Otherwise, treat as power name — must apply to the active form
   // @ts-expect-error - powers exists on PC/NPC data model
   const powers = actor.system.powers || [];
+  const activeFormId = form?.id;
   const power = powers.find(
     (p: any) =>
-      p.name.toLowerCase().replace(/\s+/g, "-") === expr ||
-      p.name.toLowerCase().replace(/\s+/g, "") === expr.replace(/-/g, "")
+      (p.name.toLowerCase().replace(/\s+/g, "-") === expr ||
+        p.name.toLowerCase().replace(/\s+/g, "") === expr.replace(/-/g, "")) &&
+      (!p.formIds?.length || p.formIds.includes(activeFormId))
   );
 
   if (power) {
@@ -502,6 +509,8 @@ export async function handleCharacterRollCommand(
     targetForm = forms.find(
       (f: any) => f.name?.toLowerCase() === formName.toLowerCase()
     );
+
+    console.log(forms, formName, targetForm);
 
     if (!targetForm) {
       ui.notifications?.error(`Form not found: ${formName}`);

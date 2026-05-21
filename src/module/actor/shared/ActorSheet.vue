@@ -1,24 +1,33 @@
 <script setup lang="ts">
-import { inject, ref, computed } from "vue";
+import { inject, ref, computed, watch } from "vue";
 import StatsTab from "./StatsTab.vue";
 import EditTab from "./EditTab.vue";
 import PowersTab from "./PowersTab.vue";
 import TalentsTab from "./TalentsTab.vue";
 import BiographyTab from "./BiographyTab.vue";
+import ArmorTab from "./ArmorTab.vue";
 
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
 const sheet = inject("sheet") as any;
 
-const activeTab = ref("edit");
+const activeTab = ref<string>((sheet as any)._activeTab ?? "stats");
+watch(activeTab, tab => {
+  (sheet as any)._activeTab = tab;
+});
 
-const tabs = [
+const armorEnabled = computed(
+  () => game.settings.get("faserip", "armorEnabled") ?? false
+);
+
+const tabs = computed(() => [
   { id: "stats", label: "Stats" },
   { id: "powers", label: "Powers" },
   { id: "talents", label: "Talents" },
+  ...(armorEnabled.value ? [{ id: "armor", label: "Armor" }] : []),
   { id: "biography", label: "Biography" },
   { id: "edit", label: "Edit" }
-];
+]);
 
 const currentForm = computed(() => {
   const forms = reactiveActor.system.forms || [];
@@ -151,6 +160,7 @@ function openImagePicker() {
       <StatsTab v-if="activeTab === 'stats'" />
       <PowersTab v-if="activeTab === 'powers'" />
       <TalentsTab v-if="activeTab === 'talents'" />
+      <ArmorTab v-if="activeTab === 'armor'" />
       <BiographyTab v-if="activeTab === 'biography'" />
       <EditTab v-if="activeTab === 'edit'" />
     </div>

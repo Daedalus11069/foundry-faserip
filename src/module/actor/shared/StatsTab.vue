@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, computed, ref } from "vue";
+import { inject, computed, ref, watch } from "vue";
 import { formatRankDisplay } from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
 import { stringToRank } from "../../utils";
@@ -13,21 +13,65 @@ import type { Talent, Power, Form } from "../../types";
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor<"pc" | "npc">;
 
-const currentForm = computed<Form | undefined>(() => {
-  const forms = reactiveActor.system.forms || [];
-  return (
-    forms.find((f: Form) => f.id === reactiveActor.system.currentFormId) ||
-    forms[0]
-  );
+const forms = computed<Form[]>(() => reactiveActor.system.forms || []);
+
+// Local ref: which form is being viewed/rolled (independent of active combat form)
+const viewFormId = ref("");
+
+// Keep viewFormId synced to the active form when it changes externally
+watch(
+  () => reactiveActor.system.currentFormId,
+  id => {
+    viewFormId.value = id || forms.value[0]?.id || "";
+  },
+  { immediate: true }
+);
+
+// Also fall back if the viewed form gets deleted
+watch(forms, list => {
+  if (!list.find(f => f.id === viewFormId.value)) {
+    viewFormId.value = list[0]?.id ?? "";
+  }
 });
 
+const currentForm = computed<Form | undefined>(
+  () => forms.value.find(f => f.id === viewFormId.value) ?? forms.value[0]
+);
+
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
-const powers = computed<Power[]>(() => reactiveActor.system.powers || []);
+const powers = computed<Power[]>(() =>
+  (reactiveActor.system.powers || []).filter(
+    (p: Power) => !p.formIds?.length || p.formIds.includes(viewFormId.value)
+  )
+);
 
 // Check if MP (Mental Points) system is enabled
 const mpEnabled = computed(
   () => game.settings.get("faserip", "mpEnabled") ?? false
 );
+
+const armorEnabled = computed(
+  () => game.settings.get("faserip", "armorEnabled") ?? false
+);
+
+const equippedArmor = computed(() => {
+  if (!armorEnabled.value) return null;
+  return (
+    (reactiveActor.system.armors || []).find((a: any) => a.equipped) ?? null
+  );
+});
+
+// Body Armor power — always active regardless of the armor setting
+const bodyArmorPower = computed(() => {
+  const activeFormId = reactiveActor.system.currentFormId;
+  return (
+    (reactiveActor.system.powers || []).find(
+      (p: any) =>
+        p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+        (!p.formIds?.length || p.formIds.includes(activeFormId))
+    ) ?? null
+  );
+});
 
 // Damage/Healing
 const damageAmount = ref(0);
@@ -35,11 +79,38 @@ const damageAmount = ref(0);
 async function applyDamage() {
   if (damageAmount.value === 0) return;
 
-  const health = reactiveActor.system.resources.health;
-  const newValue = Math.max(0, health.value - damageAmount.value);
+  let incoming = damageAmount.value;
+  const soakSources: string[] = [];
 
-  // Update reactive actor (base sheet class handles syncing to Foundry actor)
-  reactiveActor.system.resources.health.value = newValue;
+  // Body Armor power soaks first (always active)
+  if (bodyArmorPower.value) {
+    const powerSoak = Math.min(incoming, bodyArmorPower.value.value);
+    if (powerSoak > 0) {
+      soakSources.push(`${bodyArmorPower.value.name} –${powerSoak}`);
+      incoming = Math.max(0, incoming - powerSoak);
+    }
+  }
+
+  // Equipped armor soaks remainder (house rule setting)
+  if (equippedArmor.value && incoming > 0) {
+    const armorSoak = Math.min(incoming, equippedArmor.value.value);
+    if (armorSoak > 0) {
+      soakSources.push(`${equippedArmor.value.name} –${armorSoak}`);
+      incoming = Math.max(0, incoming - armorSoak);
+    }
+  }
+
+  const health = reactiveActor.system.resources.health;
+  reactiveActor.system.resources.health.value = Math.max(
+    0,
+    health.value - incoming
+  );
+
+  if (soakSources.length > 0) {
+    ui.notifications?.info(
+      `Absorbed: ${soakSources.join(", ")}. ${incoming} damage applied.`
+    );
+  }
 
   damageAmount.value = 0;
 }
@@ -79,7 +150,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
   const rank = stringToRank(attr.rank);
 
   // Show talent selection dialog if talents are available and not skipped
-  let totalCS = attr.bonus || 0;
+  let totalCS = 0;
   let talentNames: string[] = [];
 
   if (!skipTalents && talents.value.length > 0) {
@@ -101,61 +172,36 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
     }
   }
 
-  // Check if this is an attack stat (Fighting or Agility)
-  const isAttackStat = attrKey === "fighting" || attrKey === "agility";
+  // All stats go through the combo/karma dialog
+  const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
 
-  if (isAttackStat) {
-    // Get available karma
-    const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+  const comboResult = await showComboDialog(
+    attrLabel,
+    rank,
+    availableKarma,
+    talentNames,
+    totalCS
+  );
 
-    // Prompt for combo attack with karma options
-    const comboResult = await showComboDialog(
+  if (comboResult === null) {
+    return;
+  }
+
+  if (comboResult.comboCount > 1) {
+    await FaseripRoll.rollComboAttack(
       attrLabel,
       rank,
-      availableKarma,
+      attr.value,
+      totalCS,
+      comboResult.comboCount,
+      actor,
       talentNames,
-      totalCS - (attr.bonus || 0)
+      undefined,
+      comboResult.attackKarmaSettings,
+      comboResult.manualChartShift ?? 0
     );
-
-    if (comboResult === null) {
-      // User cancelled
-      return;
-    }
-
-    if (comboResult.comboCount > 1) {
-      // Execute combo attack with karma settings
-      await FaseripRoll.rollComboAttack(
-        attrLabel,
-        rank,
-        attr.value,
-        totalCS,
-        comboResult.comboCount,
-        actor,
-        talentNames,
-        undefined,
-        comboResult.attackKarmaSettings,
-        comboResult.manualChartShift ?? 0
-      );
-    } else {
-      // Single attack - use karma settings from first attack
-      // Since combo dialog was shown, always pass numbers (even 0) to prevent additional karma dialogs
-      const firstAttackKarma = comboResult.attackKarmaSettings[0];
-      await FaseripRoll.rollAttribute(
-        attrLabel,
-        rank,
-        attr.value,
-        totalCS,
-        actor,
-        talentNames,
-        undefined,
-        firstAttackKarma?.columnShifts ?? 0,
-        firstAttackKarma?.resultShift ?? 0,
-        false,
-        comboResult.manualChartShift ?? 0
-      );
-    }
   } else {
-    // Non-attack stat - regular roll
+    const firstAttackKarma = comboResult.attackKarmaSettings[0];
     await FaseripRoll.rollAttribute(
       attrLabel,
       rank,
@@ -164,8 +210,10 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       actor,
       talentNames,
       undefined,
-      undefined,
-      undefined
+      firstAttackKarma?.columnShifts ?? 0,
+      firstAttackKarma?.resultShift ?? 0,
+      false,
+      comboResult.manualChartShift ?? 0
     );
   }
 }
@@ -174,7 +222,7 @@ async function rollPower(power: any) {
   if (!currentForm.value) return;
 
   const rank = stringToRank(power.rank);
-  const rankValue = currentForm.value.attributes.psyche.value; // Use psyche value as base
+  const rankValue = power.value || 6;
 
   // Check MP cost if enabled
   const mpCost = mpEnabled.value && power.mpCost ? power.mpCost : 0;
@@ -188,41 +236,71 @@ async function rollPower(power: any) {
     }
   }
 
-  // Show talent selection dialog if talents are available
   let totalCS = 0;
   let talentNames: string[] = [];
 
-  if (talents.value.length > 0) {
-    const selectedTalents = await showTalentSelectionDialog(
-      talents.value,
-      power.name
-    );
+  if (!power.skipDialogs) {
+    // Talent selection
+    if (talents.value.length > 0) {
+      const selectedTalents = await showTalentSelectionDialog(
+        talents.value,
+        power.name
+      );
 
-    // User cancelled
-    if (selectedTalents === null) {
-      return;
-    }
+      if (selectedTalents === null) {
+        return;
+      }
 
-    // Calculate total CS from selected talents
-    if (selectedTalents.length > 0) {
-      talentNames = selectedTalents.map(t => t.name);
-      const talentCS = selectedTalents.reduce((sum, t) => sum + t.bonus, 0);
-      totalCS += talentCS;
+      if (selectedTalents.length > 0) {
+        talentNames = selectedTalents.map(t => t.name);
+        const talentCS = selectedTalents.reduce((sum, t) => sum + t.bonus, 0);
+        totalCS += talentCS;
+      }
     }
   }
+  const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
 
-  // Roll the power
-  await FaseripRoll.rollAttribute(
+  const comboResult = await showComboDialog(
     power.name,
     rank,
-    rankValue,
-    totalCS,
-    actor,
+    availableKarma,
     talentNames,
-    undefined,
-    undefined,
-    undefined
+    totalCS
   );
+
+  if (comboResult === null) {
+    return;
+  }
+
+  if (comboResult.comboCount > 1) {
+    await FaseripRoll.rollComboAttack(
+      power.name,
+      rank,
+      rankValue,
+      totalCS,
+      comboResult.comboCount,
+      actor,
+      talentNames,
+      undefined,
+      comboResult.attackKarmaSettings,
+      comboResult.manualChartShift ?? 0
+    );
+  } else {
+    const firstAttackKarma = comboResult.attackKarmaSettings[0];
+    await FaseripRoll.rollAttribute(
+      power.name,
+      rank,
+      rankValue,
+      totalCS,
+      actor,
+      talentNames,
+      undefined,
+      firstAttackKarma?.columnShifts ?? 0,
+      firstAttackKarma?.resultShift ?? 0,
+      false,
+      comboResult.manualChartShift ?? 0
+    );
+  }
 
   // Deduct MP after successful roll
   if (mpCost > 0) {
@@ -264,11 +342,45 @@ async function rollPower(power: any) {
 
 <template>
   <div v-if="currentForm">
+    <!-- Form View Selector (only shown when multiple forms exist) -->
+    <div v-if="forms.length > 1" class="mb-3 flex gap-1 flex-wrap">
+      <button
+        v-for="form in forms"
+        :key="form.id"
+        @click="viewFormId = form.id"
+        :class="[
+          'fsr-btn fsr-btn-sm text-xs px-3 py-1',
+          viewFormId === form.id
+            ? 'fsr-btn-primary'
+            : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+        ]"
+      >
+        <span v-if="form.isPrimary" class="mr-1 text-yellow-400">★</span
+        >{{ form.name }}
+      </button>
+    </div>
+
     <!-- Damage/Healing Section -->
     <div class="mb-4 p-3 bg-gray-800 rounded border border-gray-700">
       <h3 class="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">
         Health Management
       </h3>
+      <!-- Equipped armor / body armor power indicator -->
+      <div
+        v-if="bodyArmorPower || equippedArmor"
+        class="mb-2 flex flex-wrap gap-3 text-xs text-green-400"
+      >
+        <span v-if="bodyArmorPower" class="flex items-center gap-1">
+          🦾 <span>{{ bodyArmorPower.name }}</span>
+          <span class="fsr-rank-badge">{{ bodyArmorPower.rank }}</span>
+          <span>absorbs {{ bodyArmorPower.value }}</span>
+        </span>
+        <span v-if="equippedArmor" class="flex items-center gap-1">
+          🛡️ <span>{{ equippedArmor.name }}</span>
+          <span class="fsr-rank-badge">{{ equippedArmor.rank }}</span>
+          <span>absorbs {{ equippedArmor.value }}</span>
+        </span>
+      </div>
       <div class="flex gap-2 items-center">
         <input
           type="number"
@@ -316,16 +428,6 @@ async function rollPower(power: any) {
             </div>
             <div class="fsr-stat-value">
               {{ currentForm.attributes[attr.key].value }}
-              <span
-                v-if="
-                  currentForm.attributes[attr.key].bonus &&
-                  currentForm.attributes[attr.key].bonus !== 0
-                "
-                class="text-xs"
-              >
-                {{ currentForm.attributes[attr.key].bonus! >= 0 ? "+" : ""
-                }}{{ currentForm.attributes[attr.key].bonus }}
-              </span>
             </div>
           </div>
 
@@ -355,16 +457,6 @@ async function rollPower(power: any) {
             </div>
             <div class="fsr-stat-value">
               {{ currentForm.attributes[attr.key].value }}
-              <span
-                v-if="
-                  currentForm.attributes[attr.key].bonus &&
-                  currentForm.attributes[attr.key].bonus !== 0
-                "
-                class="text-xs"
-              >
-                {{ currentForm.attributes[attr.key].bonus! >= 0 ? "+" : ""
-                }}{{ currentForm.attributes[attr.key].bonus }}
-              </span>
             </div>
           </div>
 

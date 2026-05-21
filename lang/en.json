@@ -61,6 +61,10 @@
       "mpEnabled": {
         "name": "Enable Mental Points (MP) System",
         "hint": "Enable the houserule Mental Points system. When enabled, characters gain MP equal to their RIP (Reasoning + Intuition + Psyche) attributes. Powers can then have MP costs."
+      },
+      "armorEnabled": {
+        "name": "Enable Armor / Equipment System",
+        "hint": "Enable the houserule Armor system. When enabled, an Armor tab appears on each character sheet where armor of a given rank can be equipped. Equipped armor reduces incoming physical damage."
       }
     },
     "Labels": {

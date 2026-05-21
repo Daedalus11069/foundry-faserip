@@ -66,6 +66,25 @@ export function defineKarmaSchema() {
 }
 
 /**
+ * Schema for an armor item
+ */
+export function defineArmorSchema() {
+  return new SchemaField({
+    id: new StringField({ required: true }),
+    name: new StringField({ required: true, initial: "Armor" }),
+    rank: new StringField({ required: true, initial: Rank.Typical }),
+    value: new NumberField({
+      required: true,
+      integer: true,
+      min: 0,
+      initial: 6
+    }),
+    equipped: new BooleanField({ required: true, initial: false }),
+    description: new StringField({ required: false, initial: "" })
+  });
+}
+
+/**
  * Schema for a character form (alternate identities/forms)
  */
 export function defineFormSchema() {
@@ -94,7 +113,23 @@ export function definePowerRefSchema() {
     name: new StringField({ required: true }),
     rank: new StringField({ required: true }),
     category: new StringField({ required: true }),
-    description: new StringField({ required: false, initial: "" })
+    value: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 6
+    }),
+    mpCost: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 0
+    }),
+    description: new StringField({ required: false, initial: "" }),
+    formIds: new ArrayField(new StringField(), {
+      required: false,
+      initial: () => []
+    })
   });
 }
 
@@ -113,7 +148,11 @@ export function defineTalentRefSchema() {
       // +1 = +1CS (shift result one column right on Universal Table)
       // -1 = -1CS (shift result one column left on Universal Table)
     }),
-    description: new StringField({ required: false, initial: "" })
+    description: new StringField({ required: false, initial: "" }),
+    formIds: new ArrayField(new StringField(), {
+      required: false,
+      initial: () => []
+    })
   });
 }
 
@@ -186,6 +225,12 @@ export class ActorDataModel extends TypeDataModel<
 
       // Talents (stored as references)
       talents: new ArrayField(defineTalentRefSchema()),
+
+      // Armor items (house rule: armorEnabled setting)
+      armors: new ArrayField(defineArmorSchema(), {
+        required: false,
+        initial: () => []
+      }),
 
       // Charman integration
       charman: new SchemaField({

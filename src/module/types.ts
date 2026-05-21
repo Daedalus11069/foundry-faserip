@@ -10,6 +10,7 @@ export interface Talent {
   name: string;
   bonus: number;
   description?: string;
+  formIds?: string[]; // Form IDs this talent applies to; empty = all forms
 }
 
 /**
@@ -31,6 +32,8 @@ export interface Power {
   value: number;
   description?: string;
   mpCost?: number; // Mental Points cost (houserule: MP system)
+  formIds?: string[]; // Form IDs this power applies to; empty = all forms
+  skipDialogs?: boolean; // Roll directly without talent/combo dialogs
 }
 
 /**
@@ -39,7 +42,18 @@ export interface Power {
 export interface AttributeData {
   rank: string;
   value: number;
-  bonus?: number;
+}
+
+/**
+ * Represents a piece of armor that can be equipped
+ */
+export interface ArmorItem {
+  id: string;
+  name: string;
+  rank: string; // FASERIP rank string
+  value: number; // Numeric rank value — used for damage reduction
+  equipped: boolean;
+  description?: string;
 }
 
 /**

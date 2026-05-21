@@ -1,20 +1,23 @@
 {
-  "folders": [
-	{
-		"path": "."
-	},
-	{
-		"path": "../foundry-dimensionalwar-system"
-	},
-	{
-		"path": "../../../new_earth/ext/newearth/charman"
-	},
-	{
-		"path": "../../../pico-bot"
-	},
-	{
-		"path": "../foundry-rifts-palladium"
-	}
-],
-  "settings": {}
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../foundry-dimensionalwar-system"
+		},
+		{
+			"path": "../../../new_earth/ext/newearth/charman"
+		},
+		{
+			"path": "../../../pico-bot"
+		},
+		{
+			"path": "../foundry-rifts-palladium"
+		},
+		{
+			"path": "../../../new_earth/ext/daedalus11069/laracontainer"
+		}
+	],
+	"settings": {}
 }

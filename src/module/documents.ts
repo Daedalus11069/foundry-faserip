@@ -47,13 +47,13 @@ export class FaseripActor extends Actor {
           name: "Base Form",
           isPrimary: true,
           attributes: {
-            fighting: { rank: "typical", value: 6, bonus: 0 },
-            agility: { rank: "typical", value: 6, bonus: 0 },
-            strength: { rank: "typical", value: 6, bonus: 0 },
-            endurance: { rank: "typical", value: 6, bonus: 0 },
-            reasoning: { rank: "typical", value: 6, bonus: 0 },
-            intuition: { rank: "typical", value: 6, bonus: 0 },
-            psyche: { rank: "typical", value: 6, bonus: 0 }
+            fighting: { rank: "typical", value: 6 },
+            agility: { rank: "typical", value: 6 },
+            strength: { rank: "typical", value: 6 },
+            endurance: { rank: "typical", value: 6 },
+            reasoning: { rank: "typical", value: 6 },
+            intuition: { rank: "typical", value: 6 },
+            psyche: { rank: "typical", value: 6 }
           }
         }
       ];
@@ -64,21 +64,6 @@ export class FaseripActor extends Actor {
     if (!system.currentFormId && system.forms.length > 0) {
       const primaryForm = system.forms.find((f: any) => f.isPrimary);
       system.currentFormId = primaryForm ? primaryForm.id : system.forms[0].id;
-    }
-
-    // Initialize bonus field for all attributes (but don't override values)
-    if (system.forms) {
-      for (const form of system.forms) {
-        if (form.attributes) {
-          for (const attrKey of Object.keys(form.attributes)) {
-            const attr = form.attributes[attrKey];
-            if (attr && attr.bonus === undefined) {
-              // Ensure bonus field exists
-              attr.bonus = 0;
-            }
-          }
-        }
-      }
     }
 
     // Get current form
