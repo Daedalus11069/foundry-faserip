@@ -11,9 +11,11 @@ const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
 const sheet = inject("sheet") as any;
 
-const activeTab = ref<string>((sheet as any)._activeTab ?? "stats");
+const activeTab = ref<string>(
+  (actor.getFlag("faserip", "activeTab") as string | undefined) ?? "edit"
+);
 watch(activeTab, tab => {
-  (sheet as any)._activeTab = tab;
+  actor.setFlag("faserip", "activeTab", tab);
 });
 
 const armorEnabled = computed(
