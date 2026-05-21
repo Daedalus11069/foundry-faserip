@@ -16,6 +16,17 @@ const mpEnabled = computed(
   () => game.settings.get("faserip", "mpEnabled") ?? false
 );
 
+const mp = computed(() => {
+  if (!mpEnabled.value) {
+    return { value: 0, max: 0 };
+  }
+  if (!reactiveActor.system.resources.mentalPoints) {
+    // Initialize mentalPoints if it doesn't exist
+    reactiveActor.system.resources.mentalPoints = { value: 0, max: 0 };
+  }
+  return reactiveActor.system.resources.mentalPoints;
+});
+
 // Update rank and sync value immediately
 function updateRank(attrKey: string, newRank: string) {
   const currentForm = reactiveActor.system.forms?.find(
@@ -178,6 +189,23 @@ function cancelEditingLink() {
 
 const currentForm = computed(() => {
   const forms = reactiveActor.system.forms || [];
+  if (forms.length === 0) {
+    // initialize new form if none exist
+    const newForm = {
+      id: crypto.randomUUID(),
+      name: "Default Form",
+      attributes: {
+        fighting: { rank: "typical", value: 0 },
+        agility: { rank: "typical", value: 0 },
+        strength: { rank: "typical", value: 0 },
+        endurance: { rank: "typical", value: 0 },
+        reasoning: { rank: "typical", value: 0 },
+        intuition: { rank: "typical", value: 0 },
+        psyche: { rank: "typical", value: 0 }
+      }
+    };
+    forms.push(newForm);
+  }
   return (
     forms.find((f: any) => f.id === reactiveActor.system.currentFormId) ||
     forms[0]
@@ -456,16 +484,14 @@ const ripAttributes = [
             <label class="fsr-form-label">Mental Points</label>
             <div class="flex gap-1">
               <input
-                v-model.number="
-                  reactiveActor.system.resources.mentalPoints.value
-                "
+                v-model.number="mp.value"
                 type="number"
                 class="fsr-input basis-1/2"
                 min="0"
-                :max="reactiveActor.system.resources.mentalPoints.max"
+                :max="mp.max"
               />
               <input
-                v-model.number="reactiveActor.system.resources.mentalPoints.max"
+                v-model.number="mp.max"
                 type="number"
                 class="fsr-input basis-1/2"
                 min="1"

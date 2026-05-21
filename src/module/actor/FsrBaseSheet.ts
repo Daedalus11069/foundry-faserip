@@ -45,7 +45,7 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
     // Create the reactive actor clone once.
     if (!this.#reactiveActor) {
       // @ts-expect-error - actor property exists on ActorSheetV2
-      this.#reactiveActor = reactive(this.actor.clone());
+      this.#reactiveActor = reactive(JSON.parse(JSON.stringify(this.actor)));
     }
 
     const container = document.createElement("div");

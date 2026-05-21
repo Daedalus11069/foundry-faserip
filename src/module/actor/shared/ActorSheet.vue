@@ -10,7 +10,7 @@ const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
 const sheet = inject("sheet") as any;
 
-const activeTab = ref("stats");
+const activeTab = ref("edit");
 
 const tabs = [
   { id: "stats", label: "Stats" },
