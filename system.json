@@ -1,7 +1,7 @@
 {
   "id": "faserip",
   "title": "FASERIP",
-  "description": "Marvel Super Heroes RPG (FASERIP) system for Foundry VTT with charman API integration",
+  "description": "Marvel Super Heroes RPG (FASERIP) system for Foundry VTT.",
   "version": "0.1.0",
   "authors": [
     {
