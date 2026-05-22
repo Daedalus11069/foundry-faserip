@@ -2,6 +2,7 @@ import { VueDialog } from "./vue-dialog";
 import TalentSelectionDialog from "./dialogs/TalentSelectionDialog.vue";
 import KarmaSpendDialog from "./dialogs/KarmaSpendDialog.vue";
 import ComboDialog from "./dialogs/ComboDialog.vue";
+import MovementSettingsDialog from "./dialogs/MovementSettingsDialog.vue";
 import { Rank } from "../enums";
 import type { Talent, SelectedTalent } from "../types";
 
@@ -122,4 +123,31 @@ export async function showComboDialog(
     attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
     manualChartShift?: number;
   } | null;
+}
+
+/**
+ * Show movement by rank settings dialog
+ */
+export async function showMovementSettingsDialog(
+  currentValues: Record<string, number>
+): Promise<Record<string, number> | null> {
+  const result = await VueDialog.show(
+    MovementSettingsDialog,
+    {
+      currentValues
+    },
+    {
+      window: {
+        title: "Movement By Rank Settings",
+        icon: "fas fa-person-running",
+        minimizable: false,
+        resizable: false
+      },
+      position: {
+        width: 700
+      }
+    }
+  );
+
+  return result as Record<string, number> | null;
 }

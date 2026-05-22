@@ -1,5 +1,57 @@
 import { ActorType } from "./enums";
-import { calculateHealth, calculateMentalPoints, getRankValue } from "./utils";
+import { Rank } from "./enums";
+import { calculateHealth, calculateMentalPoints, stringToRank } from "./utils";
+
+function getDefaultMovementByRank(): Record<Rank, number> {
+  // Base defaults convert area movement to squares using 1 area = 1 square.
+  return {
+    [Rank.Shift0]: 0,
+    [Rank.Feeble]: 0,
+    [Rank.Poor]: 1,
+    [Rank.Typical]: 2,
+    [Rank.Good]: 4,
+    [Rank.Excellent]: 6,
+    [Rank.Remarkable]: 8,
+    [Rank.Incredible]: 10,
+    [Rank.Amazing]: 20,
+    [Rank.Monstrous]: 40,
+    [Rank.Unearthly]: 60,
+    [Rank.ShiftX]: 80,
+    [Rank.ShiftY]: 160,
+    [Rank.ShiftZ]: 400,
+    [Rank.Class1000]: 50,
+    [Rank.Class3000]: 5000,
+    [Rank.Class5000]: 500000,
+    [Rank.Beyond]: 499999999
+  };
+}
+
+function getConfiguredMovementByRank(): Record<Rank, number> {
+  const defaults = getDefaultMovementByRank();
+
+  const raw = game.settings.get("faserip", "movementSquaresByRank") as
+    | string
+    | undefined;
+  if (!raw) {
+    return defaults;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const merged: Record<Rank, number> = { ...defaults };
+
+    for (const rank of Object.values(Rank)) {
+      const candidate = parsed[rank];
+      if (typeof candidate === "number" && Number.isFinite(candidate)) {
+        merged[rank] = Math.max(0, Math.floor(candidate));
+      }
+    }
+
+    return merged;
+  } catch (_error) {
+    return defaults;
+  }
+}
 
 /**
  * Custom Actor document for FASERIP
@@ -139,6 +191,23 @@ export class FaseripActor extends Actor {
   getCurrentForm(): any {
     const system = this.system as any;
     return system.forms?.find((f: any) => f.id === system.currentFormId);
+  }
+
+  /**
+   * Derived movement distance from current form Endurance rank.
+   * Returns distance in scene grid units (squares × grid.distance).
+   */
+  get movement(): number {
+    const currentForm = this.getCurrentForm();
+    const enduranceRank = stringToRank(
+      currentForm?.attributes?.endurance?.rank || Rank.Typical
+    );
+    const configured = getConfiguredMovementByRank();
+    const squares = configured[enduranceRank] ?? configured[Rank.Typical];
+
+    // Multiply by grid distance to convert squares to actual distance units
+    const gridDistance = canvas?.scene?.grid.distance ?? 1;
+    return squares * gridDistance;
   }
 
   /**

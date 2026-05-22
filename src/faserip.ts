@@ -14,6 +14,64 @@ import {
   cleanupAllIntuitionOverlays,
   initIntuitionHoverListener
 } from "./module/utils/intuition-overlay";
+import { showMovementSettingsDialog } from "./module/applications/dialog-utils";
+
+// ─── Movement Settings Menu ─────────────────────────────────────────────────────
+
+/**
+ * Settings menu for configuring movement by rank
+ */
+class MovementSettingsMenu extends FormApplication {
+  static override get defaultOptions() {
+    return foundry.utils.mergeObject(super.defaultOptions, {
+      title: "Movement By Rank Settings",
+      id: "movement-settings",
+      template: "" // No template needed, we use Vue dialog
+    });
+  }
+
+  override async _updateObject(_event: Event, _formData: any): Promise<void> {
+    // Not used - dialog handles updates
+  }
+
+  override render(_force?: boolean, _options?: any): this {
+    // Launch dialog asynchronously without awaiting
+    this.#openDialog();
+    return this;
+  }
+
+  async #openDialog(): Promise<void> {
+    // Get current values
+    const raw = game.settings.get("faserip", "movementSquaresByRank") as
+      | string
+      | undefined;
+    let currentValues: Record<string, number> = {};
+
+    try {
+      currentValues = JSON.parse(raw || "{}");
+    } catch {
+      currentValues = {};
+    }
+
+    // Show Vue dialog
+    const result = await showMovementSettingsDialog(currentValues);
+
+    if (result) {
+      // Save the result
+      await game.settings.set(
+        "faserip",
+        "movementSquaresByRank",
+        JSON.stringify(result)
+      );
+      ui.notifications?.info("Movement settings saved.");
+
+      // Re-render all actor sheets to reflect changes
+      for (const actor of game.actors ?? []) {
+        actor.render();
+      }
+    }
+  }
+}
 
 // ─── Custom Token HUD: Add Intuition Button ────────────────────────────────────
 
@@ -166,6 +224,60 @@ const initHandler = () => {
         actor.render();
       }
     }
+  });
+
+  // House Rules: Lock player stat editing
+  game.settings.register("faserip", "lockPlayerStats", {
+    name: "FASERIP.Settings.lockPlayerStats.name",
+    hint: "FASERIP.Settings.lockPlayerStats.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: () => {
+      for (const actor of game.actors ?? []) {
+        actor.render();
+      }
+    }
+  });
+
+  // Movement mapping by rank (numeric values, edited via menu dialog)
+  game.settings.register("faserip", "movementSquaresByRank", {
+    name: "Movement By Rank (Squares)",
+    hint: "Configure movement distance in squares for each rank. Edited via the Movement Settings button below.",
+    scope: "world",
+    config: false, // Hidden from config, accessed via menu
+    type: String,
+    default: JSON.stringify({
+      shift_0: 0,
+      feeble: 0,
+      poor: 1,
+      typical: 2,
+      good: 4,
+      excellent: 6,
+      remarkable: 8,
+      incredible: 10,
+      amazing: 20,
+      monstrous: 40,
+      unearthly: 60,
+      shift_x: 80,
+      shift_y: 160,
+      shift_z: 400,
+      class_1000: 50,
+      class_3000: 5000,
+      class_5000: 500000,
+      beyond: 499999999
+    })
+  });
+
+  // Register settings menu for movement configuration
+  game.settings.registerMenu("faserip", "movementSettingsMenu", {
+    name: "Movement Settings",
+    label: "Configure Movement By Rank",
+    hint: "Open a dialog to configure movement distance (squares) for each rank.",
+    icon: "fas fa-person-running",
+    type: MovementSettingsMenu,
+    restricted: true
   });
 
   // Register the custom Actor document class

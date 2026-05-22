@@ -12,15 +12,17 @@ export function getRankValue(rank: Rank | string): number {
  */
 export function valueToRank(value: number): Rank {
   const entries = Object.entries(RANK_VALUES) as [Rank, number][];
-  const sorted = entries.sort((a, b) => a[1] - b[1]);
+  const sorted = entries.sort((a, b) => b[1] - a[1]); // Sort descending
 
+  // Find the highest rank where value >= rank threshold
   for (let i = 0; i < sorted.length; i++) {
-    if (value <= sorted[i][1]) {
+    if (value >= sorted[i][1]) {
       return sorted[i][0];
     }
   }
 
-  return Rank.Beyond;
+  // If value is below all ranks, return Shift0
+  return Rank.Shift0;
 }
 
 /**

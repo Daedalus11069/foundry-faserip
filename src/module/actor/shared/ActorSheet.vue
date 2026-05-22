@@ -22,6 +22,12 @@ const armorEnabled = computed(
   () => game.settings.get("faserip", "armorEnabled") ?? false
 );
 
+const movementSquares = computed(
+  () => ((actor as any).movement ?? 0) as number
+);
+
+const gridUnits = computed(() => canvas?.scene?.grid.units || "ft");
+
 const tabs = computed(() => [
   { id: "stats", label: "Stats" },
   { id: "powers", label: "Powers" },
@@ -109,6 +115,9 @@ function openImagePicker() {
           </div>
           <div class="text-sm font-semibold text-yellow-500 mt-1">
             Karma: {{ reactiveActor.system.resources.karma.value }}
+          </div>
+          <div class="text-sm font-semibold text-cyan-300 mt-1">
+            Movement: {{ movementSquares.toLocaleString() }} {{ gridUnits }}
           </div>
 
           <!-- Form Selector (if multiple forms) -->

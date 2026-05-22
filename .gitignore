@@ -5,3 +5,4 @@ dist/
 *.local
 .vscode/
 .idea/
+tables.html

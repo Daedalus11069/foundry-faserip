@@ -6,7 +6,7 @@
 
 import type { FaseripActor } from "../documents";
 import { FaseripRoll } from "../rolling/FaseripRoll";
-import type { Rank } from "../enums";
+import { Rank } from "../enums";
 import { stringToRank } from "../utils";
 
 /**
@@ -32,7 +32,6 @@ export async function rollIntuitionCheck(actor: FaseripActor): Promise<void> {
   }
 
   const rank: Rank = stringToRank(intuition.rank);
-  const bonus = intuition.bonus || 0;
   const value = intuition.value || 0;
 
   // Find the token for overlay

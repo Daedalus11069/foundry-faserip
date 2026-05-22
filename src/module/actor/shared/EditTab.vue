@@ -12,6 +12,12 @@ const isGM = computed(() => game.user?.isGM ?? false);
 const mpEnabled = computed(
   () => game.settings.get("faserip", "mpEnabled") ?? false
 );
+const lockPlayerStats = computed(
+  () => game.settings.get("faserip", "lockPlayerStats") ?? false
+);
+
+// Can edit if GM or if lock is disabled
+const canEditStats = computed(() => isGM.value || !lockPlayerStats.value);
 
 const mp = computed(() => {
   if (!mpEnabled.value) return { value: 0, max: 0 };
@@ -46,13 +52,13 @@ function addForm() {
     name: "New-Form",
     isPrimary: false,
     attributes: {
-      fighting:  { rank: "typical", value: 6 },
-      agility:   { rank: "typical", value: 6 },
-      strength:  { rank: "typical", value: 6 },
+      fighting: { rank: "typical", value: 6 },
+      agility: { rank: "typical", value: 6 },
+      strength: { rank: "typical", value: 6 },
       endurance: { rank: "typical", value: 6 },
       reasoning: { rank: "typical", value: 6 },
       intuition: { rank: "typical", value: 6 },
-      psyche:    { rank: "typical", value: 6 }
+      psyche: { rank: "typical", value: 6 }
     }
   };
   reactiveActor.system.forms.push(newForm);
@@ -276,7 +282,9 @@ const ripAttributes = [
         class="fsr-input"
         placeholder="e.g. Spider-Man"
       />
-      <p class="text-xs text-gray-500 mt-1">Used in chat commands: <code>/cr &lt;callname&gt; ...</code></p>
+      <p class="text-xs text-gray-500 mt-1">
+        Used in chat commands: <code>/cr &lt;callname&gt; ...</code>
+      </p>
     </div>
 
     <!-- Charman Link Section -->
@@ -414,7 +422,11 @@ const ripAttributes = [
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
       <div class="flex justify-between items-center mb-2">
         <h3 class="text-sm font-bold text-yellow-400">Forms</h3>
-        <button @click="addForm" class="fsr-btn fsr-btn-primary fsr-btn-sm">
+        <button
+          @click="addForm"
+          class="fsr-btn fsr-btn-primary fsr-btn-sm"
+          :disabled="!canEditStats"
+        >
           + Add Form
         </button>
       </div>
@@ -437,12 +449,14 @@ const ripAttributes = [
             placeholder="Form name"
             @click.stop
             @change="sanitizeFormName(form)"
+            :disabled="!canEditStats"
           />
           <button
             v-if="!form.isPrimary"
             @click.stop="setPrimary(form.id)"
             class="fsr-btn fsr-btn-sm bg-gray-600 hover:bg-yellow-800 text-white text-xs px-2"
             title="Set as primary form"
+            :disabled="!canEditStats"
           >
             ☆
           </button>
@@ -457,6 +471,7 @@ const ripAttributes = [
             @click.stop="deleteForm(form.id)"
             class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white text-xs px-2"
             title="Delete form"
+            :disabled="!canEditStats"
           >
             ✕
           </button>
@@ -490,6 +505,7 @@ const ripAttributes = [
                     updateRank(attr.key, (e.target as HTMLSelectElement).value)
                 "
                 class="fsr-select w-full text-sm"
+                :disabled="!canEditStats"
               >
                 <option value="shift_0">Shift 0</option>
                 <option value="feeble">Feeble</option>
@@ -537,6 +553,7 @@ const ripAttributes = [
                     updateRank(attr.key, (e.target as HTMLSelectElement).value)
                 "
                 class="fsr-select w-full text-sm"
+                :disabled="!canEditStats"
               >
                 <option value="shift_0">Shift 0</option>
                 <option value="feeble">Feeble</option>
