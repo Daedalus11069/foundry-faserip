@@ -69,6 +69,10 @@
       "lockPlayerStats": {
         "name": "Lock Player Stat Editing",
         "hint": "When enabled, prevents players from editing character form attributes (Fighting, Agility, Strength, etc.) on their sheets. Only GMs can edit stats, but players can still sync from Charman and edit equipment/armor."
+      },
+      "healthCalculationMethod": {
+        "name": "Health Calculation Method",
+        "hint": "Choose how character health is calculated: FASE Sum (F+A+S+E, default) or Endurance × 2 (classic rule). Changing this will recalculate health for all characters."
       }
     },
     "Labels": {

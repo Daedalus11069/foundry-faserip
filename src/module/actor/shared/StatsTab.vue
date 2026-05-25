@@ -2,7 +2,7 @@
 import { inject, computed, ref, watch } from "vue";
 import { formatRankDisplay } from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
-import { stringToRank } from "../../utils";
+import { stringToRank, calculateHealth } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import {
   showTalentSelectionDialog,
@@ -36,6 +36,17 @@ watch(forms, list => {
 
 const currentForm = computed<Form | undefined>(
   () => forms.value.find(f => f.id === viewFormId.value) ?? forms.value[0]
+);
+
+// Computed health max based on current form (recalculated reactively)
+const healthMax = computed(() => {
+  const form = currentForm.value;
+  if (!form) return reactiveActor.system.resources.health.max || 0;
+  return calculateHealth(form);
+});
+
+const healthValue = computed(
+  () => reactiveActor.system.resources.health.value ?? 0
 );
 
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
@@ -100,10 +111,9 @@ async function applyDamage() {
     }
   }
 
-  const health = reactiveActor.system.resources.health;
   reactiveActor.system.resources.health.value = Math.max(
-    0,
-    health.value - incoming
+    -20,
+    healthValue.value - incoming
   );
 
   if (soakSources.length > 0) {
@@ -118,8 +128,10 @@ async function applyDamage() {
 async function applyHealing() {
   if (damageAmount.value === 0) return;
 
-  const health = reactiveActor.system.resources.health;
-  const newValue = Math.min(health.max, health.value + damageAmount.value);
+  const newValue = Math.min(
+    healthMax.value,
+    healthValue.value + damageAmount.value
+  );
 
   // Update reactive actor (base sheet class handles syncing to Foundry actor)
   reactiveActor.system.resources.health.value = newValue;
@@ -406,9 +418,14 @@ async function rollPower(power: any) {
           💚 Heal
         </button>
       </div>
-      <div class="mt-2 text-xs text-gray-400">
-        Current Health: {{ reactiveActor.system.resources.health.value }} /
-        {{ reactiveActor.system.resources.health.max }}
+      <div
+        class="mt-2 text-xs"
+        :class="healthValue < 0 ? 'text-red-400 font-bold' : 'text-gray-400'"
+      >
+        Current Health: {{ healthValue }} / {{ healthMax }}
+        <span v-if="healthValue < 0" class="ml-2 text-red-500">
+          (Dying/Unconscious)
+        </span>
       </div>
     </div>
 

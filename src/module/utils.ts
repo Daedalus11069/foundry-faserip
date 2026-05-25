@@ -36,18 +36,38 @@ export function getInitiativeDie(rank: Rank | string): number {
 }
 
 /**
- * Calculate health based on FASE attributes (Fighting + Agility + Strength + Endurance)
+ * Calculate health based on configured house rule:
+ * - "faseSum": Fighting + Agility + Strength + Endurance (default)
+ * - "enduranceX2": Endurance × 2
  */
 export function calculateHealth(form: any): number {
   if (!form || !form.attributes) return 24; // Default for 4x typical (6)
+
+  // Get calculation method with proper fallback
+  let method = "faseSum";
+  try {
+    if (game?.settings) {
+      method =
+        (game.settings.get("faserip", "healthCalculationMethod") as string) ||
+        "faseSum";
+    }
+  } catch (e) {
+    // Setting not registered yet, use default
+    method = "faseSum";
+  }
 
   const fighting = form.attributes.fighting?.value || 0;
   const agility = form.attributes.agility?.value || 0;
   const strength = form.attributes.strength?.value || 0;
   const endurance = form.attributes.endurance?.value || 0;
 
-  // Health is the sum of FASE attributes
-  return fighting + agility + strength + endurance;
+  if (method === "enduranceX2") {
+    // House Rule: Health = Endurance × 2
+    return endurance * 2;
+  } else {
+    // Default: Health = F + A + S + E
+    return fighting + agility + strength + endurance;
+  }
 }
 
 /**

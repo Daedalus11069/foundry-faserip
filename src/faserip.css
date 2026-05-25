@@ -4,6 +4,10 @@
 
 @layer system {
 
+    .detached .application.sheet.fsr-sheet {
+        position: relative;
+    }
+
     .application.sheet.fsr-sheet,
     .application.fsr-dialog {
         .window-content {

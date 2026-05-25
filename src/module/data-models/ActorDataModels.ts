@@ -33,13 +33,14 @@ export function defineAttributeSchema() {
 
 /**
  * Schema for resources with max (Health)
+ * Health can go negative to -20 (death threshold)
  */
 export function defineResourceSchema() {
   return new SchemaField({
     value: new NumberField({
       required: true,
       integer: true,
-      min: 0,
+      min: -20,
       initial: 0
     }),
     max: new NumberField({

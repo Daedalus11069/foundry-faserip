@@ -226,6 +226,27 @@ const initHandler = () => {
     }
   });
 
+  // House Rules: Health Calculation Method
+  game.settings.register("faserip", "healthCalculationMethod", {
+    name: "FASERIP.Settings.healthCalculationMethod.name",
+    hint: "FASERIP.Settings.healthCalculationMethod.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      faseSum: "FASE Sum (F+A+S+E)",
+      enduranceX2: "Endurance × 2"
+    },
+    default: "faseSum",
+    onChange: () => {
+      // Recalculate health for all actors
+      for (const actor of game.actors ?? []) {
+        actor.prepareData();
+        actor.render();
+      }
+    }
+  });
+
   // House Rules: Lock player stat editing
   game.settings.register("faserip", "lockPlayerStats", {
     name: "FASERIP.Settings.lockPlayerStats.name",

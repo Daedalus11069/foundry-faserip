@@ -591,7 +591,7 @@ const ripAttributes = [
                 v-model.number="reactiveActor.system.resources.health.value"
                 type="number"
                 class="fsr-input basis-1/2"
-                min="0"
+                min="-20"
                 :max="reactiveActor.system.resources.health.max"
               />
               <input

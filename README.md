@@ -11,6 +11,7 @@ A Foundry VTT game system for Marvel Super Heroes RPG (FASERIP) with integrated 
 - **Multiple Forms**: Support for characters with alternate identities/forms
 - **Powers & Talents**: Manage character abilities and talents
 - **Charman Integration**: Import characters directly from your Charman API
+- **House Rules**: Configurable health calculation, Mental Points system, armor system
 - **Vue 3 Interface**: Modern, reactive character sheets built with Vue 3 + TypeScript
 
 ## Installation
@@ -136,7 +137,7 @@ src/
 
 ### Resources
 
-- **Health**: Based on Endurance rank × 2
+- **Health**: Based on house rule setting (default: F+A+S+E sum, optional: Endurance × 2)
 - **Karma**: Accumulated points (default max: 100)
 
 ## Charman Integration
@@ -222,6 +223,43 @@ await actor.update({ "system.powers": reactiveActor.system.powers });
 ```
 
 ## Customization
+
+### House Rules Configuration
+
+The system includes several configurable house rules accessible via **Game Settings → System Settings**:
+
+#### Health Calculation Method
+
+Choose how character health is calculated:
+
+- **FASE Sum** (default): Health = Fighting + Agility + Strength + Endurance
+- **Endurance × 2**: Health = Endurance value × 2 (classic rule)
+
+Changing this setting will automatically recalculate health for all characters.
+
+#### Mental Points (MP) System
+
+Optional resource system where:
+
+- MP = Reasoning + Intuition + Psyche
+- Powers can have MP costs
+- MP is tracked alongside Health and Karma
+
+#### Armor / Equipment System
+
+House rule for physical damage reduction:
+
+- Adds an Armor tab to character sheets
+- Armor has a rank value that absorbs incoming damage
+- Equipped armor reduces damage before it affects Health
+
+#### Lock Player Stat Editing
+
+Prevents players from editing character attributes (Fighting, Agility, etc.) on their sheets:
+
+- Players can still edit Health, Karma, Powers, and Equipment
+- GMs retain full editing access
+- Players can still import/sync from Charman
 
 ### Adding New Tabs
 

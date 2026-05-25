@@ -6,6 +6,8 @@ import PowersTab from "./PowersTab.vue";
 import TalentsTab from "./TalentsTab.vue";
 import BiographyTab from "./BiographyTab.vue";
 import ArmorTab from "./ArmorTab.vue";
+import { calculateHealth, stringToRank } from "../../utils";
+import { Rank } from "../../enums";
 
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
@@ -22,9 +24,54 @@ const armorEnabled = computed(
   () => game.settings.get("faserip", "armorEnabled") ?? false
 );
 
-const movementSquares = computed(
-  () => ((actor as any).movement ?? 0) as number
-);
+// Reactive movement calculation based on current form's endurance
+const movementSquares = computed(() => {
+  const form = currentForm.value;
+  if (!form) return 0;
+
+  const enduranceRank = stringToRank(
+    form.attributes.endurance?.rank || Rank.Typical
+  );
+
+  // Get movement squares from settings (same logic as documents.ts)
+  const raw = game.settings.get("faserip", "movementSquaresByRank") as
+    | string
+    | undefined;
+  let squares = 2; // Default for typical
+
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      squares = parsed[enduranceRank] ?? 2;
+    } catch {
+      // Use defaults
+      const defaults: Record<string, number> = {
+        shift_0: 0,
+        feeble: 0,
+        poor: 1,
+        typical: 2,
+        good: 4,
+        excellent: 6,
+        remarkable: 8,
+        incredible: 10,
+        amazing: 20,
+        monstrous: 40,
+        unearthly: 60,
+        shift_x: 80,
+        shift_y: 160,
+        shift_z: 400,
+        class_1000: 50,
+        class_3000: 5000,
+        class_5000: 500000,
+        beyond: 499999999
+      };
+      squares = defaults[enduranceRank] ?? 2;
+    }
+  }
+
+  const gridDistance = canvas?.scene?.grid.distance ?? 1;
+  return squares * gridDistance;
+});
 
 const gridUnits = computed(() => canvas?.scene?.grid.units || "ft");
 
@@ -43,6 +90,26 @@ const currentForm = computed(() => {
     forms.find((f: any) => f.id === reactiveActor.system.currentFormId) ||
     forms[0]
   );
+});
+
+// Computed property to recalculate health max based on current form
+// This ensures the display is always accurate even if reactive sync lags
+const healthMax = computed(() => {
+  const form = currentForm.value;
+  if (!form) return reactiveActor.system.resources.health.max || 0;
+  return calculateHealth(form);
+});
+
+const healthValue = computed(
+  () => reactiveActor.system.resources.health.value ?? 0
+);
+
+const healthPercent = computed(() => {
+  const max = healthMax.value;
+  const val = healthValue.value;
+  if (max === 0) return 0;
+  // Clamp bar percentage to 0-100%, but allow negative health values in display
+  return Math.min(100, Math.max(0, (val / max) * 100));
 });
 
 const forms = computed(() => reactiveActor.system.forms || []);
@@ -83,6 +150,19 @@ function openImagePicker() {
   });
   fp.browse();
 }
+
+function copyMovementPath() {
+  const path = "actor.movement";
+
+  navigator.clipboard
+    .writeText(path)
+    .then(() => {
+      ui.notifications?.info(`Copied to clipboard: ${path}`);
+    })
+    .catch(() => {
+      ui.notifications?.error("Failed to copy to clipboard");
+    });
+}
 </script>
 
 <template>
@@ -116,7 +196,11 @@ function openImagePicker() {
           <div class="text-sm font-semibold text-yellow-500 mt-1">
             Karma: {{ reactiveActor.system.resources.karma.value }}
           </div>
-          <div class="text-sm font-semibold text-cyan-300 mt-1">
+          <div
+            class="text-sm font-semibold text-cyan-300 mt-1 cursor-pointer hover:text-cyan-200 transition-colors"
+            @click="copyMovementPath"
+            :title="'Click to copy property path to clipboard'"
+          >
             Movement: {{ movementSquares.toLocaleString() }} {{ gridUnits }}
           </div>
 
@@ -139,14 +223,18 @@ function openImagePicker() {
           <div class="fsr-resource">
             <div class="fsr-resource-bar">
               <div
-                class="fsr-resource-fill fsr-resource-health"
+                :class="[
+                  'fsr-resource-fill',
+                  healthValue < 0 ? 'bg-gray-600' : 'fsr-resource-health'
+                ]"
                 :style="{
-                  width: `${(reactiveActor.system.resources.health.value / reactiveActor.system.resources.health.max) * 100}%`
+                  width: `${healthPercent}%`
                 }"
               ></div>
               <div class="fsr-resource-label">
-                Health: {{ reactiveActor.system.resources.health.value }} /
-                {{ reactiveActor.system.resources.health.max }}
+                <span :class="healthValue < 0 ? 'text-red-400 font-bold' : ''">
+                  Health: {{ healthValue }} / {{ healthMax }}
+                </span>
               </div>
             </div>
           </div>

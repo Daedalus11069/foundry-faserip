@@ -138,9 +138,9 @@ export class FaseripActor extends Actor {
         system.resources.health.value = calculatedHealth;
       }
 
-      // Clamp health
+      // Clamp health (can go negative to -20)
       system.resources.health.value = Math.max(
-        0,
+        -20,
         Math.min(system.resources.health.value, system.resources.health.max)
       );
 
@@ -208,6 +208,15 @@ export class FaseripActor extends Actor {
     // Multiply by grid distance to convert squares to actual distance units
     const gridDistance = canvas?.scene?.grid.distance ?? 1;
     return squares * gridDistance;
+  }
+
+  /**
+   * Current form's endurance rank (used for movement calculation).
+   * Property path: actor.currentEnduranceRank
+   */
+  get currentEnduranceRank(): string {
+    const currentForm = this.getCurrentForm();
+    return currentForm?.attributes?.endurance?.rank || Rank.Typical;
   }
 
   /**
