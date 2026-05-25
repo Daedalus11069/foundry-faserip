@@ -18,43 +18,38 @@ A Foundry VTT game system for Marvel Super Heroes RPG (FASERIP) with integrated 
 
 ### First-Time Setup
 
-1. **Install Dependencies**:
+1. **Install System**:
 
-   ```bash
-   cd g:\herd\www\foundry-vtt\systems\foundry-faserip
-   npm install
-   ```
+https://github.com/Daedalus11069/foundry-faserip/releases/latest/download/system.json
 
-2. **Configure Charman API**:
-   Edit `src/faserip.ts` and set your Charman API URL:
+2. **Configure Charman API** (optional):
 
-   ```typescript
-   initCharmanService({
-     baseUrl: "https://your-charman-domain.com",
-     apiKey: "your-api-key" // Optional
-   });
-   ```
+- Go to **Game Settings → System Settings → Charman API URL**
+- Enter your Charman API base URL (e.g., `https://yoursite.com/charman`)
+- Required only if you want to import characters from Charman
 
-3. **Create Symlink**:
-   Run `linkDevEnv.bat` as Administrator to create a symlink from Foundry's data directory to the project's dist folder.
+### Development
 
-### Development Workflow
-
-```bash
 # Start dev server (recommended)
+
 npm run dev
 
 # Or for remote access
+
 npm run dev-remote
 
 # Smart build (checks if dev server is running)
+
 npm run auto-build
 
 # Force production build
+
 npm run build
 
 # Type checking
+
 npm run typecheck
+
 ```
 
 ## Architecture
@@ -62,29 +57,31 @@ npm run typecheck
 Based on the Dimensional War system architecture:
 
 ```
+
 src/
-├── faserip.ts                 # System entry point
-├── faserip.css                # Global styles (fsr-* prefix)
+├── faserip.ts # System entry point
+├── faserip.css # Global styles (fsr-\* prefix)
 └── module/
-    ├── enums.ts               # ActorType, Rank, Attribute enums
-    ├── utils.ts               # Utility functions
-    ├── documents.ts           # FaseripActor class
-    ├── charman-service.ts     # Charman API integration
-    ├── data-models/
-    │   ├── ActorDataModels.ts # PcDataModel, NpcDataModel
-    │   └── index.ts
-    ├── actor/
-    │   ├── FsrBaseSheet.ts    # Base sheet (Vue mounting)
-    │   ├── ActorSheets.ts     # PcSheet, NpcSheet
-    │   └── shared/
-    │       ├── ActorSheet.vue     # Root component
-    │       ├── StatsTab.vue       # Stats & rolling
-    │       ├── PowersTab.vue      # Powers management
-    │       ├── TalentsTab.vue     # Talents management
-    │       └── BiographyTab.vue   # Biography & Charman import
-    └── rolling/
-        ├── FaseripRoll.ts     # d100 rolling system
-        └── index.ts
+├── enums.ts # ActorType, Rank, Attribute enums
+├── utils.ts # Utility functions
+├── documents.ts # FaseripActor class
+├── charman-service.ts # Charman API integration
+├── data-models/
+│ ├── ActorDataModels.ts # PcDataModel, NpcDataModel
+│ └── index.ts
+├── actor/
+│ ├── FsrBaseSheet.ts # Base sheet (Vue mounting)
+│ ├── ActorSheets.ts # PcSheet, NpcSheet
+│ └── shared/
+│ ├── ActorSheet.vue # Root component
+│ ├── StatsTab.vue # Stats & rolling
+│ ├── PowersTab.vue # Powers management
+│ ├── TalentsTab.vue # Talents management
+│ └── BiographyTab.vue # Biography & Charman import
+└── rolling/
+├── FaseripRoll.ts # d100 rolling system
+└── index.ts
+
 ```
 
 ## FASERIP Mechanics
@@ -147,9 +144,11 @@ src/
 The system expects a Charman API with the following endpoints:
 
 ```
+
 GET /api/characters/{username}/{characterName}
 GET /api/characters/{username}
-```
+
+````
 
 ### Character Import
 
@@ -192,7 +191,7 @@ All Vue components have access to:
 const reactiveActor = inject("reactiveActor"); // Reactive clone
 const actor = inject("actor"); // Real Actor document
 const sheet = inject("sheet"); // Sheet instance
-```
+````
 
 ### Data Flow Pattern
 
