@@ -50,6 +50,13 @@ export interface FormData {
   id: string;
   name: string;
   description?: string;
+
+  // Token appearance
+  tokenImage?: string;
+  tokenWidth?: number;
+  tokenHeight?: number;
+  tokenScale?: number;
+
   attributes: FormAttributeSet;
 }
 

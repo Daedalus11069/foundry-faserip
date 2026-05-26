@@ -93,6 +93,28 @@ export function defineFormSchema() {
     id: new StringField({ required: true }),
     name: new StringField({ required: true, initial: "Base Form" }),
     isPrimary: new BooleanField({ required: true, initial: false }),
+
+    // Token appearance
+    tokenImage: new StringField({ required: false, initial: "" }),
+    tokenWidth: new NumberField({
+      required: false,
+      integer: true,
+      min: 1,
+      initial: 1
+    }),
+    tokenHeight: new NumberField({
+      required: false,
+      integer: true,
+      min: 1,
+      initial: 1
+    }),
+    tokenScale: new NumberField({
+      required: false,
+      min: 0.1,
+      max: 10,
+      initial: 1
+    }),
+
     attributes: new SchemaField({
       fighting: defineAttributeSchema(),
       agility: defineAttributeSchema(),

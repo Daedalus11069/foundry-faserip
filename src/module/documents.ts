@@ -239,8 +239,75 @@ export class FaseripActor extends Actor {
       return;
     }
 
-    // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
-    await this.update({ "system.currentFormId": formId });
+    const updateData: Record<string, any> = {
+      "system.currentFormId": formId
+    };
+
+    // Update token name to match actor name
+    updateData["prototypeToken.name"] = this.name;
+
+    // For PCs, always display name
+    if (this.type === "pc") {
+      updateData["prototypeToken.displayName"] =
+        CONST.TOKEN_DISPLAY_MODES.ALWAYS;
+    }
+
+    // Apply token appearance if specified
+    if (form.tokenImage) {
+      updateData["prototypeToken.texture.src"] = form.tokenImage;
+    }
+
+    if (form.tokenWidth !== undefined && form.tokenWidth > 0) {
+      updateData["prototypeToken.width"] = form.tokenWidth;
+    }
+
+    if (form.tokenHeight !== undefined && form.tokenHeight > 0) {
+      updateData["prototypeToken.height"] = form.tokenHeight;
+    }
+
+    if (form.tokenScale !== undefined && form.tokenScale > 0) {
+      updateData["prototypeToken.texture.scaleX"] = form.tokenScale;
+      updateData["prototypeToken.texture.scaleY"] = form.tokenScale;
+    }
+
+    await this.update(updateData);
+
+    // Update existing tokens on active scenes
+    // @ts-expect-error - game.scenes type not fully recognized
+    for (const scene of game.scenes!) {
+      const tokens = scene.tokens.filter((t: any) => t.actor?.id === this.id);
+      for (const token of tokens) {
+        const tokenUpdate: Record<string, any> = {
+          _id: token.id,
+          name: this.name // Always update token name to match actor
+        };
+
+        // For PCs, always display name
+        if (this.type === "pc") {
+          tokenUpdate["displayName"] = CONST.TOKEN_DISPLAY_MODES.ALWAYS;
+        }
+
+        if (form.tokenImage) {
+          tokenUpdate["texture.src"] = form.tokenImage;
+        }
+
+        if (form.tokenWidth !== undefined && form.tokenWidth > 0) {
+          tokenUpdate["width"] = form.tokenWidth;
+        }
+
+        if (form.tokenHeight !== undefined && form.tokenHeight > 0) {
+          tokenUpdate["height"] = form.tokenHeight;
+        }
+
+        if (form.tokenScale !== undefined && form.tokenScale > 0) {
+          tokenUpdate["texture.scaleX"] = form.tokenScale;
+          tokenUpdate["texture.scaleY"] = form.tokenScale;
+        }
+
+        await scene.updateEmbeddedDocuments("Token", [tokenUpdate]);
+      }
+    }
+
     ui.notifications?.info(`Switched to ${form.name}`);
   }
 }

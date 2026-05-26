@@ -63,6 +63,13 @@ export interface Form {
   id: string;
   name: string;
   isPrimary: boolean;
+
+  // Token appearance
+  tokenImage?: string;
+  tokenWidth?: number;
+  tokenHeight?: number;
+  tokenScale?: number;
+
   attributes: {
     fighting: AttributeData;
     agility: AttributeData;

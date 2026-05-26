@@ -46,11 +46,42 @@ const editForm = computed<Form | undefined>(
   () => forms.value.find(f => f.id === editFormId.value) ?? forms.value[0]
 );
 
+// Ensure token properties exist on a form (for backward compatibility)
+function ensureTokenProperties(form: Form) {
+  if (form.tokenImage === undefined) {
+    form.tokenImage = "";
+  }
+  if (form.tokenWidth === undefined) {
+    form.tokenWidth = 1;
+  }
+  if (form.tokenHeight === undefined) {
+    form.tokenHeight = 1;
+  }
+  if (form.tokenScale === undefined) {
+    form.tokenScale = 1;
+  }
+}
+
+// When editForm changes, ensure it has token properties
+watch(
+  editForm,
+  form => {
+    if (form) {
+      ensureTokenProperties(form);
+    }
+  },
+  { immediate: true }
+);
+
 function addForm() {
   const newForm: Form = {
     id: crypto.randomUUID(),
     name: "New-Form",
     isPrimary: false,
+    tokenImage: "",
+    tokenWidth: 1,
+    tokenHeight: 1,
+    tokenScale: 1,
     attributes: {
       fighting: { rank: "typical", value: 6 },
       agility: { rank: "typical", value: 6 },
@@ -269,6 +300,25 @@ const ripAttributes = [
   { key: "intuition", label: "Intuition", icon: "👁️" },
   { key: "psyche", label: "Psyche", icon: "✨" }
 ];
+
+/**
+ * Open file picker for token image selection
+ */
+async function browseTokenImage() {
+  if (!editForm.value) return;
+
+  // @ts-expect-error - FilePicker types may be incomplete
+  const fp = new foundry.applications.apps.FilePicker.implementation({
+    type: "image",
+    current: editForm.value.tokenImage || "",
+    callback: (path: string) => {
+      if (editForm.value) {
+        editForm.value.tokenImage = path;
+      }
+    }
+  });
+  fp.render(true);
+}
 </script>
 
 <template>
@@ -483,6 +533,79 @@ const ripAttributes = [
     </div>
 
     <div v-if="editForm">
+      <!-- Token Appearance -->
+      <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+        <h3 class="text-sm font-bold text-purple-400 mb-2">Token Appearance</h3>
+
+        <div class="fsr-form-group mb-2">
+          <label class="fsr-form-label text-xs">Token Image Path</label>
+          <div class="flex gap-1">
+            <input
+              v-model="editForm.tokenImage"
+              type="text"
+              class="fsr-input text-sm flex-1"
+              placeholder="Path to token image (e.g., tokens/hero.webp)"
+              :disabled="!canEditStats"
+            />
+            <button
+              @click="browseTokenImage"
+              class="fsr-btn fsr-btn-secondary fsr-btn-sm px-2"
+              :disabled="!canEditStats"
+              title="Browse for token image"
+            >
+              📁
+            </button>
+          </div>
+          <p class="text-xs text-gray-500 mt-1">
+            Relative path to the token image file for this form
+          </p>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div class="fsr-form-group">
+            <label class="fsr-form-label text-xs">Width (grid)</label>
+            <input
+              v-model.number="editForm.tokenWidth"
+              type="number"
+              class="fsr-input text-sm"
+              placeholder="1"
+              min="1"
+              :disabled="!canEditStats"
+            />
+          </div>
+
+          <div class="fsr-form-group">
+            <label class="fsr-form-label text-xs">Height (grid)</label>
+            <input
+              v-model.number="editForm.tokenHeight"
+              type="number"
+              class="fsr-input text-sm"
+              placeholder="1"
+              min="1"
+              :disabled="!canEditStats"
+            />
+          </div>
+
+          <div class="fsr-form-group">
+            <label class="fsr-form-label text-xs">Scale</label>
+            <input
+              v-model.number="editForm.tokenScale"
+              type="number"
+              class="fsr-input text-sm"
+              placeholder="1.0"
+              min="0.1"
+              max="10"
+              step="0.1"
+              :disabled="!canEditStats"
+            />
+          </div>
+        </div>
+
+        <p class="text-xs text-gray-500 mt-1">
+          Token size in grid squares and scale multiplier (1.0 = normal size)
+        </p>
+      </div>
+
       <!-- PHYSICAL Group -->
       <div class="mb-3">
         <h3

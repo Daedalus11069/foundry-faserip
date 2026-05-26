@@ -300,6 +300,10 @@ export class CharmanService {
               name: form.name || `Form ${index + 1}`,
               isPrimary:
                 form.isPrimary !== undefined ? form.isPrimary : index === 0,
+              tokenImage: form.tokenImage || "",
+              tokenWidth: form.tokenWidth || 1,
+              tokenHeight: form.tokenHeight || 1,
+              tokenScale: form.tokenScale || 1,
               attributes: {
                 fighting: parseRankFromCharman(attrs.fighting),
                 agility: parseRankFromCharman(attrs.agility),
@@ -316,6 +320,10 @@ export class CharmanService {
               id: nanoid(),
               name: "Base Form",
               isPrimary: true,
+              tokenImage: "",
+              tokenWidth: 1,
+              tokenHeight: 1,
+              tokenScale: 1,
               attributes: {
                 fighting: parseRankFromCharman(charmanChar.fighting),
                 agility: parseRankFromCharman(charmanChar.agility),

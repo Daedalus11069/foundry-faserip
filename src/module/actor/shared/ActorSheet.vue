@@ -115,9 +115,9 @@ const healthPercent = computed(() => {
 const forms = computed(() => reactiveActor.system.forms || []);
 
 async function switchForm(formId: string) {
-  reactiveActor.system.currentFormId = formId;
-  // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
-  await actor.update({ "system.currentFormId": formId });
+  // Call the actor's switchForm method which handles token transformation
+  // @ts-expect-error - switchForm is a custom method on FaseripActor
+  await actor.switchForm(formId);
 }
 
 async function updateAvatar(event: Event) {

@@ -5,7 +5,7 @@
   document.head.prepend(hmr);
 
   const lib = document.createElement("script");
-  lib.src = "/systems/faserip/src/faserip.js";
+  lib.src = "/systems/faserip/src/faserip.ts";
   lib.type = "module";
   document.head.appendChild(lib);
 })();
