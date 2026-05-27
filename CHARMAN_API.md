@@ -96,12 +96,16 @@ Stats may be nested under an `attributes` key or provided flat:
 
 ### CharmanPower
 
-| Field         | Type               | Required | Notes                                                              |
-| ------------- | ------------------ | -------- | ------------------------------------------------------------------ |
-| `name`        | `string`           | ✅       | Power name; referenced in `/cr` as a kebab-case slug               |
-| `rank`        | `string \| number` | ✅       | Rank key, display name, abbreviation, or numeric value             |
-| `category`    | `string`           | —        | Descriptive category (e.g. `"Movement"`) — defaults to `"general"` |
-| `description` | `string`           | —        | Flavour text                                                       |
+| Field         | Type                                      | Required | Notes                                                                                                                           |
+| ------------- | ----------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | `string`                                  | ✅       | Power name; referenced in `/cr` as a kebab-case slug                                                                            |
+| `rank`        | `string \| number \| Record<string, any>` | ✅       | Rank key, display name, abbreviation, numeric value, or object with form-specific ranks (e.g. `{"Dragon": "50", "Human": "0"}`) |
+| `category`    | `string`                                  | —        | Descriptive category (e.g. `"Movement"`) — defaults to `"general"`                                                              |
+| `description` | `string`                                  | —        | Flavour text                                                                                                                    |
+| `mpCost`      | `string \| number`                        | —        | Mental Points cost (if MP houserule is enabled)                                                                                 |
+
+**Form-Specific Ranks:**  
+When `rank` is an object like `{"Dragon": "50"}`, the power will only be available in the specified forms. The system uses the highest rank value for display and automatically associates the power with the matching forms.
 
 ---
 

@@ -49,9 +49,10 @@ export interface CharmanForm {
 
 export interface CharmanPower {
   name: string;
-  rank: string;
+  rank: string | number | Record<string, string | number>; // Can be simple rank, numeric value, or form-specific ranks
   description?: string;
   category?: string;
+  mpCost?: string | number; // Mental Points cost
 }
 
 export interface CharmanTalent {
@@ -338,17 +339,51 @@ export class CharmanService {
 
     // Convert powers
     const powers = (charmanChar.powers || []).map((power: CharmanPower) => {
-      // Convert numeric rank strings to rank names
-      let rankName = power.rank;
-      if (!isNaN(Number(power.rank))) {
-        rankName = valueToRank(Number(power.rank));
+      let rankName: string;
+      let formIds: string[] = [];
+
+      // Handle form-specific ranks (object format like {"Dragon": "50"})
+      if (typeof power.rank === "object" && power.rank !== null) {
+        // Get all form-specific rank values
+        const formRanks = Object.entries(power.rank);
+
+        // Find highest rank value to use as default
+        let highestValue = 0;
+        for (const [formName, rankValue] of formRanks) {
+          const numValue = Number(rankValue);
+          if (!isNaN(numValue) && numValue > highestValue) {
+            highestValue = numValue;
+          }
+        }
+
+        // Convert to rank name
+        rankName = highestValue > 0 ? valueToRank(highestValue) : "typical";
+
+        // Map form names to form IDs
+        formIds = formRanks
+          .map(([formName]) => {
+            const form = forms.find(f => f.name === formName);
+            return form?.id;
+          })
+          .filter((id): id is string => id !== undefined);
+      } else {
+        // Handle simple rank (string or number)
+        if (!isNaN(Number(power.rank))) {
+          rankName = valueToRank(Number(power.rank));
+        } else {
+          rankName = String(power.rank);
+        }
+        // No formIds means applies to all forms
+        formIds = [];
       }
+
       return {
         id: nanoid(),
         name: power.name,
         rank: rankName,
         category: power.category || "general",
-        description: power.description || ""
+        description: power.description || "",
+        formIds: formIds
       };
     });
 
