@@ -7,8 +7,14 @@ import type {
   ResourcesData
 } from "../types/actor-system";
 
-const { ArrayField, BooleanField, NumberField, SchemaField, StringField } =
-  foundry.data.fields;
+const {
+  ArrayField,
+  BooleanField,
+  NumberField,
+  ObjectField,
+  SchemaField,
+  StringField
+} = foundry.data.fields;
 
 const { TypeDataModel } = foundry.abstract;
 
@@ -191,6 +197,7 @@ export class ActorDataModel extends TypeDataModel<
   declare currentFormId: string;
   declare forms: FormData[];
   declare resources: ResourcesData;
+  declare healthByForm: Record<string, number>;
   declare callname: string;
   declare biography: string;
   declare notes: string;
@@ -229,6 +236,9 @@ export class ActorDataModel extends TypeDataModel<
           { required: false }
         )
       }),
+
+      // Health tracked per-form (key = formId, value = HP)
+      healthByForm: new ObjectField({ initial: {} }),
 
       // Character callname (displayed under the main name)
       callname: new StringField({ initial: "" }),

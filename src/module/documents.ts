@@ -118,6 +118,11 @@ export class FaseripActor extends Actor {
       system.currentFormId = primaryForm ? primaryForm.id : system.forms[0].id;
     }
 
+    // Initialize healthByForm if not present
+    if (!system.healthByForm) {
+      system.healthByForm = {};
+    }
+
     // Get current form
     const currentForm = system.forms.find(
       (f: any) => f.id === system.currentFormId
@@ -130,19 +135,22 @@ export class FaseripActor extends Actor {
       // Always update max health when attributes change
       system.resources.health.max = calculatedHealth;
 
-      // If health was never set or is 0, initialize it to max
-      if (
-        !system.resources.health.value ||
-        system.resources.health.value === 0
-      ) {
-        system.resources.health.value = calculatedHealth;
+      // Initialize healthByForm for current form if not set
+      if (system.healthByForm[system.currentFormId] === undefined) {
+        system.healthByForm[system.currentFormId] = calculatedHealth;
       }
+
+      // Use per-form health value
+      system.resources.health.value = system.healthByForm[system.currentFormId];
 
       // Clamp health (can go negative to -20)
       system.resources.health.value = Math.max(
         -20,
         Math.min(system.resources.health.value, system.resources.health.max)
       );
+
+      // Store clamped value back to healthByForm
+      system.healthByForm[system.currentFormId] = system.resources.health.value;
 
       // Clamp karma (no max, just ensure non-negative)
       system.resources.karma.value = Math.max(0, system.resources.karma.value);
@@ -239,9 +247,32 @@ export class FaseripActor extends Actor {
       return;
     }
 
+    // Initialize healthByForm if not present
+    if (!system.healthByForm) {
+      system.healthByForm = {};
+    }
+
+    // Save current form's health value before switching
+    const currentFormId = system.currentFormId;
+    if (currentFormId) {
+      system.healthByForm[currentFormId] = system.resources.health.value;
+    }
+
     const updateData: Record<string, any> = {
       "system.currentFormId": formId
     };
+
+    // Save the current form's health to healthByForm
+    updateData[`system.healthByForm.${currentFormId}`] =
+      system.resources.health.value;
+
+    // Load target form's health (or initialize to max if not set)
+    let targetHealth = system.healthByForm[formId];
+    if (targetHealth === undefined) {
+      // Calculate max health for target form
+      targetHealth = calculateHealth(form);
+    }
+    updateData["system.resources.health.value"] = targetHealth;
 
     // Update token name to match actor name
     updateData["prototypeToken.name"] = this.name;
