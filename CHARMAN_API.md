@@ -24,28 +24,32 @@ A single JSON object matching the [CharmanCharacter](#charmancharacter) schema b
 
 The root object returned by the API.
 
-| Field       | Type                 | Required | Notes                                                                                         |
-| ----------- | -------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `id`        | `number`             | ✅       | Unique character ID                                                                           |
-| `owner_id`  | `number`             | ✅       | User ID of the owner                                                                          |
-| `name`      | `string`             | ✅       | Real / public name — used as the Foundry actor name                                           |
-| `callname`  | `string`             | ✅       | Hero/alias name — used in `/cr` chat commands                                                 |
-| `image`     | `string`             | —        | Absolute URL to character portrait; uploaded into Foundry on import                           |
-| `forms`     | `CharmanForm[]`      | —        | Alternate forms/identities. If omitted or empty, stats are read directly from the root object |
-| `fighting`  | `CharmanAttribute`   | —        | Base form Fighting (used when `forms` is absent)                                              |
-| `agility`   | `CharmanAttribute`   | —        | Base form Agility                                                                             |
-| `strength`  | `CharmanAttribute`   | —        | Base form Strength                                                                            |
-| `endurance` | `CharmanAttribute`   | —        | Base form Endurance                                                                           |
-| `reasoning` | `CharmanAttribute`   | —        | Base form Reasoning                                                                           |
-| `intuition` | `CharmanAttribute`   | —        | Base form Intuition                                                                           |
-| `psyche`    | `CharmanAttribute`   | —        | Base form Psyche                                                                              |
-| `powers`    | `CharmanPower[]`     | —        | List of super powers                                                                          |
-| `talents`   | `CharmanTalent[]`    | —        | List of talents                                                                               |
-| `equipment` | `CharmanEquipment[]` | —        | Equipment items (imported but not rendered in sheets yet)                                     |
-| `contacts`  | `CharmanContact[]`   | —        | NPC contacts                                                                                  |
-| `biography` | `string`             | —        | In-world biography text                                                                       |
-| `notes`     | `string`             | —        | Player-visible notes                                                                          |
-| `karma`     | `number`             | —        | Starting karma value (defaults to `0`)                                                        |
+| Field         | Type                 | Required | Notes                                                                                         |
+| ------------- | -------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `id`          | `number`             | ✅       | Unique character ID                                                                           |
+| `owner_id`    | `number`             | ✅       | User ID of the owner                                                                          |
+| `name`        | `string`             | ✅       | Real / public name — used as the Foundry actor name                                           |
+| `callname`    | `string`             | ✅       | Hero/alias name — used in `/cr` chat commands                                                 |
+| `image`       | `string`             | —        | Absolute URL to character portrait; uploaded into Foundry on import                           |
+| `tokenImage`  | `string`             | —        | Token image path for base form (used when `forms` is absent)                                  |
+| `tokenWidth`  | `number`             | —        | Token width in grid squares for base form (defaults to `1`)                                   |
+| `tokenHeight` | `number`             | —        | Token height in grid squares for base form (defaults to `1`)                                  |
+| `tokenScale`  | `number`             | —        | Token scale multiplier for base form (defaults to `1.0`; `2.0` = double size)                 |
+| `forms`       | `CharmanForm[]`      | —        | Alternate forms/identities. If omitted or empty, stats are read directly from the root object |
+| `fighting`    | `CharmanAttribute`   | —        | Base form Fighting (used when `forms` is absent)                                              |
+| `agility`     | `CharmanAttribute`   | —        | Base form Agility                                                                             |
+| `strength`    | `CharmanAttribute`   | —        | Base form Strength                                                                            |
+| `endurance`   | `CharmanAttribute`   | —        | Base form Endurance                                                                           |
+| `reasoning`   | `CharmanAttribute`   | —        | Base form Reasoning                                                                           |
+| `intuition`   | `CharmanAttribute`   | —        | Base form Intuition                                                                           |
+| `psyche`      | `CharmanAttribute`   | —        | Base form Psyche                                                                              |
+| `powers`      | `CharmanPower[]`     | —        | List of super powers                                                                          |
+| `talents`     | `CharmanTalent[]`    | —        | List of talents                                                                               |
+| `equipment`   | `CharmanEquipment[]` | —        | Equipment items (imported but not rendered in sheets yet)                                     |
+| `contacts`    | `CharmanContact[]`   | —        | NPC contacts                                                                                  |
+| `biography`   | `string`             | —        | In-world biography text                                                                       |
+| `notes`       | `string`             | —        | Player-visible notes                                                                          |
+| `karma`       | `number`             | —        | Starting karma value (defaults to `0`)                                                        |
 
 ---
 
@@ -69,18 +73,22 @@ A stat value. Accepted formats:
 
 Represents one of a character's alternate forms (e.g. secret identity vs. powered form).
 
-| Field       | Type               | Required | Notes                                                                           |
-| ----------- | ------------------ | -------- | ------------------------------------------------------------------------------- |
-| `id`        | `string`           | —        | Stable ID — generated on import if absent                                       |
-| `name`      | `string`           | ✅       | Form display name; must not contain spaces (spaces become `-` in chat commands) |
-| `isPrimary` | `boolean`          | —        | Marks the default form; first form is primary if omitted                        |
-| `fighting`  | `CharmanAttribute` | ✅       |                                                                                 |
-| `agility`   | `CharmanAttribute` | ✅       |                                                                                 |
-| `strength`  | `CharmanAttribute` | ✅       |                                                                                 |
-| `endurance` | `CharmanAttribute` | ✅       |                                                                                 |
-| `reasoning` | `CharmanAttribute` | ✅       |                                                                                 |
-| `intuition` | `CharmanAttribute` | ✅       |                                                                                 |
-| `psyche`    | `CharmanAttribute` | ✅       |                                                                                 |
+| Field         | Type               | Required | Notes                                                                           |
+| ------------- | ------------------ | -------- | ------------------------------------------------------------------------------- |
+| `id`          | `string`           | —        | Stable ID — generated on import if absent                                       |
+| `name`        | `string`           | ✅       | Form display name; must not contain spaces (spaces become `-` in chat commands) |
+| `isPrimary`   | `boolean`          | —        | Marks the default form; first form is primary if omitted                        |
+| `tokenImage`  | `string`           | —        | Token image path for this form                                                  |
+| `tokenWidth`  | `number`           | —        | Token width in grid squares (defaults to `1`)                                   |
+| `tokenHeight` | `number`           | —        | Token height in grid squares (defaults to `1`)                                  |
+| `tokenScale`  | `number`           | —        | Token scale multiplier (defaults to `1.0`; `2.0` = double size)                 |
+| `fighting`    | `CharmanAttribute` | ✅       |                                                                                 |
+| `agility`     | `CharmanAttribute` | ✅       |                                                                                 |
+| `strength`    | `CharmanAttribute` | ✅       |                                                                                 |
+| `endurance`   | `CharmanAttribute` | ✅       |                                                                                 |
+| `reasoning`   | `CharmanAttribute` | ✅       |                                                                                 |
+| `intuition`   | `CharmanAttribute` | ✅       |                                                                                 |
+| `psyche`      | `CharmanAttribute` | ✅       |                                                                                 |
 
 Stats may be nested under an `attributes` key or provided flat:
 
@@ -91,6 +99,18 @@ Stats may be nested under an `attributes` key or provided flat:
 // nested
 { "name": "Spider-Man", "attributes": { "agility": "incredible", ... } }
 ```
+
+**Token Configuration:**
+
+Token settings control how the character appears on the game canvas in Foundry VTT:
+
+- **`tokenImage`**: Path to the token image file. If not specified, the character portrait (`image`) is used.
+- **`tokenWidth` / `tokenHeight`**: Size in grid squares (e.g., `2` for a 2×2 grid creature). Defaults to `1`.
+- **`tokenScale`**: Visual scale multiplier applied to the token image. `1.0` = normal size, `2.0` = double size, `0.5` = half size. Defaults to `1.0`.
+
+When a character has **multiple forms**, the **primary form's** token settings are used for the actor's prototype token (the default appearance). If token settings are omitted from a form, defaults are used (`1` for width/height, `1.0` for scale).
+
+When a character has **no forms** (stats at root level), use the root-level token fields (`tokenImage`, `tokenWidth`, `tokenHeight`, `tokenScale`) to configure the base token.
 
 ---
 
@@ -183,6 +203,10 @@ Common abbreviations (case-insensitive) are also accepted: `s0`, `fe`, `pr`, `ty
       "id": "form-base",
       "name": "Peter-Parker",
       "isPrimary": true,
+      "tokenImage": "",
+      "tokenWidth": 1,
+      "tokenHeight": 1,
+      "tokenScale": 1.0,
       "fighting": "typical",
       "agility": "typical",
       "strength": "typical",
@@ -195,6 +219,10 @@ Common abbreviations (case-insensitive) are also accepted: `s0`, `fe`, `pr`, `ty
       "id": "form-spiderman",
       "name": "Spider-Man",
       "isPrimary": false,
+      "tokenImage": "tokens/heroes/spiderman.webp",
+      "tokenWidth": 1,
+      "tokenHeight": 1,
+      "tokenScale": 1.2,
       "fighting": "remarkable",
       "agility": "incredible",
       "strength": "incredible",
@@ -223,6 +251,44 @@ Common abbreviations (case-insensitive) are also accepted: `s0`, `fe`, `pr`, `ty
   ],
   "equipment": [{ "name": "Web-Shooters", "quantity": 1 }],
   "contacts": [{ "name": "Mary Jane Watson", "relationship": "Partner" }]
+}
+```
+
+**Example 2: Character Without Forms (Base Stats + Token Config at Root)**
+
+```json
+{
+  "id": 456,
+  "owner_id": 101,
+  "name": "The Hulk",
+  "callname": "Hulk",
+  "image": "https://example.com/hulk-portrait.jpg",
+  "tokenImage": "tokens/heroes/hulk.webp",
+  "tokenWidth": 2,
+  "tokenHeight": 2,
+  "tokenScale": 1.5,
+  "fighting": "unearthly",
+  "agility": "good",
+  "strength": "unearthly",
+  "endurance": "unearthly",
+  "reasoning": "typical",
+  "intuition": "good",
+  "psyche": "excellent",
+  "powers": [
+    {
+      "name": "Body-Resistance",
+      "rank": "class-1000",
+      "category": "Defensive"
+    },
+    {
+      "name": "Leaping",
+      "rank": "shift-x",
+      "category": "Movement"
+    }
+  ],
+  "talents": [{ "name": "Martial-Arts-B", "bonus": 1 }],
+  "biography": "Bruce Banner transforms into the unstoppable Hulk.",
+  "karma": 50
 }
 ```
 

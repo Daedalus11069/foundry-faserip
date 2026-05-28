@@ -18,6 +18,10 @@ export interface CharmanCharacter {
   name: string;
   callname: string;
   image?: string;
+  tokenImage?: string; // Token image (if no forms present, applies to base form)
+  tokenWidth?: number; // Token width in grid squares (default: 1)
+  tokenHeight?: number; // Token height in grid squares (default: 1)
+  tokenScale?: number; // Token scale multiplier (default: 1)
   forms: CharmanForm[];
   fighting: any;
   agility: any;
@@ -38,6 +42,10 @@ export interface CharmanCharacter {
 export interface CharmanForm {
   name: string;
   description?: string;
+  tokenImage?: string; // Token image path for this form
+  tokenWidth?: number; // Token width in grid squares (default: 1)
+  tokenHeight?: number; // Token height in grid squares (default: 1)
+  tokenScale?: number; // Token scale multiplier (default: 1)
   fighting: any;
   agility: any;
   strength: any;
@@ -293,49 +301,105 @@ export class CharmanService {
     // Convert forms
     const forms =
       charmanChar.forms && charmanChar.forms.length > 0
-        ? charmanChar.forms.map((form: any, index: number) => {
-            // Handle both nested attributes object and flat structure
-            const attrs = form.attributes || form;
-            return {
-              id: form.id || nanoid(),
-              name: form.name || `Form ${index + 1}`,
-              isPrimary:
-                form.isPrimary !== undefined ? form.isPrimary : index === 0,
-              tokenImage: form.tokenImage || "",
-              tokenWidth: form.tokenWidth || 1,
-              tokenHeight: form.tokenHeight || 1,
-              tokenScale: form.tokenScale || 1,
-              attributes: {
-                fighting: parseRankFromCharman(attrs.fighting),
-                agility: parseRankFromCharman(attrs.agility),
-                strength: parseRankFromCharman(attrs.strength),
-                endurance: parseRankFromCharman(attrs.endurance),
-                reasoning: parseRankFromCharman(attrs.reasoning),
-                intuition: parseRankFromCharman(attrs.intuition),
-                psyche: parseRankFromCharman(attrs.psyche)
+        ? await Promise.all(
+            charmanChar.forms.map(async (form: any, index: number) => {
+              // Handle both nested attributes object and flat structure
+              const attrs = form.attributes || form;
+
+              // Upload token image if it's a remote URL
+              let tokenImagePath = form.tokenImage || "";
+              if (
+                tokenImagePath &&
+                (tokenImagePath.startsWith("http://") ||
+                  tokenImagePath.startsWith("https://"))
+              ) {
+                try {
+                  const uploadedPath = await this.uploadRemoteImage(
+                    tokenImagePath,
+                    `${charmanChar.callname}_${form.name}_token`,
+                    undefined
+                  );
+                  if (uploadedPath) {
+                    tokenImagePath = uploadedPath;
+                    console.log(
+                      `Uploaded token image for form "${form.name}" to Foundry`
+                    );
+                  }
+                } catch (error) {
+                  console.warn(
+                    `Failed to upload token image for form "${form.name}":`,
+                    error
+                  );
+                  // Keep original URL if upload fails
+                }
               }
-            };
-          })
-        : [
-            {
-              id: nanoid(),
-              name: "Base Form",
-              isPrimary: true,
-              tokenImage: "",
-              tokenWidth: 1,
-              tokenHeight: 1,
-              tokenScale: 1,
-              attributes: {
-                fighting: parseRankFromCharman(charmanChar.fighting),
-                agility: parseRankFromCharman(charmanChar.agility),
-                strength: parseRankFromCharman(charmanChar.strength),
-                endurance: parseRankFromCharman(charmanChar.endurance),
-                reasoning: parseRankFromCharman(charmanChar.reasoning),
-                intuition: parseRankFromCharman(charmanChar.intuition),
-                psyche: parseRankFromCharman(charmanChar.psyche)
+
+              return {
+                id: form.id || nanoid(),
+                name: form.name || `Form ${index + 1}`,
+                isPrimary:
+                  form.isPrimary !== undefined ? form.isPrimary : index === 0,
+                tokenImage: tokenImagePath,
+                tokenWidth: form.tokenWidth || 1,
+                tokenHeight: form.tokenHeight || 1,
+                tokenScale: form.tokenScale || 1,
+                attributes: {
+                  fighting: parseRankFromCharman(attrs.fighting),
+                  agility: parseRankFromCharman(attrs.agility),
+                  strength: parseRankFromCharman(attrs.strength),
+                  endurance: parseRankFromCharman(attrs.endurance),
+                  reasoning: parseRankFromCharman(attrs.reasoning),
+                  intuition: parseRankFromCharman(attrs.intuition),
+                  psyche: parseRankFromCharman(attrs.psyche)
+                }
+              };
+            })
+          )
+        : await (async () => {
+            // Upload base form token image if it's a remote URL
+            let baseTokenImagePath = charmanChar.tokenImage || "";
+            if (
+              baseTokenImagePath &&
+              (baseTokenImagePath.startsWith("http://") ||
+                baseTokenImagePath.startsWith("https://"))
+            ) {
+              try {
+                const uploadedPath = await this.uploadRemoteImage(
+                  baseTokenImagePath,
+                  `${charmanChar.callname}_base_token`,
+                  undefined
+                );
+                if (uploadedPath) {
+                  baseTokenImagePath = uploadedPath;
+                  console.log(`Uploaded base form token image to Foundry`);
+                }
+              } catch (error) {
+                console.warn(`Failed to upload base form token image:`, error);
+                // Keep original URL if upload fails
               }
             }
-          ];
+
+            return [
+              {
+                id: nanoid(),
+                name: "Base Form",
+                isPrimary: true,
+                tokenImage: baseTokenImagePath,
+                tokenWidth: charmanChar.tokenWidth || 1,
+                tokenHeight: charmanChar.tokenHeight || 1,
+                tokenScale: charmanChar.tokenScale || 1,
+                attributes: {
+                  fighting: parseRankFromCharman(charmanChar.fighting),
+                  agility: parseRankFromCharman(charmanChar.agility),
+                  strength: parseRankFromCharman(charmanChar.strength),
+                  endurance: parseRankFromCharman(charmanChar.endurance),
+                  reasoning: parseRankFromCharman(charmanChar.reasoning),
+                  intuition: parseRankFromCharman(charmanChar.intuition),
+                  psyche: parseRankFromCharman(charmanChar.psyche)
+                }
+              }
+            ];
+          })();
 
     // Convert powers
     const powers = (charmanChar.powers || []).map((power: CharmanPower) => {
@@ -409,14 +473,25 @@ export class CharmanService {
     // Callname is the civilian/call name (displayed below as smaller text)
     const actorName = charmanChar.name || "Unknown Character";
 
+    // Get primary form for token settings
+    const primaryForm = forms.find(f => f.isPrimary) || forms[0];
+    const tokenTextureSrc = primaryForm.tokenImage || imageUrl;
+    const tokenWidth = primaryForm.tokenWidth || 1;
+    const tokenHeight = primaryForm.tokenHeight || 1;
+    const tokenScale = primaryForm.tokenScale || 1;
+
     return {
       name: actorName,
       type: "pc",
       img: imageUrl,
       prototypeToken: {
         texture: {
-          src: imageUrl
+          src: tokenTextureSrc,
+          scaleX: tokenScale,
+          scaleY: tokenScale
         },
+        width: tokenWidth,
+        height: tokenHeight,
         sight: {
           enabled: true
         },
@@ -487,7 +562,13 @@ export class CharmanService {
       const updateData: Record<string, any> = {
         name: actorData.name,
         img: actorData.img,
-        "prototypeToken.texture.src": actorData.img,
+        "prototypeToken.texture.src": actorData.prototypeToken.texture.src,
+        "prototypeToken.texture.scaleX":
+          actorData.prototypeToken.texture.scaleX,
+        "prototypeToken.texture.scaleY":
+          actorData.prototypeToken.texture.scaleY,
+        "prototypeToken.width": actorData.prototypeToken.width,
+        "prototypeToken.height": actorData.prototypeToken.height,
         "system.currentFormId": actorData.system.currentFormId,
         "system.forms": actorData.system.forms,
         "system.callname": actorData.system.callname,
