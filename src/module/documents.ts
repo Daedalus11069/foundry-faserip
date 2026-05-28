@@ -140,7 +140,7 @@ export class FaseripActor extends Actor {
         system.healthByForm[system.currentFormId] = calculatedHealth;
       }
 
-      // Use per-form health value
+      // Load health from healthByForm for the current form
       system.resources.health.value = system.healthByForm[system.currentFormId];
 
       // Clamp health (can go negative to -20)
@@ -148,9 +148,6 @@ export class FaseripActor extends Actor {
         -20,
         Math.min(system.resources.health.value, system.resources.health.max)
       );
-
-      // Store clamped value back to healthByForm
-      system.healthByForm[system.currentFormId] = system.resources.health.value;
 
       // Clamp karma (no max, just ensure non-negative)
       system.resources.karma.value = Math.max(0, system.resources.karma.value);
@@ -252,27 +249,28 @@ export class FaseripActor extends Actor {
       system.healthByForm = {};
     }
 
+    // Clone the healthByForm object to modify it
+    const updatedHealthByForm = { ...system.healthByForm };
+
     // Save current form's health value before switching
     const currentFormId = system.currentFormId;
     if (currentFormId) {
-      system.healthByForm[currentFormId] = system.resources.health.value;
+      updatedHealthByForm[currentFormId] = system.resources.health.value;
     }
 
-    const updateData: Record<string, any> = {
-      "system.currentFormId": formId
-    };
-
-    // Save the current form's health to healthByForm
-    updateData[`system.healthByForm.${currentFormId}`] =
-      system.resources.health.value;
-
     // Load target form's health (or initialize to max if not set)
-    let targetHealth = system.healthByForm[formId];
+    let targetHealth = updatedHealthByForm[formId];
     if (targetHealth === undefined) {
       // Calculate max health for target form
       targetHealth = calculateHealth(form);
+      updatedHealthByForm[formId] = targetHealth;
     }
-    updateData["system.resources.health.value"] = targetHealth;
+
+    const updateData: Record<string, any> = {
+      "system.currentFormId": formId,
+      "system.healthByForm": updatedHealthByForm,
+      "system.resources.health.value": targetHealth
+    };
 
     // Update token name to match actor name
     updateData["prototypeToken.name"] = this.name;
@@ -338,7 +336,5 @@ export class FaseripActor extends Actor {
         await scene.updateEmbeddedDocuments("Token", [tokenUpdate]);
       }
     }
-
-    ui.notifications?.info(`Switched to ${form.name}`);
   }
 }

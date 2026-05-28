@@ -421,6 +421,28 @@ if (import.meta.env.DEV) {
   });
 }
 
+// ─── Actor Update Hook: Sync health changes to healthByForm ────────────────────
+
+Hooks.on("preUpdateActor", (actor: any, changes: any, _options: any) => {
+  // Don't sync health if we're switching forms - switchForm() handles that
+  if (changes.system?.currentFormId !== undefined) {
+    return;
+  }
+
+  // If health value is being updated, also update the healthByForm for current form
+  if (changes.system?.resources?.health?.value !== undefined) {
+    const currentFormId = actor.system.currentFormId;
+    if (currentFormId) {
+      // Clone the existing healthByForm and update it
+      const updatedHealthByForm = {
+        ...(actor.system.healthByForm || {}),
+        [currentFormId]: changes.system.resources.health.value
+      };
+      changes.system.healthByForm = updatedHealthByForm;
+    }
+  }
+});
+
 // ─── Token HUD: Inject Intuition Button ────────────────────────────────────────
 
 Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
