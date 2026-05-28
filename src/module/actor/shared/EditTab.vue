@@ -214,7 +214,22 @@ async function importFromCharman() {
     importCharacterName.value = "";
   } catch (error) {
     console.error("Import failed:", error);
-    ui.notifications?.error("Failed to import character from Charman");
+
+    // Check if error has available_characters array
+    const errorWithChars = error as Error & { availableCharacters?: string[] };
+    let errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Failed to import character from Charman";
+
+    if (
+      errorWithChars.availableCharacters &&
+      errorWithChars.availableCharacters.length > 0
+    ) {
+      errorMessage += `<br><br><strong>Available characters:</strong><br>${errorWithChars.availableCharacters.join(", ")}`;
+    }
+
+    ui.notifications?.error(errorMessage);
   } finally {
     importing.value = false;
   }
@@ -244,7 +259,22 @@ async function resyncFromCharman() {
     ui.notifications?.success("Character re-synced from Charman");
   } catch (error) {
     console.error("Re-sync failed:", error);
-    ui.notifications?.error("Failed to re-sync character from Charman");
+
+    // Check if error has available_characters array
+    const errorWithChars = error as Error & { availableCharacters?: string[] };
+    let errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Failed to re-sync character from Charman";
+
+    if (
+      errorWithChars.availableCharacters &&
+      errorWithChars.availableCharacters.length > 0
+    ) {
+      errorMessage += `<br><br><strong>Available characters:</strong><br>${errorWithChars.availableCharacters.join(", ")}`;
+    }
+
+    ui.notifications?.error(errorMessage);
   } finally {
     importing.value = false;
   }

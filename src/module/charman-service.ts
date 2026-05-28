@@ -113,17 +113,52 @@ export class CharmanService {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch character: ${response.statusText}`);
+        // Provide better default message based on status code
+        let errorMessage = "Character not found";
+        if (response.status === 404) {
+          errorMessage = `Character "${characterName}" not found for user "${username}"`;
+        } else if (response.status === 401 || response.status === 403) {
+          errorMessage = "Authentication failed - check API key";
+        } else if (response.status >= 500) {
+          errorMessage = "Server error - please try again later";
+        } else {
+          errorMessage = `Request failed (${response.status})`;
+        }
+
+        let availableCharacters: string[] | undefined;
+
+        try {
+          const errorData = await response.json();
+          // Only use API message if it's not empty and provides more info
+          if (errorData.message && errorData.message.trim()) {
+            errorMessage = errorData.message;
+          }
+          if (
+            errorData.available_characters &&
+            Array.isArray(errorData.available_characters)
+          ) {
+            availableCharacters = errorData.available_characters;
+          }
+        } catch {
+          // Failed to parse error response, use default message
+        }
+
+        // Create error with available characters attached
+        const error = new Error(errorMessage) as Error & {
+          availableCharacters?: string[];
+        };
+        if (availableCharacters) {
+          error.availableCharacters = availableCharacters;
+        }
+        throw error;
       }
 
       const data = await response.json();
       return data;
     } catch (error) {
       console.error("Error fetching character from Charman:", error);
-      ui.notifications?.error(
-        `Failed to fetch character: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-      return null;
+      // Re-throw the error so it can be caught by importCharacter
+      throw error;
     }
   }
 
