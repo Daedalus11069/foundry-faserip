@@ -515,13 +515,29 @@ async function browseTokenImage() {
           v-for="form in forms"
           :key="form.id"
           :class="[
-            'flex items-center gap-2 p-1 rounded cursor-pointer transition-colors',
+            'flex items-center gap-2 p-1 rounded transition-colors',
             editFormId === form.id
               ? 'bg-yellow-900/40 border border-yellow-600'
               : 'hover:bg-gray-700 border border-transparent'
           ]"
-          @click="editFormId = form.id"
         >
+          <!-- Selection Radio Button -->
+          <button
+            @click="editFormId = form.id"
+            :class="[
+              'w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all cursor-pointer',
+              editFormId === form.id
+                ? 'border-yellow-400 bg-yellow-400'
+                : 'border-gray-500 hover:border-gray-400'
+            ]"
+            :title="`Select ${form.name} for editing`"
+          >
+            <span
+              v-if="editFormId === form.id"
+              class="w-2 h-2 rounded-full bg-gray-900"
+            ></span>
+          </button>
+
           <input
             v-model="form.name"
             type="text"
