@@ -531,9 +531,12 @@ export class CharmanService {
           enabled: true
         },
         displayName: CONST.TOKEN_DISPLAY_MODES.ALWAYS,
-        displayBars: CONST.TOKEN_DISPLAY_MODES.OWNER,
+        displayBars: CONST.TOKEN_DISPLAY_MODES.ALWAYS,
         bar1: {
           attribute: "resources.health"
+        },
+        bar2: {
+          attribute: "resources.armor"
         }
       },
       system: {

@@ -2,7 +2,7 @@
 import { inject, computed, ref } from "vue";
 import { formatRankDisplay, RANK_ORDER } from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
-import { stringToRank } from "../../utils";
+import { stringToRank, getRankValue } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import {
   showTalentSelectionDialog,
@@ -60,6 +60,11 @@ const mpEnabled = computed(
   () => game.settings.get("faserip", "mpEnabled") ?? false
 );
 
+// Check if degrading armor is enabled
+const degradingEnabled = computed(
+  () => game.settings.get("faserip", "degradingArmor") ?? false
+);
+
 function addPower() {
   if (!reactiveActor.system.powers) {
     reactiveActor.system.powers = [];
@@ -71,6 +76,7 @@ function addPower() {
     rank: "typical",
     category: "general",
     value: 6, // Typical rank value
+    maxValue: 6, // Initialize maxValue
     formIds: []
   };
   reactiveActor.system.powers.push(newPower);
@@ -78,6 +84,54 @@ function addPower() {
 
 function removePower(index: number) {
   reactiveActor.system.powers.splice(index, 1);
+}
+
+function isBodyArmor(power: Power): boolean {
+  return power.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor";
+}
+
+async function repairPower(power: Power) {
+  const maxValue = power.maxValue || power.value;
+  const currentDamage = maxValue - power.value;
+
+  if (currentDamage <= 0) return;
+
+  // @ts-expect-error - DialogV2 path not fully typed
+  const result = await foundry.applications.api.DialogV2.prompt({
+    window: { title: `Repair ${power.name}` },
+    content: `
+      <form>
+        <div class="form-group">
+          <label>Repair Amount (Current: ${power.value}/${maxValue}, Damage: ${currentDamage})</label>
+          <input type="number" name="amount" value="${currentDamage}" min="1" max="${currentDamage}" autofocus />
+        </div>
+      </form>
+    `,
+    modal: true,
+    rejectClose: false,
+    ok: {
+      label: "Repair",
+      callback: (event: any, button: any, dialog: any) => {
+        const form = button.form;
+        return new FormDataExtended(form).object;
+      }
+    }
+  });
+
+  if (result && result.amount) {
+    const repairAmount = Math.min(
+      Math.max(1, Number(result.amount)),
+      currentDamage
+    );
+    power.value = Math.min(maxValue, power.value + repairAmount);
+  }
+}
+
+function onPowerRankChange(power: Power, rank: string) {
+  power.rank = rank;
+  const newValue = getRankValue(rank);
+  power.value = newValue;
+  power.maxValue = newValue;
 }
 
 async function rollPower(power: Power) {
@@ -331,7 +385,11 @@ async function rollPower(power: Power) {
         >
           <div>
             <label class="fsr-label">Rank</label>
-            <select v-model="power.rank" class="fsr-select text-sm w-40">
+            <select
+              :value="power.rank"
+              @change="(e: any) => onPowerRankChange(power, e.target.value)"
+              class="fsr-select text-sm w-40"
+            >
               <option v-for="r in RANK_ORDER" :key="r" :value="r">
                 {{ formatRankDisplay(r) }}
               </option>
@@ -355,6 +413,36 @@ async function rollPower(power: Power) {
               placeholder="0"
               min="0"
             />
+          </div>
+        </div>
+
+        <!-- Body Armor value display and repair (when degrading armor is enabled) -->
+        <div
+          v-if="degradingEnabled && isBodyArmor(power)"
+          class="mb-2 p-2 bg-blue-900/20 border border-blue-700 rounded"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-300">Armor Protection:</span>
+              <span class="text-lg font-bold text-blue-300"
+                >{{ power.value }}/{{ power.maxValue || power.value }}</span
+              >
+            </div>
+            <button
+              v-if="power.value < (power.maxValue || power.value)"
+              @click="repairPower(power)"
+              class="text-blue-400 hover:text-blue-300 text-sm"
+              :title="'Repair to full'"
+            >
+              🔧 Repair
+            </button>
+            <span
+              v-else
+              class="text-green-400 text-sm"
+              :title="'Body Armor at full strength'"
+            >
+              ✓ Full
+            </span>
           </div>
         </div>
 

@@ -12,6 +12,10 @@ const equippedArmor = computed<ArmorItem | undefined>(() =>
   armors.value.find(a => a.equipped)
 );
 
+const degradingEnabled = computed(
+  () => game.settings.get("faserip", "degradingArmor") ?? false
+);
+
 // Ranks available as armor (Typical and above — Shift 0/Feeble/Poor rarely used for armor)
 const armorRanks = RANK_ORDER.filter(
   r => r !== Rank.Shift0 && r !== Rank.Feeble && r !== Rank.Poor
@@ -19,11 +23,13 @@ const armorRanks = RANK_ORDER.filter(
 
 function addArmor() {
   if (!reactiveActor.system.armors) reactiveActor.system.armors = [];
+  const rankValue = RANK_VALUES[Rank.Typical];
   const newArmor: ArmorItem = {
     id: crypto.randomUUID(),
     name: "New Armor",
     rank: Rank.Typical,
-    value: RANK_VALUES[Rank.Typical],
+    value: rankValue,
+    maxValue: rankValue,
     equipped: false,
     description: ""
   };
@@ -43,7 +49,9 @@ async function removeArmor(index: number) {
 
 function onRankChange(armor: ArmorItem, rank: string) {
   armor.rank = rank;
-  armor.value = getRankValue(rank);
+  const newValue = getRankValue(rank);
+  armor.value = newValue;
+  armor.maxValue = newValue;
 }
 
 function equipArmor(armorId: string) {
@@ -56,6 +64,43 @@ function equipArmor(armorId: string) {
 function unequipAll() {
   for (const a of reactiveActor.system.armors) {
     a.equipped = false;
+  }
+}
+
+async function repairArmor(armor: ArmorItem) {
+  const maxValue = armor.maxValue || armor.value;
+  const currentDamage = maxValue - armor.value;
+
+  if (currentDamage <= 0) return;
+
+  // @ts-expect-error - DialogV2 path not fully typed
+  const result = await foundry.applications.api.DialogV2.prompt({
+    window: { title: `Repair ${armor.name}` },
+    content: `
+      <form>
+        <div class="form-group">
+          <label>Repair Amount (Current: ${armor.value}/${maxValue}, Damage: ${currentDamage})</label>
+          <input type="number" name="amount" value="${currentDamage}" min="1" max="${currentDamage}" autofocus />
+        </div>
+      </form>
+    `,
+    modal: true,
+    rejectClose: false,
+    ok: {
+      label: "Repair",
+      callback: (event: any, button: any, dialog: any) => {
+        const form = button.form;
+        return new FormDataExtended(form).object;
+      }
+    }
+  });
+
+  if (result && result.amount) {
+    const repairAmount = Math.min(
+      Math.max(1, Number(result.amount)),
+      currentDamage
+    );
+    armor.value = Math.min(maxValue, armor.value + repairAmount);
   }
 }
 </script>
@@ -86,7 +131,13 @@ function unequipAll() {
         <span class="fsr-rank-badge">{{
           formatRankDisplay(equippedArmor.rank)
         }}</span>
-        <span class="text-green-400 font-bold"
+        <span v-if="degradingEnabled" class="text-green-400 font-bold"
+          >{{ equippedArmor.value }}/{{
+            equippedArmor.maxValue || equippedArmor.value
+          }}
+          armor</span
+        >
+        <span v-else class="text-green-400 font-bold"
           >–{{ equippedArmor.value }} dmg</span
         >
         <button
@@ -149,9 +200,26 @@ function unequipAll() {
           </select>
 
           <!-- Value badge -->
-          <span class="text-gray-400 text-sm w-14 text-right"
+          <span
+            v-if="degradingEnabled"
+            class="text-gray-400 text-sm w-24 text-right"
+            >{{ armor.value }}/{{ armor.maxValue || armor.value }}</span
+          >
+          <span v-else class="text-gray-400 text-sm w-14 text-right"
             >–{{ armor.value }}</span
           >
+
+          <!-- Repair button (only if degrading is enabled and armor is damaged) -->
+          <button
+            v-if="
+              degradingEnabled && armor.value < (armor.maxValue || armor.value)
+            "
+            @click="repairArmor(armor)"
+            class="text-blue-400 hover:text-blue-300 text-xs shrink-0"
+            title="Repair to full"
+          >
+            🔧
+          </button>
 
           <!-- Delete -->
           <button

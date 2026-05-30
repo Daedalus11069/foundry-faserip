@@ -72,9 +72,12 @@ export class FaseripActor extends Actor {
           enabled: true
         },
         displayName: CONST.TOKEN_DISPLAY_MODES.ALWAYS,
-        displayBars: CONST.TOKEN_DISPLAY_MODES.OWNER,
+        displayBars: CONST.TOKEN_DISPLAY_MODES.ALWAYS,
         bar1: {
           attribute: "resources.health"
+        },
+        bar2: {
+          attribute: "resources.armor"
         }
       };
     }
@@ -188,6 +191,39 @@ export class FaseripActor extends Actor {
         }
       }
     }
+
+    // Calculate derived armor resource for token bar display
+    // This is not stored in the schema - it's dynamically calculated
+    const activeFormId = system.currentFormId;
+    const bodyArmorPower = (system.powers || []).find(
+      (p: any) =>
+        p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+        (!p.formIds?.length || p.formIds.includes(activeFormId))
+    );
+
+    // Find equipped armor
+    const equippedArmor = (system.armors || []).find((a: any) => a.equipped);
+
+    // Calculate current and max armor values
+    let currentArmor = 0;
+    let maxArmor = 0;
+
+    if (bodyArmorPower) {
+      currentArmor += bodyArmorPower.value;
+      maxArmor += bodyArmorPower.maxValue || bodyArmorPower.value;
+    }
+
+    if (equippedArmor) {
+      currentArmor += equippedArmor.value;
+      maxArmor += equippedArmor.maxValue || equippedArmor.value;
+    }
+
+    // Add armor as derived data (not stored in database)
+    if (!system.resources.armor) {
+      system.resources.armor = { value: 0, max: 0 };
+    }
+    system.resources.armor.value = currentArmor;
+    system.resources.armor.max = maxArmor;
   }
 
   /**

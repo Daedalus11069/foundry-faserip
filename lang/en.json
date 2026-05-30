@@ -66,6 +66,10 @@
         "name": "Enable Armor / Equipment System",
         "hint": "Enable the houserule Armor system. When enabled, an Armor tab appears on each character sheet where armor of a given rank can be equipped. Equipped armor reduces incoming physical damage."
       },
+      "degradingArmor": {
+        "name": "Enable Degrading Armor",
+        "hint": "When enabled (requires Armor system), armor takes damage when it soaks incoming damage. Armor rating is reduced by the amount soaked. Example: Incredible (40) armor that soaks 30 damage becomes 10 rating. Armor can be repaired from the Armor tab."
+      },
       "lockPlayerStats": {
         "name": "Lock Player Stat Editing",
         "hint": "When enabled, prevents players from editing character form attributes (Fighting, Agility, Strength, etc.) on their sheets. Only GMs can edit stats, but players can still sync from Charman and edit equipment/armor."

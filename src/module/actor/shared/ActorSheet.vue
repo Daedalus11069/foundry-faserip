@@ -112,6 +112,53 @@ const healthPercent = computed(() => {
   return Math.min(100, Math.max(0, (val / max) * 100));
 });
 
+// Combined armor (Body Armor power + equipped armor)
+const bodyArmorPower = computed(() => {
+  const activeFormId = reactiveActor.system.currentFormId;
+  return (
+    (reactiveActor.system.powers || []).find(
+      (p: any) =>
+        p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+        (!p.formIds?.length || p.formIds.includes(activeFormId))
+    ) ?? null
+  );
+});
+
+const equippedArmor = computed(() => {
+  if (!armorEnabled.value) return null;
+  return (
+    (reactiveActor.system.armors || []).find((a: any) => a.equipped) ?? null
+  );
+});
+
+const degradingEnabled = computed(
+  () => game.settings.get("faserip", "degradingArmor") ?? false
+);
+
+const armorValue = computed(() => {
+  let total = 0;
+  if (bodyArmorPower.value) total += bodyArmorPower.value.value;
+  if (equippedArmor.value) total += equippedArmor.value.value;
+  return total;
+});
+
+const armorMax = computed(() => {
+  let total = 0;
+  if (bodyArmorPower.value) {
+    total += bodyArmorPower.value.maxValue || bodyArmorPower.value.value;
+  }
+  if (equippedArmor.value) {
+    total += equippedArmor.value.maxValue || equippedArmor.value.value;
+  }
+  return total;
+});
+
+const armorPercent = computed(() => {
+  const max = armorMax.value;
+  if (max === 0) return 0;
+  return Math.min(100, Math.max(0, (armorValue.value / max) * 100));
+});
+
 const forms = computed(() => reactiveActor.system.forms || []);
 
 async function switchForm(formId: string) {
@@ -235,6 +282,24 @@ function copyMovementPath() {
                 <span :class="healthValue < 0 ? 'text-red-400 font-bold' : ''">
                   Health: {{ healthValue }} / {{ healthMax }}
                 </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Combined Armor Bar (when armor system is enabled) -->
+          <div v-if="armorEnabled && armorMax > 0" class="fsr-resource mt-2">
+            <div class="fsr-resource-bar">
+              <div
+                class="fsr-resource-fill bg-blue-500"
+                :style="{
+                  width: `${armorPercent}%`
+                }"
+              ></div>
+              <div class="fsr-resource-label">
+                <span v-if="degradingEnabled">
+                  Armor: {{ armorValue }} / {{ armorMax }}
+                </span>
+                <span v-else> Armor: {{ armorValue }} </span>
               </div>
             </div>
           </div>

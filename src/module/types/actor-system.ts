@@ -34,6 +34,7 @@ export interface ResourcesData {
   health: ResourceData;
   karma: KarmaData;
   mentalPoints?: MentalPointsData;
+  armor?: ResourceData; // Derived - calculated from Body Armor power + equipped armor
 }
 
 export interface FormAttributeSet {

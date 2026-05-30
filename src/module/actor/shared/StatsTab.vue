@@ -65,6 +65,10 @@ const armorEnabled = computed(
   () => game.settings.get("faserip", "armorEnabled") ?? false
 );
 
+const degradingEnabled = computed(
+  () => game.settings.get("faserip", "degradingArmor") ?? false
+);
+
 const equippedArmor = computed(() => {
   if (!armorEnabled.value) return null;
   return (
@@ -93,21 +97,47 @@ async function applyDamage() {
   let incoming = damageAmount.value;
   const soakSources: string[] = [];
 
-  // Body Armor power soaks first (always active)
-  if (bodyArmorPower.value) {
-    const powerSoak = Math.min(incoming, bodyArmorPower.value.value);
-    if (powerSoak > 0) {
-      soakSources.push(`${bodyArmorPower.value.name} –${powerSoak}`);
-      incoming = Math.max(0, incoming - powerSoak);
-    }
-  }
-
-  // Equipped armor soaks remainder (house rule setting)
-  if (equippedArmor.value && incoming > 0) {
+  // Equipped armor soaks first (house rule setting)
+  if (equippedArmor.value) {
     const armorSoak = Math.min(incoming, equippedArmor.value.value);
     if (armorSoak > 0) {
       soakSources.push(`${equippedArmor.value.name} –${armorSoak}`);
       incoming = Math.max(0, incoming - armorSoak);
+
+      // Degrade armor if the setting is enabled
+      const degradingEnabled =
+        game.settings.get("faserip", "degradingArmor") ?? false;
+      if (degradingEnabled) {
+        equippedArmor.value.value = Math.max(
+          0,
+          equippedArmor.value.value - armorSoak
+        );
+        if (equippedArmor.value.value === 0) {
+          ui.notifications?.warn(`${equippedArmor.value.name} is destroyed!`);
+        }
+      }
+    }
+  }
+
+  // Body Armor power soaks remainder (always active)
+  if (bodyArmorPower.value && incoming > 0) {
+    const powerSoak = Math.min(incoming, bodyArmorPower.value.value);
+    if (powerSoak > 0) {
+      soakSources.push(`${bodyArmorPower.value.name} –${powerSoak}`);
+      incoming = Math.max(0, incoming - powerSoak);
+
+      // Degrade Body Armor power if the setting is enabled
+      const degradingEnabled =
+        game.settings.get("faserip", "degradingArmor") ?? false;
+      if (degradingEnabled) {
+        bodyArmorPower.value.value = Math.max(
+          0,
+          bodyArmorPower.value.value - powerSoak
+        );
+        if (bodyArmorPower.value.value === 0) {
+          ui.notifications?.warn(`${bodyArmorPower.value.name} is destroyed!`);
+        }
+      }
     }
   }
 
@@ -117,9 +147,9 @@ async function applyDamage() {
   );
 
   if (soakSources.length > 0) {
-    ui.notifications?.info(
-      `Absorbed: ${soakSources.join(", ")}. ${incoming} damage applied.`
-    );
+    // ui.notifications?.info(
+    //   `Absorbed: ${soakSources.join(", ")}. ${incoming} damage applied.`
+    // );
   }
 
   damageAmount.value = 0;
@@ -385,12 +415,22 @@ async function rollPower(power: any) {
         <span v-if="bodyArmorPower" class="flex items-center gap-1">
           🦾 <span>{{ bodyArmorPower.name }}</span>
           <span class="fsr-rank-badge">{{ bodyArmorPower.rank }}</span>
-          <span>absorbs {{ bodyArmorPower.value }}</span>
+          <span v-if="degradingEnabled"
+            >absorbs {{ bodyArmorPower.value }}/{{
+              bodyArmorPower.maxValue || bodyArmorPower.value
+            }}</span
+          >
+          <span v-else>absorbs {{ bodyArmorPower.value }}</span>
         </span>
         <span v-if="equippedArmor" class="flex items-center gap-1">
           🛡️ <span>{{ equippedArmor.name }}</span>
           <span class="fsr-rank-badge">{{ equippedArmor.rank }}</span>
-          <span>absorbs {{ equippedArmor.value }}</span>
+          <span v-if="degradingEnabled"
+            >absorbs {{ equippedArmor.value }}/{{
+              equippedArmor.maxValue || equippedArmor.value
+            }}</span
+          >
+          <span v-else>absorbs {{ equippedArmor.value }}</span>
         </span>
       </div>
       <div class="flex gap-2 items-center">

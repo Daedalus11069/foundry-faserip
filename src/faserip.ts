@@ -226,6 +226,22 @@ const initHandler = () => {
     }
   });
 
+  // House Rules: Degrading Armor
+  game.settings.register("faserip", "degradingArmor", {
+    name: "FASERIP.Settings.degradingArmor.name",
+    hint: "FASERIP.Settings.degradingArmor.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    requiresReload: true,
+    onChange: () => {
+      for (const actor of game.actors ?? []) {
+        actor.render();
+      }
+    }
+  });
+
   // House Rules: Health Calculation Method
   game.settings.register("faserip", "healthCalculationMethod", {
     name: "FASERIP.Settings.healthCalculationMethod.name",
@@ -312,11 +328,11 @@ const initHandler = () => {
   // Configure trackable attributes for tokens
   CONFIG.Actor.trackableAttributes = {
     pc: {
-      bar: ["resources.health"],
+      bar: ["resources.health", "resources.armor"],
       value: ["resources.karma"]
     },
     npc: {
-      bar: ["resources.health"],
+      bar: ["resources.health", "resources.armor"],
       value: ["resources.karma"]
     }
   };
@@ -388,12 +404,15 @@ const initHandler = () => {
         // Always set bar1 for health
         data.bar1 = { attribute: "resources.health" };
 
-        // Always set displayBars to OWNER
+        // Always set bar2 for armor
+        data.bar2 = { attribute: "resources.armor" };
+
+        // Always set displayBars to ALWAYS (visible to everyone)
         actor.prototypeToken.updateSource({
-          displayBars: CONST.TOKEN_DISPLAY_MODES.OWNER
+          displayBars: CONST.TOKEN_DISPLAY_MODES.ALWAYS
         });
         tokenDocument.updateSource({
-          displayBars: CONST.TOKEN_DISPLAY_MODES.OWNER
+          displayBars: CONST.TOKEN_DISPLAY_MODES.ALWAYS
         });
 
         // Always set displayName to ALWAYS
@@ -614,6 +633,37 @@ Hooks.on("canvasReady", () => {
 Hooks.on("deleteToken", (_scene: any, tokenDoc: any) => {
   if (tokenDoc?.id) removeIntuitionOverlay(tokenDoc.id);
 });
+
+// Hook: Ensure bars are present when tokens are updated
+Hooks.on(
+  "preUpdateToken",
+  (tokenDoc: TokenDocument, changes: any, _options: any, _userId: string) => {
+    const actor = tokenDoc.actor;
+    if (!actor || actor.type !== ActorType.Pc) return;
+
+    // If this update doesn't touch bar config, check if we need to add it
+    if (!changes.bar1 && !changes.bar2 && !changes.displayBars) {
+      const needsBar1 =
+        !tokenDoc.bar1?.attribute ||
+        tokenDoc.bar1.attribute !== "resources.health";
+      const needsBar2 =
+        !tokenDoc.bar2?.attribute ||
+        tokenDoc.bar2.attribute !== "resources.armor";
+      const needsDisplayBars =
+        tokenDoc.displayBars !== CONST.TOKEN_DISPLAY_MODES.ALWAYS;
+
+      if (needsBar1) {
+        changes.bar1 = { attribute: "resources.health" };
+      }
+      if (needsBar2) {
+        changes.bar2 = { attribute: "resources.armor" };
+      }
+      if (needsDisplayBars) {
+        changes.displayBars = CONST.TOKEN_DISPLAY_MODES.ALWAYS;
+      }
+    }
+  }
+);
 
 // Ready hook
 Hooks.once("ready", () => {

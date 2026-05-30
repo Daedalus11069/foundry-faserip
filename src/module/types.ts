@@ -30,6 +30,7 @@ export interface Power {
   rank: string;
   category?: string;
   value: number;
+  maxValue: number; // Maximum value (used when degrading armor is enabled)
   description?: string;
   mpCost?: number; // Mental Points cost (houserule: MP system)
   formIds?: string[]; // Form IDs this power applies to; empty = all forms
@@ -51,7 +52,8 @@ export interface ArmorItem {
   id: string;
   name: string;
   rank: string; // FASERIP rank string
-  value: number; // Numeric rank value — used for damage reduction
+  value: number; // Numeric rank value — used for damage reduction (current value if degrading)
+  maxValue: number; // Maximum value (used when degrading armor is enabled)
   equipped: boolean;
   description?: string;
 }

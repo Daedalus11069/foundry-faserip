@@ -86,6 +86,12 @@ export function defineArmorSchema() {
       min: 0,
       initial: 6
     }),
+    maxValue: new NumberField({
+      required: true,
+      integer: true,
+      min: 0,
+      initial: 6
+    }),
     equipped: new BooleanField({ required: true, initial: false }),
     description: new StringField({ required: false, initial: "" })
   });
@@ -143,6 +149,12 @@ export function definePowerRefSchema() {
     rank: new StringField({ required: true }),
     category: new StringField({ required: true }),
     value: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 6
+    }),
+    maxValue: new NumberField({
       required: false,
       integer: true,
       min: 0,

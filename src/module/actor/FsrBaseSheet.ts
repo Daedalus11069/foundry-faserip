@@ -1,5 +1,6 @@
 import { createApp, reactive, type App, type Component } from "vue";
 import { watchIgnorable } from "@vueuse/core";
+import { getRankValue } from "../utils";
 
 // @ts-expect-error - TypeScript doesn't recognize custom Actor subclass
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -223,6 +224,47 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       for (const key of Object.keys(freshSystem)) {
         (this.#reactiveActor!.system as Record<string, unknown>)[key] =
           freshSystem[key];
+      }
+
+      // Ensure armor values match their ranks
+      const systemData = this.#reactiveActor!.system as any;
+      if (systemData.armors && Array.isArray(systemData.armors)) {
+        for (const armor of systemData.armors) {
+          const correctValue = getRankValue(armor.rank);
+          // Initialize maxValue if missing
+          if (armor.maxValue === undefined || armor.maxValue === null) {
+            armor.maxValue = correctValue;
+          }
+          // Fix value if it's incorrect (only if not intentionally degraded)
+          if (
+            armor.value === 6 &&
+            correctValue !== 6 &&
+            armor.maxValue === armor.value
+          ) {
+            armor.value = correctValue;
+            armor.maxValue = correctValue;
+          }
+        }
+      }
+
+      // Ensure power values match their ranks
+      if (systemData.powers && Array.isArray(systemData.powers)) {
+        for (const power of systemData.powers) {
+          const correctValue = getRankValue(power.rank);
+          // Initialize maxValue if missing
+          if (power.maxValue === undefined || power.maxValue === null) {
+            power.maxValue = correctValue;
+          }
+          // Fix value if it's incorrect (only if not intentionally degraded)
+          if (
+            power.value === 6 &&
+            correctValue !== 6 &&
+            power.maxValue === power.value
+          ) {
+            power.value = correctValue;
+            power.maxValue = correctValue;
+          }
+        }
       }
     };
 
