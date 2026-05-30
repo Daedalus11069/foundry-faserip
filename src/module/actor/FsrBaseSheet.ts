@@ -22,6 +22,7 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
   #reactiveActor: any = null;
   #stopWatcher: (() => void) | null = null;
   #ignoreUpdates: ((cb: () => void) => void) | null = null;
+  #isUpdating: boolean = false;
   #updateActorCallback:
     | ((
         actor: Actor,
@@ -68,6 +69,11 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       const { ignoreUpdates, stop } = watchIgnorable(
         this.#reactiveActor,
         async () => {
+          // Prevent redundant updates if we're already in the middle of one
+          if (this.#isUpdating) {
+            return;
+          }
+
           // Store ignoreUpdates for use in syncReactiveActor()
           if (!this.#ignoreUpdates) {
             this.#ignoreUpdates = ignoreUpdates;
@@ -107,9 +113,26 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           // Flatten to dot notation for reliable nested updates
           const updateData = foundry.utils.flattenObject(cleanDiff);
 
-          // Update the real actor
-          // @ts-expect-error - actor property exists on ActorSheetV2
-          await this.actor.update(updateData);
+          // Set flag to prevent redundant watcher firing during update
+          this.#isUpdating = true;
+
+          try {
+            // Update the real actor
+            // @ts-expect-error - actor property exists on ActorSheetV2
+            const actor = this.actor;
+
+            // For unlinked tokens (synthetic actors), update the token's delta instead
+            // @ts-expect-error - token property exists on ActorSheetV2
+            if (actor.isToken && this.token) {
+              // @ts-expect-error - token property exists on ActorSheetV2
+              await this.token.update(updateData);
+            }
+            // For linked actors or base actors, update normally
+            await actor.update(updateData);
+          } finally {
+            // Clear flag after update completes
+            this.#isUpdating = false;
+          }
         },
         { deep: true }
       );
@@ -164,8 +187,9 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       this.#stopWatcher = null;
     }
 
-    // Clear ignoreUpdates
+    // Clear flags
     this.#ignoreUpdates = null;
+    this.#isUpdating = false;
 
     // Unregister hook
     if (this.#updateActorCallback) {

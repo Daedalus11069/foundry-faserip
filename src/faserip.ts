@@ -443,6 +443,51 @@ Hooks.on("preUpdateActor", (actor: any, changes: any, _options: any) => {
   }
 });
 
+// ─── Actor Update Hook: Sync name changes to PC tokens ──────────────────────────
+
+Hooks.on("updateActor", async (actor: any, changes: any, _options: any) => {
+  // Only handle name changes for PC actors
+  if (actor.type !== ActorType.Pc || changes.name === undefined) {
+    return;
+  }
+
+  const newName = changes.name;
+
+  // Update prototype token and all linked tokens
+  actor.prototypeToken.updateSource({ name: newName });
+
+  // Update all existing linked tokens on active scenes
+  // @ts-expect-error - game.scenes type not fully recognized
+  for (const scene of game.scenes!) {
+    const tokens = scene.tokens.filter(
+      (t: any) => t.actorId === actor.id && t.actorLink
+    );
+
+    if (tokens.length > 0) {
+      const updates = tokens.map((token: any) => ({
+        _id: token.id,
+        name: newName
+      }));
+
+      await scene.updateEmbeddedDocuments("Token", updates);
+    }
+  }
+});
+
+// ─── Token Update Hook: Sync delta name changes to token name (unlinked) ────────
+
+Hooks.on("updateToken", async (token: any, changes: any, _options: any) => {
+  // Only handle delta name changes for PC unlinked tokens
+  if (!token.actor || token.actor.type !== ActorType.Pc || token.actorLink) {
+    return;
+  }
+
+  // If the actor's name changed in the delta, update the token's name to match
+  if (changes.delta?.name !== undefined) {
+    await token.update({ name: changes.delta.name }, { diff: false });
+  }
+});
+
 // ─── Token HUD: Inject Intuition Button ────────────────────────────────────────
 
 Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
