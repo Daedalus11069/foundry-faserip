@@ -42,6 +42,8 @@ interface DefenseResponse {
   _resultClass?: string; // CSS class for result (e.g., "green", "red")
   _targetActorId?: string;
   _respondingUserId?: string;
+  _isUltimateBotch?: boolean; // True if defense roll was 1 (catastrophic failure)
+  _isBotch?: boolean; // True if defense roll was 2-5 (regular botch)
 }
 
 /**
@@ -387,7 +389,9 @@ async function handleDefensePrompt(
     _resultText: result._resultText,
     _resultClass: result._resultClass,
     _targetActorId: targetActor.id!,
-    _respondingUserId: game.user?.id
+    _respondingUserId: game.user?.id,
+    _isUltimateBotch: result._isUltimateBotch,
+    _isBotch: result._isBotch
   };
 }
 

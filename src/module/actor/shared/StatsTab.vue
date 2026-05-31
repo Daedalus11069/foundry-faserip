@@ -204,7 +204,6 @@ async function applyDamage() {
       }
     } catch (error) {
       // Service not initialized or sync failed - ignore silently
-      console.warn("Could not sync armor to Charman:", error);
     }
   }
 
@@ -587,7 +586,7 @@ async function rollPower(power: any) {
       if (actualHealing > 0) {
         reactiveActor.system.resources.health.value = newValue;
         healingResultHtml = `<div style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-          <h4 style="color: rgb(34, 197, 94); margin: 0 0 0.25rem 0; font-size: 1em;">Health Restored</h4>
+          <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Health Restored</h4>
           <p style="margin: 0.25rem 0;">Healed <strong>${actualHealing}</strong> health.</p>
           <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
         </div>`;
@@ -596,7 +595,7 @@ async function rollPower(power: any) {
         );
       } else {
         healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-          <h4 style="color: rgb(251, 191, 36); margin: 0 0 0.25rem 0; font-size: 1em;">Already Healthy</h4>
+          <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Already Healthy</h4>
           <p style="margin: 0.25rem 0;">Already at full health (${healthMax}).</p>
         </div>`;
         ui.notifications?.warn(`${power.name}: Already at full health.`);
@@ -618,7 +617,7 @@ async function rollPower(power: any) {
         if (actualRepair > 0) {
           bodyArmorPower.value = newValue;
           healingResultHtml = `<div style="background: rgba(59, 130, 246, 0.15); border-left: 3px solid rgb(59, 130, 246); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-            <h4 style="color: rgb(59, 130, 246); margin: 0 0 0.25rem 0; font-size: 1em;">Body Armor Repaired</h4>
+            <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Body Armor Repaired</h4>
             <p style="margin: 0.25rem 0;">Repaired <strong>${actualRepair}</strong> armor.</p>
             <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Body Armor: ${oldValue} → ${newValue} / ${maxValue}</p>
           </div>`;
@@ -637,22 +636,19 @@ async function rollPower(power: any) {
                 bodyArmorPower.value
               );
             } catch (error) {
-              console.warn(
-                "Could not sync Body Armor repair to Charman:",
-                error
-              );
+              // Service not initialized or sync failed - ignore silently
             }
           }
         } else {
           healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-            <h4 style="color: rgb(251, 191, 36); margin: 0 0 0.25rem 0; font-size: 1em;">Armor Already Full</h4>
+            <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Armor Already Full</h4>
             <p style="margin: 0.25rem 0;">Body Armor already at maximum (${maxValue}).</p>
           </div>`;
           ui.notifications?.warn(`${power.name}: Body Armor already at full.`);
         }
       } else {
         healingResultHtml = `<div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid rgb(239, 68, 68); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-          <h4 style="color: rgb(239, 68, 68); margin: 0 0 0.25rem 0; font-size: 1em;">No Body Armor Found</h4>
+          <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">No Body Armor Found</h4>
           <p style="margin: 0.25rem 0;">No Body Armor power found to heal.</p>
         </div>`;
         ui.notifications?.warn(
@@ -739,7 +735,7 @@ async function rollPower(power: any) {
             reactiveActor.system.resources.mentalPoints.value
           );
         } catch (error) {
-          console.warn("Could not sync MP to Charman:", error);
+          // Service not initialized or sync failed - ignore silently
         }
       }
     }
@@ -843,7 +839,6 @@ async function rollPower(power: any) {
         );
       } catch (error) {
         // Service not initialized or sync failed - ignore silently
-        console.warn("Could not sync MP to Charman:", error);
       }
     }
   }

@@ -194,10 +194,16 @@ async function handleDefend() {
   const defenseTotal = defenseRoll.roll.total || 0;
   const defenseSuccess = defenseTotal >= props.attackRoll;
 
+  // Check for botch results
+  const isUltimateBotch = defenseTotal === 1;
+  const isBotch = defenseTotal >= 2 && defenseTotal <= 5;
+
   console.log("FASERIP Defense | Roll result:", {
     defenseTotal,
     attackRoll: props.attackRoll,
-    success: defenseSuccess
+    success: defenseSuccess,
+    isUltimateBotch,
+    isBotch
   });
 
   // Submit the response
@@ -209,7 +215,9 @@ async function handleDefend() {
     _rollJSON: defenseRoll.roll.toJSON(),
     _defenseSuccess: defenseSuccess,
     _resultText: defenseRoll.getResultText(),
-    _resultClass: defenseRoll.getResultClass()
+    _resultClass: defenseRoll.getResultClass(),
+    _isUltimateBotch: isUltimateBotch,
+    _isBotch: isBotch
   });
 }
 

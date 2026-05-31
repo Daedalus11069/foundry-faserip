@@ -76,6 +76,7 @@ function getResultTier(roll: FaseripRoll): number {
 /**
  * Calculate damage using hybrid system:
  * - Failed defense (tier 0): No rank reduction, attack at full power
+ * - Ultimate botch defense: Attack gets +2 CS bonus (catastrophic failure)
  * - Successful defense: Rank reduction = (attack tier - defense tier), minimum 0
  * - Tier-specific damage formulas:
  *   - White (tier 0): base ÷ 4 (quarter damage)
@@ -87,10 +88,17 @@ function getResultTier(roll: FaseripRoll): number {
 async function calculateDamage(
   attackRoll: FaseripRoll,
   defenseRoll: FaseripRoll | null,
-  powerRank: Rank
+  powerRank: Rank,
+  isUltimateBotch: boolean = false
 ): Promise<DamageResult> {
   const attackTier = getResultTier(attackRoll);
   const defenseTier = defenseRoll ? getResultTier(defenseRoll) : 0;
+
+  // Ultimate botch on defense - attack gets +2 CS bonus (catastrophic failure)
+  let botchBonus = 0;
+  if (isUltimateBotch) {
+    botchBonus = 2;
+  }
 
   // Calculate rank reduction
   // Failed defense (tier 0) means no reduction; successful defense reduces based on tier difference
@@ -98,7 +106,8 @@ async function calculateDamage(
     defenseTier > 0 ? Math.max(0, attackTier - defenseTier) : 0;
 
   // Apply chart shifts to reduce base rank
-  const reducedRank = applyChartShift(powerRank, -rankReduction);
+  // Note: botchBonus increases attack power, so it's added (not subtracted)
+  const reducedRank = applyChartShift(powerRank, botchBonus - rankReduction);
   const reducedValue = RANK_VALUES[reducedRank];
 
   let damage = 0;
@@ -642,10 +651,17 @@ export async function executeCombatAttack(
       const powerRank = attackData.powerRank || attackRank;
 
       // Calculate damage with tier-based rank reduction
+      // Pass ultimate botch flag if defender rolled 1
+      const isUltimateBotch =
+        defenseResponse &&
+        defenseResponse.defenseType === "defend" &&
+        defenseResponse._isUltimateBotch === true;
+
       const damageResult = await calculateDamage(
         attackRoll,
         combatComparison.defenseTier > 0 ? defenseRoll : null,
-        powerRank
+        powerRank,
+        isUltimateBotch
       );
 
       // Apply damage to target actor
@@ -669,8 +685,15 @@ export async function executeCombatAttack(
 
       // Build compact defense info
       let defenseInfo = "";
+      const isUltimateBotchDefense =
+        defenseResponse &&
+        defenseResponse.defenseType === "defend" &&
+        defenseResponse._isUltimateBotch === true;
+
       if (combatComparison.defenseTier > 0 && defenseRoll) {
-        if (damageResult.rankReduction > 0) {
+        if (isUltimateBotchDefense) {
+          defenseInfo = `<span style="color: #dc2626; font-weight: 600;">ULTIMATE BOTCH! Attack +2 CS</span>`;
+        } else if (damageResult.rankReduction > 0) {
           defenseInfo = `reduced ${damageResult.rankReduction} rank${damageResult.rankReduction > 1 ? "s" : ""}`;
         } else if (damageResult.defenseTier === 0) {
           defenseInfo = `no reduction (White)`;
