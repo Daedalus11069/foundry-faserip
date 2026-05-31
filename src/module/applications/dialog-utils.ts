@@ -2,6 +2,8 @@ import { VueDialog } from "./vue-dialog";
 import TalentSelectionDialog from "./dialogs/TalentSelectionDialog.vue";
 import KarmaSpendDialog from "./dialogs/KarmaSpendDialog.vue";
 import ComboDialog from "./dialogs/ComboDialog.vue";
+import AttackOptionsDialog from "./dialogs/AttackOptionsDialog.vue";
+import DefenseOptionsDialog from "./dialogs/DefenseOptionsDialog.vue";
 import MovementSettingsDialog from "./dialogs/MovementSettingsDialog.vue";
 import { Rank } from "../enums";
 import type { Talent, SelectedTalent } from "../types";
@@ -122,6 +124,104 @@ export async function showComboDialog(
     comboCount: number;
     attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
     manualChartShift?: number;
+  } | null;
+}
+
+/**
+ * Show attack options dialog (karma spending + modifiers)
+ */
+export async function showAttackOptionsDialog(
+  attackerName: string,
+  attackAttribute: string,
+  attackRank: Rank,
+  availableKarma: number,
+  powerName?: string,
+  talentCS?: number
+): Promise<{
+  karmaColumnShifts: number;
+  karmaResultShift: number;
+  manualChartShift: number;
+} | null> {
+  const result = await VueDialog.show(
+    AttackOptionsDialog,
+    {
+      attackerName,
+      attackAttribute,
+      attackRank,
+      availableKarma,
+      powerName,
+      talentCS
+    },
+    {
+      window: {
+        title: "Attack Options",
+        icon: "fas fa-crosshairs",
+        minimizable: false,
+        resizable: false
+      },
+      position: {
+        width: 550
+      }
+    }
+  );
+
+  return result as {
+    karmaColumnShifts: number;
+    karmaResultShift: number;
+    manualChartShift: number;
+  } | null;
+}
+
+/**
+ * Show defense options dialog (karma spending + modifiers)
+ */
+export async function showDefenseOptionsDialog(
+  defenderName: string,
+  defenseAttribute: string,
+  defenseRank: Rank,
+  availableKarma: number,
+  attackerName: string,
+  attackRankDisplay?: string,
+  attackRoll?: number,
+  attackResult?: string,
+  powerName?: string,
+  talentCS?: number
+): Promise<{
+  karmaColumnShifts: number;
+  karmaResultShift: number;
+  manualChartShift: number;
+} | null> {
+  const result = await VueDialog.show(
+    DefenseOptionsDialog,
+    {
+      defenderName,
+      defenseAttribute,
+      defenseRank,
+      availableKarma,
+      attackerName,
+      attackRankDisplay,
+      attackRoll,
+      attackResult,
+      powerName,
+      talentCS
+    },
+    {
+      window: {
+        title: "Defense Options",
+        icon: "fas fa-shield",
+        minimizable: false,
+        resizable: false
+      },
+      position: {
+        width: 550
+      }
+    }
+  );
+
+  return result as {
+    karmaColumnShifts: number;
+    karmaResultShift: number;
+    manualChartShift: number;
   } | null;
 }
 

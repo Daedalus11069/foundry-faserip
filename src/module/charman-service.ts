@@ -1,4 +1,10 @@
-import { parseRankFromCharman, nanoid, valueToRank } from "./utils";
+import {
+  parseRankFromCharman,
+  nanoid,
+  valueToRank,
+  getRankValue
+} from "./utils";
+import { Rank } from "./enums";
 
 /**
  * Configuration for Charman API
@@ -33,10 +39,13 @@ export interface CharmanCharacter {
   powers: CharmanPower[];
   talents: CharmanTalent[];
   equipment: CharmanEquipment[];
+  armors: CharmanArmor[]; // Equippable armor items
+  weapons: CharmanWeapon[]; // Weapon definitions with damage and stats
   contacts: CharmanContact[];
   biography?: string;
   notes?: string;
   karma?: number;
+  mentalpoints?: number; // Mental Points for psionics, etc.
 }
 
 export interface CharmanForm {
@@ -61,6 +70,12 @@ export interface CharmanPower {
   description?: string;
   category?: string;
   mpCost?: string | number; // Mental Points cost
+  value?: number; // Current armor value (for Body Armor power when degrading enabled)
+  maxValue?: number; // Maximum armor value (for Body Armor power when degrading enabled)
+  effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // What effect this power has (uses power's rank)
+  attackType?: "none" | "melee" | "ranged"; // Attack type for dodge mechanics
+  damageType?: string; // Type of damage dealt (fire, cold, etc.)
+  resistanceType?: string; // Type of damage this power resists (for resistance powers)
 }
 
 export interface CharmanTalent {
@@ -75,10 +90,41 @@ export interface CharmanEquipment {
   quantity?: number;
 }
 
+export interface CharmanArmor {
+  name: string;
+  rank: string; // FASERIP rank string
+  value: number; // Current armor value (damage reduction)
+  maxValue: number; // Maximum armor value (used when degrading enabled)
+  equipped: boolean;
+  description?: string;
+}
+
+export interface CharmanWeapon {
+  name: string;
+  type: "ranged" | "melee"; // Weapon type determines which stat is used for to-hit
+  damage: string | number | null | undefined; // Damage rank string (e.g., "Typical"), numeric score (e.g., 30), or null/undefined (will default based on type)
+  stat: "agility" | "fighting"; // Stat used for to-hit rolls
+  applicableTalent?: string; // Name of talent that applies to this weapon
+  description?: string;
+  equipped?: boolean;
+}
+
 export interface CharmanContact {
   name: string;
   relationship?: string;
   description?: string;
+}
+
+/**
+ * Sync details for consolidated notifications
+ */
+interface SyncDetails {
+  imagesUploaded: number;
+  formsProcessed: number;
+  powersLoaded: number;
+  talentsLoaded: number;
+  weaponsLoaded: number;
+  armorsLoaded: number;
 }
 
 /**
@@ -284,7 +330,7 @@ export class CharmanService {
           actorsPath,
           file,
           {},
-          { notify: true }
+          { notify: false }
         );
 
       return uploadResult.path;
@@ -302,7 +348,16 @@ export class CharmanService {
   async convertToActorData(
     charmanChar: CharmanCharacter,
     existingImagePath?: string
-  ): Promise<any> {
+  ): Promise<{ actorData: any; syncDetails: SyncDetails }> {
+    const syncDetails: SyncDetails = {
+      imagesUploaded: 0,
+      formsProcessed: 0,
+      powersLoaded: 0,
+      talentsLoaded: 0,
+      weaponsLoaded: 0,
+      armorsLoaded: 0
+    };
+
     // Upload remote image if present
     let imageUrl = "icons/svg/mystery-man.svg"; // Default fallback
 
@@ -319,7 +374,7 @@ export class CharmanService {
         );
         if (uploadedPath) {
           imageUrl = uploadedPath;
-          ui.notifications?.info(`Uploaded character image to Foundry`);
+          syncDetails.imagesUploaded++;
         } else {
           console.warn("Image upload returned null, using default icon");
         }
@@ -356,6 +411,7 @@ export class CharmanService {
                   );
                   if (uploadedPath) {
                     tokenImagePath = uploadedPath;
+                    syncDetails.imagesUploaded++;
                     console.log(
                       `Uploaded token image for form "${form.name}" to Foundry`
                     );
@@ -406,6 +462,7 @@ export class CharmanService {
                 );
                 if (uploadedPath) {
                   baseTokenImagePath = uploadedPath;
+                  syncDetails.imagesUploaded++;
                   console.log(`Uploaded base form token image to Foundry`);
                 }
               } catch (error) {
@@ -482,7 +539,14 @@ export class CharmanService {
         rank: rankName,
         category: power.category || "general",
         description: power.description || "",
-        formIds: formIds
+        formIds: formIds,
+        mpCost: power.mpCost ? Number(power.mpCost) : 0,
+        effectType: power.effectType || "none",
+        attackType: power.attackType || "none",
+        damageType: power.damageType || "none",
+        resistanceType: power.resistanceType,
+        value: power.value || getRankValue(rankName),
+        maxValue: power.maxValue || getRankValue(rankName)
       };
     });
 
@@ -515,7 +579,14 @@ export class CharmanService {
     const tokenHeight = primaryForm.tokenHeight || 1;
     const tokenScale = primaryForm.tokenScale || 1;
 
-    return {
+    // Track loaded data
+    syncDetails.formsProcessed = forms.length;
+    syncDetails.powersLoaded = powers.length;
+    syncDetails.talentsLoaded = talents.length;
+    syncDetails.weaponsLoaded = (charmanChar.weapons || []).length;
+    syncDetails.armorsLoaded = (charmanChar.armors || []).length;
+
+    const actorData = {
       name: actorName,
       type: "pc",
       img: imageUrl,
@@ -558,6 +629,56 @@ export class CharmanService {
         gmNotes: "",
         powers,
         talents,
+        armors: (charmanChar.armors || []).map((armor: CharmanArmor) => ({
+          id: nanoid(),
+          name: armor.name,
+          rank: armor.rank,
+          value: armor.value,
+          maxValue: armor.maxValue,
+          equipped: armor.equipped,
+          description: armor.description || ""
+        })),
+        weapons: (charmanChar.weapons || []).map((weapon: CharmanWeapon) => {
+          let damage: string | number;
+
+          if (weapon.type === "melee") {
+            // Melee weapons: damage should be CS (number)
+            if (weapon.damage === null || weapon.damage === undefined) {
+              // Null/undefined - default to 0 CS
+              damage = 0;
+            } else if (typeof weapon.damage === "number") {
+              // Already a number, treat as CS
+              damage = weapon.damage;
+            } else {
+              // String rank from old format - parse to number or default to 0
+              const parsed = parseInt(String(weapon.damage), 10);
+              damage = isNaN(parsed) ? 0 : parsed;
+            }
+          } else {
+            // Ranged weapons: damage should be rank string
+            if (weapon.damage === null || weapon.damage === undefined) {
+              // Null/undefined - default to Typical rank
+              damage = Rank.Typical;
+            } else if (typeof weapon.damage === "number") {
+              // Numeric score - convert to rank
+              damage = valueToRank(weapon.damage);
+            } else {
+              // Already a rank string
+              damage = weapon.damage;
+            }
+          }
+
+          return {
+            id: nanoid(),
+            name: weapon.name,
+            type: weapon.type,
+            damage,
+            stat: weapon.stat,
+            applicableTalent: weapon.applicableTalent || "",
+            description: weapon.description || "",
+            equipped: weapon.equipped || false
+          };
+        }),
         charman: {
           characterId: charmanChar.id,
           username: "",
@@ -567,6 +688,8 @@ export class CharmanService {
         }
       }
     };
+
+    return { actorData, syncDetails };
   }
 
   /**
@@ -584,7 +707,7 @@ export class CharmanService {
     }
 
     // Pass existing image path so we can reuse the filename (overwrites instead of creating duplicates)
-    const actorData = await this.convertToActorData(
+    const { actorData, syncDetails } = await this.convertToActorData(
       charmanChar,
       // @ts-expect-error - Accessing system data for existing actor
       existingActor?.img
@@ -615,17 +738,85 @@ export class CharmanService {
         "system.notes": actorData.system.notes,
         "system.powers": actorData.system.powers,
         "system.talents": actorData.system.talents,
+        "system.armors": actorData.system.armors,
+        "system.weapons": actorData.system.weapons,
         "system.charman": actorData.system.charman
       };
 
       await existingActor.update(updateData);
-      ui.notifications?.info(`Updated ${actorData.name} from Charman`);
+
+      // Build consolidated notification message
+      const messageParts = [`Updated ${actorData.name} from Charman`];
+      if (syncDetails.imagesUploaded > 0) {
+        messageParts.push(
+          `${syncDetails.imagesUploaded} image${syncDetails.imagesUploaded > 1 ? "s" : ""} uploaded`
+        );
+      }
+      const dataParts = [];
+      if (syncDetails.formsProcessed > 0)
+        dataParts.push(
+          `${syncDetails.formsProcessed} form${syncDetails.formsProcessed > 1 ? "s" : ""}`
+        );
+      if (syncDetails.powersLoaded > 0)
+        dataParts.push(
+          `${syncDetails.powersLoaded} power${syncDetails.powersLoaded > 1 ? "s" : ""}`
+        );
+      if (syncDetails.talentsLoaded > 0)
+        dataParts.push(
+          `${syncDetails.talentsLoaded} talent${syncDetails.talentsLoaded > 1 ? "s" : ""}`
+        );
+      if (syncDetails.weaponsLoaded > 0)
+        dataParts.push(
+          `${syncDetails.weaponsLoaded} weapon${syncDetails.weaponsLoaded > 1 ? "s" : ""}`
+        );
+      if (syncDetails.armorsLoaded > 0)
+        dataParts.push(
+          `${syncDetails.armorsLoaded} armor${syncDetails.armorsLoaded > 1 ? "s" : ""}`
+        );
+      if (dataParts.length > 0) {
+        messageParts.push(`(${dataParts.join(", ")})`);
+      }
+
+      ui.notifications?.info(messageParts.join(" "));
       return existingActor;
     } else {
       // Create new actor
       const actor = await Actor.create(actorData);
+
+      // Build consolidated notification message
+      const messageParts = [`Imported ${actorData.name} from Charman`];
+      if (syncDetails.imagesUploaded > 0) {
+        messageParts.push(
+          `${syncDetails.imagesUploaded} image${syncDetails.imagesUploaded > 1 ? "s" : ""} uploaded`
+        );
+      }
+      const dataParts = [];
+      if (syncDetails.formsProcessed > 0)
+        dataParts.push(
+          `${syncDetails.formsProcessed} form${syncDetails.formsProcessed > 1 ? "s" : ""}`
+        );
+      if (syncDetails.powersLoaded > 0)
+        dataParts.push(
+          `${syncDetails.powersLoaded} power${syncDetails.powersLoaded > 1 ? "s" : ""}`
+        );
+      if (syncDetails.talentsLoaded > 0)
+        dataParts.push(
+          `${syncDetails.talentsLoaded} talent${syncDetails.talentsLoaded > 1 ? "s" : ""}`
+        );
+      if (syncDetails.weaponsLoaded > 0)
+        dataParts.push(
+          `${syncDetails.weaponsLoaded} weapon${syncDetails.weaponsLoaded > 1 ? "s" : ""}`
+        );
+      if (syncDetails.armorsLoaded > 0)
+        dataParts.push(
+          `${syncDetails.armorsLoaded} armor${syncDetails.armorsLoaded > 1 ? "s" : ""}`
+        );
+      if (dataParts.length > 0) {
+        messageParts.push(`(${dataParts.join(", ")})`);
+      }
+
+      ui.notifications?.success(messageParts.join(" "));
       // @ts-expect-error - Accessing system data for new actor
-      ui.notifications?.success(`Imported ${actorData.name} from Charman`);
       return actor as Actor;
     }
   }
@@ -709,6 +900,94 @@ export class CharmanService {
       return data.success;
     } catch (error) {
       console.error("Error updating Mental Points in Charman:", error);
+      // Don't show error notification to user - this is a background sync
+      return false;
+    }
+  }
+
+  /**
+   * Update equipment armor value in Charman (called when armor takes damage or is repaired)
+   */
+  async updateEquipmentArmor(
+    username: string,
+    characterName: string,
+    armorName: string,
+    newValue: number
+  ): Promise<boolean> {
+    try {
+      const apiPath = this.config.apiPath || "/charman/api/foundry";
+      const url = `${this.config.baseUrl}${apiPath}/character/armor`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(this.config.apiKey && {
+            Authorization: `Bearer ${this.config.apiKey}`
+          })
+        },
+        body: JSON.stringify({
+          username,
+          callname: characterName,
+          armor_name: armorName,
+          value: newValue
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to update equipment armor: ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+      return data.success;
+    } catch (error) {
+      console.error("Error updating equipment armor in Charman:", error);
+      // Don't show error notification to user - this is a background sync
+      return false;
+    }
+  }
+
+  /**
+   * Update Body Armor power value in Charman (called when power takes damage or is repaired)
+   */
+  async updateBodyArmorPower(
+    username: string,
+    characterName: string,
+    newValue: number
+  ): Promise<boolean> {
+    try {
+      const apiPath = this.config.apiPath || "/charman/api/foundry";
+      const url = `${this.config.baseUrl}${apiPath}/character/bodyarmor`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(this.config.apiKey && {
+            Authorization: `Bearer ${this.config.apiKey}`
+          })
+        },
+        body: JSON.stringify({
+          username,
+          callname: characterName,
+          value: newValue
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to update Body Armor power: ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+      return data.success;
+    } catch (error) {
+      console.error("Error updating Body Armor power in Charman:", error);
       // Don't show error notification to user - this is a background sync
       return false;
     }

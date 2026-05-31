@@ -195,7 +195,7 @@ export async function handleRollCommand(message: string): Promise<boolean> {
     // Create a label for the roll
     let label = formatRankDisplay(rank);
     if (chartShift !== 0) {
-      const csText = chartShift > 0 ? `+${chartShift}CS` : `${chartShift}CS`;
+      const csText = chartShift > 0 ? `+${chartShift} CS` : `${chartShift} CS`;
       label = `${formatRankDisplay(rank)} (${csText})`;
     }
     if (karmaShifts !== 0) {

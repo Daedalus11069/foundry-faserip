@@ -98,6 +98,30 @@ export function defineArmorSchema() {
 }
 
 /**
+ * Schema for a weapon item
+ */
+export function defineWeaponSchema() {
+  return new SchemaField({
+    id: new StringField({ required: true }),
+    name: new StringField({ required: true, initial: "Weapon" }),
+    type: new StringField({
+      required: true,
+      initial: "melee",
+      choices: ["melee", "ranged"]
+    }),
+    damage: new StringField({ required: true, initial: Rank.Typical }),
+    stat: new StringField({
+      required: true,
+      initial: "fighting",
+      choices: ["fighting", "agility"]
+    }),
+    applicableTalent: new StringField({ required: false, initial: "" }),
+    description: new StringField({ required: false, initial: "" }),
+    equipped: new BooleanField({ required: true, initial: false })
+  });
+}
+
+/**
  * Schema for a character form (alternate identities/forms)
  */
 export function defineFormSchema() {
@@ -170,7 +194,19 @@ export function definePowerRefSchema() {
     formIds: new ArrayField(new StringField(), {
       required: false,
       initial: () => []
-    })
+    }),
+    effectType: new StringField({
+      required: false,
+      initial: "none",
+      choices: ["none", "damage", "heal-health", "heal-armor"]
+    }),
+    attackType: new StringField({
+      required: false,
+      initial: "none",
+      choices: ["none", "melee", "ranged"]
+    }),
+    damageType: new StringField({ required: false, initial: "none" }),
+    resistanceType: new StringField({ required: false, nullable: true })
   });
 }
 
@@ -273,6 +309,12 @@ export class ActorDataModel extends TypeDataModel<
 
       // Armor items (house rule: armorEnabled setting)
       armors: new ArrayField(defineArmorSchema(), {
+        required: false,
+        initial: () => []
+      }),
+
+      // Weapon items (house rule: weaponsEnabled setting)
+      weapons: new ArrayField(defineWeaponSchema(), {
         required: false,
         initial: () => []
       }),

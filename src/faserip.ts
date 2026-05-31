@@ -15,6 +15,7 @@ import {
   initIntuitionHoverListener
 } from "./module/utils/intuition-overlay";
 import { showMovementSettingsDialog } from "./module/applications/dialog-utils";
+import { initializeSocket } from "./module/socket/faserip-socket";
 
 // ─── Movement Settings Menu ─────────────────────────────────────────────────────
 
@@ -242,6 +243,22 @@ const initHandler = () => {
     }
   });
 
+  // House Rules: Weapons System
+  game.settings.register("faserip", "weaponsEnabled", {
+    name: "FASERIP.Settings.weaponsEnabled.name",
+    hint: "FASERIP.Settings.weaponsEnabled.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    requiresReload: true,
+    onChange: () => {
+      for (const actor of game.actors ?? []) {
+        actor.render();
+      }
+    }
+  });
+
   // House Rules: Health Calculation Method
   game.settings.register("faserip", "healthCalculationMethod", {
     name: "FASERIP.Settings.healthCalculationMethod.name",
@@ -399,7 +416,7 @@ const initHandler = () => {
     ) => {
       const actor = tokenDocument.actor;
 
-      // Only for PC actors
+      // PC actors: bar1 for health, bar2 for armor, bars always visible
       if (actor?.type === ActorType.Pc) {
         // Always set bar1 for health
         data.bar1 = { attribute: "resources.health" };
@@ -421,6 +438,19 @@ const initHandler = () => {
         });
         tokenDocument.updateSource({
           displayBars: CONST.TOKEN_DISPLAY_MODES.ALWAYS
+        });
+      }
+      // NPC actors: bar2 for armor, bars visible to owner only
+      else if (actor?.type === ActorType.Npc) {
+        // Set bar2 for armor
+        data.bar2 = { attribute: "resources.armor" };
+
+        // Set displayBars to OWNER (visible to owner only)
+        actor.prototypeToken.updateSource({
+          displayBars: CONST.TOKEN_DISPLAY_MODES.OWNER
+        });
+        tokenDocument.updateSource({
+          displayBars: CONST.TOKEN_DISPLAY_MODES.OWNER
         });
       }
     }
@@ -639,27 +669,45 @@ Hooks.on(
   "preUpdateToken",
   (tokenDoc: TokenDocument, changes: any, _options: any, _userId: string) => {
     const actor = tokenDoc.actor;
-    if (!actor || actor.type !== ActorType.Pc) return;
+    if (!actor) return;
 
     // If this update doesn't touch bar config, check if we need to add it
     if (!changes.bar1 && !changes.bar2 && !changes.displayBars) {
-      const needsBar1 =
-        !tokenDoc.bar1?.attribute ||
-        tokenDoc.bar1.attribute !== "resources.health";
-      const needsBar2 =
-        !tokenDoc.bar2?.attribute ||
-        tokenDoc.bar2.attribute !== "resources.armor";
-      const needsDisplayBars =
-        tokenDoc.displayBars !== CONST.TOKEN_DISPLAY_MODES.ALWAYS;
+      // PC actors: bar1 for health, bar2 for armor, bars always visible
+      if (actor.type === ActorType.Pc) {
+        const needsBar1 =
+          !tokenDoc.bar1?.attribute ||
+          tokenDoc.bar1.attribute !== "resources.health";
+        const needsBar2 =
+          !tokenDoc.bar2?.attribute ||
+          tokenDoc.bar2.attribute !== "resources.armor";
+        const needsDisplayBars =
+          tokenDoc.displayBars !== CONST.TOKEN_DISPLAY_MODES.ALWAYS;
 
-      if (needsBar1) {
-        changes.bar1 = { attribute: "resources.health" };
+        if (needsBar1) {
+          changes.bar1 = { attribute: "resources.health" };
+        }
+        if (needsBar2) {
+          changes.bar2 = { attribute: "resources.armor" };
+        }
+        if (needsDisplayBars) {
+          changes.displayBars = CONST.TOKEN_DISPLAY_MODES.ALWAYS;
+        }
       }
-      if (needsBar2) {
-        changes.bar2 = { attribute: "resources.armor" };
-      }
-      if (needsDisplayBars) {
-        changes.displayBars = CONST.TOKEN_DISPLAY_MODES.ALWAYS;
+      // NPC actors: bar2 for armor, bars visible to owner only
+      else if (actor.type === ActorType.Npc) {
+        const needsBar2 =
+          !tokenDoc.bar2?.attribute ||
+          tokenDoc.bar2.attribute !== "resources.armor";
+        const needsDisplayBars =
+          tokenDoc.displayBars !== CONST.TOKEN_DISPLAY_MODES.OWNER;
+
+        if (needsBar2) {
+          changes.bar2 = { attribute: "resources.armor" };
+        }
+        if (needsDisplayBars) {
+          changes.displayBars = CONST.TOKEN_DISPLAY_MODES.OWNER;
+        }
       }
     }
   }
@@ -668,6 +716,9 @@ Hooks.on(
 // Ready hook
 Hooks.once("ready", () => {
   console.log("FASERIP | System ready");
+
+  // Initialize socket system for multiplayer combat interactions
+  initializeSocket();
 });
 
 // Export for global access if needed

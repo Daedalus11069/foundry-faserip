@@ -208,6 +208,10 @@ export class FaseripRoll {
     await roll.evaluate();
     rollTotal = roll.total || 0;
 
+    // Dice animation will be handled by:
+    // 1. ChatMessage.create (when skipMessage is false)
+    // 2. Caller (when skipMessage is true, e.g., combat-flow.ts)
+
     // Post-roll karma: use pre-specified result shift if provided, otherwise prompt
     if (actor) {
       const actorSystem = (actor as any).system;
@@ -290,13 +294,9 @@ export class FaseripRoll {
     // Apply Chart Shift to the rank used for Universal Table lookup
     const shiftedRank = applyChartShift(attributeRank, totalChartShift);
 
-    // Create a modified roll if post-roll karma was spent
-    let finalRoll = roll;
-    if (postRollKarma > 0) {
-      // Create a new roll with the modified total
-      finalRoll = await Roll.create(`${rollTotal}`);
-      await finalRoll.evaluate();
-    }
+    // Don't create a new roll for post-roll karma - just use the modified rollTotal
+    // The modified total was already calculated above
+    const finalRoll = roll;
 
     const faseripRoll = new FaseripRoll(
       finalRoll,

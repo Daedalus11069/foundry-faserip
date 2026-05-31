@@ -78,6 +78,26 @@ export interface TalentData {
   description?: string;
 }
 
+export interface ArmorData {
+  id: string;
+  name: string;
+  rank: string;
+  value: number; // Current armor value (damage reduction)
+  maxValue: number; // Maximum armor value (used when degrading enabled)
+  equipped: boolean;
+  description?: string;
+}
+
+export interface WeaponData {
+  id: string;
+  name: string;
+  type: "melee" | "ranged"; // Weapon type determines which stat is used for to-hit
+  damage: string; // Damage rank (e.g., "Typical", "Good", "Excellent")
+  stat: "fighting" | "agility"; // Stat used for to-hit rolls
+  applicableTalent?: string; // Name of talent that applies to this weapon
+  description?: string;
+}
+
 /**
  * Base actor system data shared across all actor types
  */
@@ -93,6 +113,8 @@ export interface BaseActorSystemData {
   gmNotes: string;
   powers: PowerData[];
   talents: TalentData[];
+  armors: ArmorData[];
+  weapons: WeaponData[];
   charman: CharmanData;
 }
 

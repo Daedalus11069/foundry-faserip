@@ -72,7 +72,7 @@ function cancel() {
         >
           {{ talent.name }}
           <span v-if="talent.bonus !== 0">
-            ({{ talent.bonus > 0 ? "+" : "" }}{{ talent.bonus }}CS)
+            ({{ talent.bonus > 0 ? "+" : "" }}{{ talent.bonus }} CS)
           </span>
         </option>
       </select>

@@ -3,7 +3,42 @@
     "templates": {
       "base": {
         "biography": "",
-        "notes": ""
+        "notes": "",
+        "currentFormId": "default",
+        "forms": [],
+        "healthByForm": {},
+        "resources": {
+          "health": {
+            "value": 0,
+            "max": 0
+          },
+          "armor": {
+            "value": 0,
+            "max": 0
+          },
+          "karma": {
+            "value": 0
+          }
+        },
+        "powers": [],
+        "talents": [],
+        "armors": [],
+        "weapons": [
+          {
+            "id": "",
+            "name": "",
+            "type": "melee",
+            "damage": 0,
+            "equipped": false
+          }
+        ],
+        "charman": {
+          "characterId": "",
+          "username": "",
+          "characterName": "",
+          "lastSync": 0,
+          "autoSync": false
+        }
       }
     },
     "pc": {

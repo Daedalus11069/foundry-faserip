@@ -2,9 +2,11 @@
 import { inject, computed } from "vue";
 import { Rank, RANK_ORDER, RANK_VALUES, formatRankDisplay } from "../../enums";
 import { getRankValue } from "../../utils";
+import { getCharmanService } from "../../charman-service";
 import type { ArmorItem } from "../../types";
 
 const reactiveActor = inject("reactiveActor") as any;
+const actor = inject("actor") as Actor<"pc" | "npc">;
 
 const armors = computed<ArmorItem[]>(() => reactiveActor.system.armors || []);
 
@@ -101,6 +103,23 @@ async function repairArmor(armor: ArmorItem) {
       currentDamage
     );
     armor.value = Math.min(maxValue, armor.value + repairAmount);
+
+    // Sync armor repair with Charman if character is linked
+    const charmanData = actor.system.charman;
+    if (charmanData?.username && charmanData?.characterName) {
+      try {
+        const service = getCharmanService();
+        await service.updateEquipmentArmor(
+          charmanData.username,
+          charmanData.characterName,
+          armor.name,
+          armor.value
+        );
+      } catch (error) {
+        // Service not initialized or sync failed - ignore silently
+        console.warn("Could not sync armor repair to Charman:", error);
+      }
+    }
   }
 }
 </script>

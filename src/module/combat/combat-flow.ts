@@ -1,0 +1,839 @@
+/**
+ * Combat Flow System
+ * Handles attack/defense interactions with proper sequencing
+ */
+
+import type { FaseripActor } from "../documents";
+import { FaseripRoll } from "../rolling/FaseripRoll";
+import { requestDefenseResponse } from "../socket/faserip-socket";
+import { showAttackOptionsDialog } from "../applications/dialog-utils";
+import { stringToRank } from "../utils";
+import {
+  type Rank,
+  RollResult,
+  applyChartShift,
+  formatRankDisplay,
+  RANK_VALUES
+} from "../enums";
+
+/**
+ * Data for an attack attempt
+ */
+interface AttackData {
+  attacker: FaseripActor;
+  attackerToken?: Token;
+  attackAttribute: "fighting" | "agility" | "psyche";
+  attackType: "melee" | "ranged" | "psyche";
+  powerName?: string;
+  powerRank?: Rank; // Base rank of the attacking power
+  damageRoll?: string; // Optional: For house rules only - FASERIP uses result colors, not damage rolls
+  damageType?: string; // Type of damage (fire, cold, etc.)
+  talentNames?: string[]; // Optional: Talent names that apply to this attack
+  talentCS?: number; // Optional: Column shift bonus from talents
+}
+
+/**
+ * Result of damage calculation
+ */
+interface DamageResult {
+  damage: number;
+  baseRank: Rank;
+  reducedRank: Rank;
+  attackTier: number;
+  defenseTier: number;
+  rankReduction: number;
+  formula: string;
+  description: string;
+  bonusRoll?: Roll; // The 3d6 or 5d10 roll for Red/Ultimate results
+}
+
+/**
+ * Get the tier value from a roll result
+ * White = 0 (failure), Green = 1, Yellow = 2, Red = 3, Ultimate (100) = 4
+ */
+function getResultTier(roll: FaseripRoll): number {
+  const rollValue = roll.roll.total || 0;
+
+  // Ultimate critical (rolling 100)
+  if (rollValue === 100) {
+    return 4;
+  }
+
+  // Check result color
+  switch (roll.result) {
+    case RollResult.Red:
+      return 3;
+    case RollResult.Yellow:
+      return 2;
+    case RollResult.Green:
+      return 1;
+    case RollResult.White:
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Calculate damage using hybrid system:
+ * - Failed defense (tier 0): No rank reduction, attack at full power
+ * - Successful defense: Rank reduction = (attack tier - defense tier), minimum 0
+ * - Tier-specific damage formulas:
+ *   - White (tier 0): base ÷ 4 (quarter damage)
+ *   - Green (tier 1): base ÷ 2 (half damage)
+ *   - Yellow (tier 2): base (full damage)
+ *   - Red (tier 3): base + 3d6 (critical damage)
+ *   - Ultimate (100): base + 5d10 (ultimate damage)
+ */
+async function calculateDamage(
+  attackRoll: FaseripRoll,
+  defenseRoll: FaseripRoll | null,
+  powerRank: Rank
+): Promise<DamageResult> {
+  const attackTier = getResultTier(attackRoll);
+  const defenseTier = defenseRoll ? getResultTier(defenseRoll) : 0;
+
+  // Calculate rank reduction
+  // Failed defense (tier 0) means no reduction; successful defense reduces based on tier difference
+  const rankReduction =
+    defenseTier > 0 ? Math.max(0, attackTier - defenseTier) : 0;
+
+  // Apply chart shifts to reduce base rank
+  const reducedRank = applyChartShift(powerRank, -rankReduction);
+  const reducedValue = RANK_VALUES[reducedRank];
+
+  let damage = 0;
+  let formula = "";
+  let description = "";
+  let bonusRoll: Roll | null = null;
+
+  // Apply tier-specific damage formula to reduced base
+  const rollValue = attackRoll.roll.total || 0;
+
+  if (rollValue === 100) {
+    // Ultimate: reduced base + 5d10
+    bonusRoll = await Roll.create("5d10");
+    await bonusRoll.evaluate();
+    const bonus = bonusRoll.total || 0;
+    damage = reducedValue + bonus;
+    formula = `${reducedValue} + 5d10`;
+    description = `Ultimate Critical! ${formatRankDisplay(reducedRank)} base + 5d10`;
+  } else {
+    switch (attackRoll.result) {
+      case RollResult.Red:
+        // Red: reduced base + 3d6
+        bonusRoll = await Roll.create("3d6");
+        await bonusRoll.evaluate();
+        const redBonus = bonusRoll.total || 0;
+        damage = reducedValue + redBonus;
+        formula = `${reducedValue} + 3d6`;
+        description = `Critical! ${formatRankDisplay(reducedRank)} base + 3d6`;
+        break;
+
+      case RollResult.Yellow:
+        // Yellow: reduced base (full)
+        damage = reducedValue;
+        formula = `${reducedValue}`;
+        description = `Success! ${formatRankDisplay(reducedRank)} base damage`;
+        break;
+
+      case RollResult.Green:
+        // Green: reduced base ÷ 2
+        damage = Math.floor(reducedValue / 2);
+        formula = `${reducedValue} ÷ 2`;
+        description = `Half Success! ${formatRankDisplay(reducedRank)} base ÷ 2`;
+        break;
+
+      case RollResult.White:
+      default:
+        // White: reduced base ÷ 4
+        damage = Math.floor(reducedValue / 4);
+        formula = `${reducedValue} ÷ 4`;
+        description = `Glancing Blow! ${formatRankDisplay(reducedRank)} base ÷ 4`;
+        break;
+    }
+  }
+
+  return {
+    damage,
+    baseRank: powerRank,
+    reducedRank,
+    attackTier,
+    defenseTier,
+    rankReduction,
+    formula,
+    description,
+    bonusRoll // Include the bonus roll for display
+  };
+}
+
+/**
+ * Apply damage to an actor, reducing armor first then health
+ * Priority: Equipped armor soaks first, Body Armor power soaks remainder, then health
+ * @param actor Actor to apply damage to
+ * @param damage Amount of damage to apply
+ * @returns Object with armor damage, health damage, and remaining values
+ */
+async function applyDamageToActor(
+  actor: FaseripActor,
+  damage: number
+): Promise<{
+  armorDamage: number;
+  healthDamage: number;
+  newArmorValue: number;
+  newHealthValue: number;
+}> {
+  const system = actor.system as any;
+  const currentFormId = system.currentFormId;
+
+  // Armor is derived from body armor power + equipped armor
+  const activeFormId = system.currentFormId;
+  const bodyArmorPower = (system.powers || []).find(
+    (p: any) =>
+      p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+      (!p.formIds?.length || p.formIds.includes(activeFormId))
+  );
+  const equippedArmor = (system.armors || []).find((a: any) => a.equipped);
+
+  const currentArmor = system.resources?.armor?.value || 0;
+  const currentHealth =
+    system.healthByForm?.[currentFormId] ??
+    system.resources?.health?.value ??
+    0;
+
+  let armorDamage = 0;
+  let healthDamage = 0;
+  let newArmorValue = currentArmor;
+  let newHealthValue = currentHealth;
+
+  const updates: Record<string, any> = {};
+
+  if (currentArmor > 0) {
+    // Apply damage to armor first
+    armorDamage = Math.min(damage, currentArmor);
+    newArmorValue = currentArmor - armorDamage;
+
+    // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
+    let remainingArmorDamage = armorDamage;
+
+    // Equipped armor soaks first
+    if (equippedArmor && remainingArmorDamage > 0) {
+      const equippedArmorReduction = Math.min(
+        remainingArmorDamage,
+        equippedArmor.value
+      );
+      // Clone armors array and update the specific armor
+      const updatedArmors = [...system.armors];
+      const armorIndex = updatedArmors.findIndex(
+        (a: any) => a.id === equippedArmor.id
+      );
+      if (armorIndex !== -1) {
+        updatedArmors[armorIndex] = {
+          ...updatedArmors[armorIndex],
+          value: equippedArmor.value - equippedArmorReduction
+        };
+        updates["system.armors"] = updatedArmors;
+      }
+      remainingArmorDamage -= equippedArmorReduction;
+    }
+
+    // Body Armor power soaks remainder
+    if (bodyArmorPower && remainingArmorDamage > 0) {
+      const bodyArmorReduction = Math.min(
+        remainingArmorDamage,
+        bodyArmorPower.value
+      );
+      // Clone powers array and update the specific power
+      const updatedPowers = [...system.powers];
+      const powerIndex = updatedPowers.findIndex(
+        (p: any) => p.id === bodyArmorPower.id
+      );
+      if (powerIndex !== -1) {
+        updatedPowers[powerIndex] = {
+          ...updatedPowers[powerIndex],
+          value: bodyArmorPower.value - bodyArmorReduction
+        };
+        updates["system.powers"] = updatedPowers;
+      }
+    }
+
+    // If damage exceeds armor, overflow to health
+    const overflow = damage - armorDamage;
+    if (overflow > 0) {
+      healthDamage = overflow;
+      newHealthValue = currentHealth - healthDamage;
+    }
+  } else {
+    // No armor, all damage goes to health
+    healthDamage = damage;
+    newHealthValue = currentHealth - healthDamage;
+  }
+
+  // Update health in healthByForm for current form
+  if (healthDamage > 0) {
+    // Get existing healthByForm or create new one
+    const existingHealthByForm = system.healthByForm || {};
+    const updatedHealthByForm = {
+      ...existingHealthByForm,
+      [currentFormId]: newHealthValue
+    };
+    updates["system.healthByForm"] = updatedHealthByForm;
+    // CRITICAL: Also update resources.health.value directly
+    // prepareDerivedData() will recalculate from healthByForm, but we need immediate update
+    updates["system.resources.health.value"] = newHealthValue;
+  }
+
+  // Update actor with new values
+  try {
+    await actor.update(updates);
+  } catch (error) {
+    console.error("FASERIP Combat | Error updating actor:", error);
+  }
+
+  return {
+    armorDamage,
+    healthDamage,
+    newArmorValue,
+    newHealthValue
+  };
+}
+
+/**
+ * Execute a full combat flow: attack → defense prompt → resolution → damage
+ */
+export async function executeCombatAttack(
+  attackData: AttackData
+): Promise<void> {
+  const {
+    attacker,
+    attackerToken,
+    attackAttribute,
+    attackType,
+    powerName,
+    talentNames,
+    talentCS
+  } = attackData;
+
+  // Get targeted tokens
+  const targets = Array.from(game.user?.targets ?? []);
+
+  // If no targets, just roll the attack without combat flow
+  if (targets.length === 0) {
+    const system = attacker.system as any;
+    const currentForm =
+      system.forms?.find((f: any) => f.id === system.currentFormId) ||
+      system.forms?.[0];
+
+    if (!currentForm) {
+      ui.notifications?.error("No form found for attacker!");
+      return;
+    }
+
+    const attackAttr = currentForm.attributes?.[attackAttribute];
+    if (!attackAttr) {
+      ui.notifications?.error(`${attackAttribute} attribute not found!`);
+      return;
+    }
+
+    const attackRank = stringToRank(attackAttr.rank) as Rank;
+    const attackValue = attackAttr.value;
+    const currentKarma = system.resources?.karma?.value ?? 0;
+
+    // Show attack options dialog
+    const attackOptions = await showAttackOptionsDialog(
+      attacker.name!,
+      attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+      attackRank,
+      currentKarma,
+      powerName,
+      talentCS
+    );
+
+    if (!attackOptions) {
+      return;
+    }
+
+    // Roll and show attack (no combat flow) - include talent bonus in chart shift
+    await FaseripRoll.rollAttribute(
+      powerName ||
+        attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+      attackRank,
+      attackValue,
+      attackOptions.manualChartShift + (talentCS || 0),
+      attacker,
+      talentNames,
+      {
+        attackRoll: true,
+        attackType,
+        powerName
+      },
+      attackOptions.karmaColumnShifts,
+      attackOptions.karmaResultShift,
+      false // Show message
+    );
+
+    return;
+  }
+
+  // Step 1: Roll attack (but don't show yet)
+  const system = attacker.system as any;
+  const currentForm =
+    system.forms?.find((f: any) => f.id === system.currentFormId) ||
+    system.forms?.[0];
+
+  if (!currentForm) {
+    ui.notifications?.error("No form found for attacker!");
+    return;
+  }
+
+  const attackAttr = currentForm.attributes?.[attackAttribute];
+  if (!attackAttr) {
+    ui.notifications?.error(`${attackAttribute} attribute not found!`);
+    return;
+  }
+
+  const attackRank = stringToRank(attackAttr.rank) as Rank;
+  const attackValue = attackAttr.value;
+
+  // Step 0.5: Show attack options dialog (karma spending + modifiers)
+  const currentKarma = system.resources?.karma?.value ?? 0;
+  const attackOptions = await showAttackOptionsDialog(
+    attacker.name!,
+    attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+    attackRank,
+    currentKarma,
+    powerName,
+    talentCS
+  );
+
+  if (!attackOptions) {
+    // User cancelled
+    return;
+  }
+
+  // Calculate total chart shift (manual + talent bonuses - karma shifts handled by rollAttribute)
+  const totalChartShift = attackOptions.manualChartShift + (talentCS || 0);
+
+  // Step 1: Roll attack with applied chart shifts
+  // Pass karma shifts to rollAttribute - it will handle deduction and application
+  const attackRoll = await FaseripRoll.rollAttribute(
+    attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+    attackRank,
+    attackValue,
+    totalChartShift, // Manual chart shift only
+    attacker,
+    talentNames, // Pass talent names from attack data
+    {
+      attackRoll: true,
+      attackType,
+      powerName
+    },
+    attackOptions.karmaColumnShifts, // Let rollAttribute handle column shifts
+    attackOptions.karmaResultShift, // Let rollAttribute handle result shift
+    true // Skip message - we'll show it after defenses are chosen
+  );
+
+  const attackTotal = attackRoll.roll.total || 0;
+
+  // Show the attack roll to chat BEFORE defense dialogs
+  // ChatMessage.create will handle the dice animation automatically
+  const attackMetadata = (attackRoll as any).metadata || {};
+  const attackMessage = await attackRoll.toMessage(
+    powerName
+      ? `${powerName} Attack`
+      : `${attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1)} Attack`,
+    attacker,
+    attackMetadata.talentNames,
+    attackMetadata.preRollKarma || 0,
+    attackMetadata.postRollKarma || 0,
+    attackMetadata.karmaColumnShifts || 0,
+    {
+      attackRoll: true,
+      attackType,
+      powerName,
+      targetCount: targets.length,
+      ...(attackMetadata.additionalFlags || {})
+    }
+  );
+
+  // Wait for dice animation to complete before showing defense dialog
+  if ((game as any).dice3d && attackMessage) {
+    await (game as any).dice3d.waitFor3DAnimationByMessageID(attackMessage.id);
+  }
+
+  // Calculate effective attack rank after all modifiers
+  const effectiveAttackRank = applyChartShift(
+    attackRank,
+    attackOptions.karmaColumnShifts +
+      attackOptions.manualChartShift +
+      (talentCS || 0)
+  );
+
+  // Step 2: Request defense responses from all targets
+  const defenseResponses: Array<any> = [];
+
+  for (const target of targets) {
+    const targetActor = target.actor as FaseripActor | undefined;
+
+    if (!targetActor) {
+      console.warn("FASERIP Combat | Target has no actor:", target.name);
+      defenseResponses.push(null);
+      continue;
+    }
+
+    const defenseResponse = await requestDefenseResponse({
+      targetActorId: targetActor.id!,
+      targetTokenId: target.id,
+      attackerName: attacker.name!,
+      attackRoll: attackTotal,
+      attackType,
+      attackAttribute:
+        attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+      attackResult: attackRoll.getResultText(),
+      attackRank: effectiveAttackRank,
+      powerName
+    });
+
+    defenseResponses.push(defenseResponse);
+  }
+
+  // Step 3: Show results and determine hits
+  for (let i = 0; i < targets.length; i++) {
+    const target = targets[i];
+    const defenseResponse = defenseResponses[i];
+    const targetActor = target.actor as FaseripActor | undefined;
+
+    if (!targetActor) continue;
+
+    let attackHit = false;
+    let defenseRoll = null;
+    let combatComparison: any = null;
+
+    if (!defenseResponse || defenseResponse.defenseType === "takeHit") {
+      // Target took the hit without defending
+      attackHit = true;
+
+      const attackResultText = attackRoll.getResultText();
+      const attackResultClass = attackRoll.getResultClass();
+      const attackTier = getResultTier(attackRoll);
+
+      combatComparison = {
+        attackTotal,
+        defenseTotal: 0,
+        attackTier,
+        defenseTier: 0,
+        attackResultText,
+        attackResultClass,
+        defenseResultText: "No Defense",
+        defenseResultClass: "white",
+        attackHit: true
+      };
+    } else {
+      // Target defended - defense roll card was already shown on their client
+      // We just need to reconstruct the result for damage calculation
+
+      // Create a minimal roll object for tier calculation
+      if (defenseResponse._rollJSON) {
+        const reconstructedRoll = Roll.fromData(defenseResponse._rollJSON);
+        defenseRoll = {
+          roll: reconstructedRoll,
+          result: defenseResponse._resultText
+            ?.toLowerCase()
+            .includes("critical")
+            ? RollResult.Red
+            : defenseResponse._resultText?.toLowerCase().includes("success") &&
+                !defenseResponse._resultText?.toLowerCase().includes("half")
+              ? RollResult.Yellow
+              : defenseResponse._resultText?.toLowerCase().includes("half")
+                ? RollResult.Green
+                : RollResult.White,
+          getResultText: () => defenseResponse._resultText || "Success",
+          getResultClass: () => defenseResponse._resultClass || "green"
+        } as any;
+      }
+
+      const defenseTotal = defenseResponse.defenseRoll || 0;
+
+      // Get tiers for comparison
+      const attackTier = getResultTier(attackRoll);
+      const defenseTier = defenseRoll ? getResultTier(defenseRoll) : 0;
+
+      // Determine hit: Compare tiers first, then roll totals if tied
+      if (attackTier > defenseTier) {
+        // Attack has higher tier (Red > Yellow > Green > White) - attack wins
+        attackHit = true;
+      } else if (attackTier < defenseTier) {
+        // Defense has higher tier - defense wins
+        attackHit = false;
+
+        // CRITICAL DODGE COUNTER-ATTACK: If defense was critical (Red/Ultimate) against melee, offer counter
+        if (defenseTier >= 3 && attackType === "melee") {
+          // @ts-expect-error - DialogV2 types
+          const shouldCounter = await foundry.applications.api.DialogV2.confirm(
+            {
+              window: { title: "Critical Dodge - Counter Attack?" },
+              content: `<p><strong>${targetActor.name}</strong> critically dodged a melee attack!</p><p>Counter-attack ${attacker.name}?</p>`,
+              modal: true,
+              rejectClose: false,
+              yes: { label: "Counter-Attack!", icon: "fa-solid fa-hand-fist" },
+              no: { label: "Don't Counter", icon: "fa-solid fa-xmark" }
+            }
+          );
+
+          if (shouldCounter) {
+            // Show counter message
+            await ChatMessage.create({
+              speaker: ChatMessage.getSpeaker({ actor: targetActor }),
+              content: `<div class="fsr-combat-message result-red">
+                <h3 style="margin: 0; font-size: 1rem;">💥 Counter-Attack!</h3>
+                <p style="margin: 0.25rem 0; font-size: 0.9rem;"><strong>${targetActor.name}</strong> counters ${attacker.name}'s attack!</p>
+              </div>`
+            });
+
+            // Execute counter-attack after brief delay
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Counter with Fighting attribute
+            await executeCombatAttack({
+              attacker: targetActor,
+              attackAttribute: "fighting",
+              attackType: "melee",
+              powerName: "Counter-Attack"
+            });
+
+            // Skip damage for original attack since it was countered
+            continue;
+          }
+        }
+      } else {
+        // Same tier - compare roll totals (defense wins if >= attack)
+        attackHit = defenseTotal < attackTotal;
+      }
+
+      // Build result message with roll card information
+      const attackResultText = attackRoll.getResultText();
+      const attackResultClass = attackRoll.getResultClass();
+      const defenseResultText = defenseRoll?.getResultText() || "Unknown";
+      const defenseResultClass = defenseRoll?.getResultClass() || "white";
+
+      const resultText = attackHit
+        ? `<span style="color: #ef4444;">Attack HITS!</span>`
+        : `<span style="color: #22c55e;">Defense SUCCEEDS!</span>`;
+
+      // Store combat comparison data for later use in damage card
+      combatComparison = {
+        attackTotal,
+        defenseTotal,
+        attackTier,
+        defenseTier,
+        attackResultText,
+        attackResultClass,
+        defenseResultText,
+        defenseResultClass,
+        attackHit
+      };
+    }
+
+    // Brief delay before next target
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Step 5: Calculate and apply damage using hybrid system
+    if (attackHit) {
+      // Get power rank (from attackData or default to attack attribute rank)
+      const powerRank = attackData.powerRank || attackRank;
+
+      // Calculate damage with tier-based rank reduction
+      const damageResult = await calculateDamage(
+        attackRoll,
+        combatComparison.defenseTier > 0 ? defenseRoll : null,
+        powerRank
+      );
+
+      // Apply damage to target actor
+      const damageApplication = await applyDamageToActor(
+        targetActor,
+        damageResult.damage
+      );
+
+      // Build damage application text
+      let damageApplicationText = "";
+      if (
+        damageApplication.armorDamage > 0 &&
+        damageApplication.healthDamage > 0
+      ) {
+        damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining), ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+      } else if (damageApplication.armorDamage > 0) {
+        damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)</div>`;
+      } else if (damageApplication.healthDamage > 0) {
+        damageApplicationText = `<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+      }
+
+      // Build compact defense info
+      let defenseInfo = "";
+      if (combatComparison.defenseTier > 0 && defenseRoll) {
+        if (damageResult.rankReduction > 0) {
+          defenseInfo = `reduced ${damageResult.rankReduction} rank${damageResult.rankReduction > 1 ? "s" : ""}`;
+        } else if (damageResult.defenseTier === 0) {
+          defenseInfo = `no reduction (White)`;
+        } else {
+          defenseInfo = `no reduction`;
+        }
+      } else {
+        defenseInfo = `undefended`;
+      }
+
+      const resultText = attackRoll.getResultText();
+      const resultClass = attackRoll.getResultClass();
+
+      // Build comparison note if needed
+      let comparisonNote = "";
+      if (combatComparison.defenseTier > 0) {
+        if (combatComparison.attackTier !== combatComparison.defenseTier) {
+          comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">${combatComparison.attackTier > combatComparison.defenseTier ? "Attack" : "Defense"} wins (higher tier)</div>`;
+        } else if (
+          combatComparison.attackTotal === combatComparison.defenseTotal
+        ) {
+          comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">Tied - Defense succeeds</div>`;
+        }
+      }
+
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor: attacker }),
+        content: `<div class="fsr-combat-message result-${resultClass}">
+          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">${powerName || "Attack"} → ${targetActor.name}</h3>
+          
+          ${
+            combatComparison.defenseTier > 0
+              ? `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; margin: 0 0 0.35rem 0; font-size: 0.8rem;">
+            <div style="text-align: center;">
+              <div style="font-weight: 600; background: #dbeafe; color: #1e3a8a; padding: 0.15rem 0.4rem; border-radius: 3px;">Attack: ${combatComparison.attackTotal}</div>
+              <div><span class="result-badge ${combatComparison.attackResultClass}" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;">${combatComparison.attackResultText}</span> (T${combatComparison.attackTier})</div>
+            </div>
+            <div style="text-align: center;">
+              <div style="font-weight: 600; background: #dcfce7; color: #14532d; padding: 0.15rem 0.4rem; border-radius: 3px;">Defense: ${combatComparison.defenseTotal}</div>
+              <div><span class="result-badge ${combatComparison.defenseResultClass}" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;">${combatComparison.defenseResultText}</span> (T${combatComparison.defenseTier})</div>
+            </div>
+          </div>
+          ${comparisonNote}`
+              : `<div style="font-size: 0.8rem; background: #f3f4f6; color: #374151; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0 0 0.35rem 0; font-style: italic;">${targetActor.name} chose not to defend</div>`
+          }
+          
+          <div style="background: rgba(0,0,0,0.05); padding: 0.35rem; border-radius: 3px; margin: 0.35rem 0;">
+            <div style="font-size: 0.8rem; margin-bottom: 0.25rem;"><strong>Base:</strong> ${formatRankDisplay(damageResult.baseRank)} • <strong>Defense:</strong> ${defenseInfo}</div>
+            <div style="font-size: 0.8rem; margin-bottom: 0.25rem;"><strong>Final:</strong> ${formatRankDisplay(damageResult.reducedRank)} • <strong>Formula:</strong> ${damageResult.formula}</div>
+            <div style="font-size: 1.1rem; background: #fee2e2; color: #991b1b; font-weight: bold; margin-top: 0.25rem; padding: 0.25rem 0.5rem; border-radius: 3px;">
+              💥 <strong>${damageResult.damage}</strong> damage
+            </div>
+            ${damageApplicationText}
+          </div>
+          
+          <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">${damageResult.description}${attackData.damageType ? ` • ${attackData.damageType}` : ""}</div>
+        </div>`,
+        flags: {
+          faserip: {
+            combatMessage: true,
+            damageMessage: true,
+            targetId: targetActor.id,
+            damage: damageResult.damage,
+            baseRank: damageResult.baseRank,
+            reducedRank: damageResult.reducedRank,
+            attackTier: damageResult.attackTier,
+            defenseTier: damageResult.defenseTier,
+            rankReduction: damageResult.rankReduction,
+            attackRoll: combatComparison.attackTotal,
+            defenseRoll:
+              combatComparison.defenseTier > 0
+                ? combatComparison.defenseTotal
+                : null,
+            resultText,
+            resultClass,
+            powerName,
+            damageType: attackData.damageType
+          }
+        }
+      });
+
+      // Show bonus damage roll if applicable (Red/Ultimate)
+      if (damageResult.bonusRoll) {
+        await damageResult.bonusRoll.toMessage({
+          speaker: ChatMessage.getSpeaker({ actor: attacker }),
+          flavor: `<strong>Bonus Damage Roll</strong> (${damageResult.attackTier === 4 ? "Ultimate +5d10" : "Critical +3d6"})`
+        });
+      }
+    }
+  }
+}
+
+/**
+ * @deprecated This function is for house rules only
+ * Standard FASERIP uses result colors (Red/Yellow/Green/White) to determine effects,
+ * not separate damage rolls. Use attack result + power rank instead.
+ *
+ * Roll damage and show in chat (House Rules Only)
+ */
+async function rollDamage(
+  attacker: FaseripActor,
+  target: FaseripActor,
+  damageFormula: string,
+  damageType?: string
+): Promise<void> {
+  const damageRoll = await Roll.create(damageFormula);
+  await damageRoll.evaluate();
+
+  const damageTotal = damageRoll.total || 0;
+
+  let damageTypeText = "";
+  if (damageType && damageType !== "none") {
+    damageTypeText = `<p><strong>Damage Type:</strong> ${damageType.charAt(0).toUpperCase() + damageType.slice(1)}</p>`;
+  }
+
+  await ChatMessage.create({
+    speaker: ChatMessage.getSpeaker({ actor: attacker }),
+    content: `<div class="fsr-damage-roll">
+      <h3 style="margin: 0 0 0.5rem 0; font-size: 1rem;">Damage Roll</h3>
+      <p style="margin: 0.25rem 0; font-size: 0.9rem;"><strong>Target:</strong> ${target.name}</p>
+      ${damageTypeText.replace("<p>", '<p style="margin: 0.25rem 0; font-size: 0.9rem;">').replace("<strong>", '<strong style="font-size: 0.9rem;">')}
+      <p style="margin: 0.25rem 0; font-size: 0.9rem;"><strong>Damage:</strong> <span style="color: #ef4444; font-size: 1.1rem; font-weight: bold;">${damageTotal}</span></p>
+      <div class="dice-result" style="margin-top: 0.25rem;">
+        <div class="dice-formula" style="font-size: 0.85rem;">${damageFormula}</div>
+      </div>
+    </div>`,
+    rolls: [damageRoll],
+    flags: {
+      faserip: {
+        damageRoll: true,
+        targetId: target.id,
+        damageType
+      }
+    }
+  });
+
+  // TODO: Apply damage to target (requires damage application system)
+}
+
+/**
+ * Quick attack with a specific attribute (for macros/token HUD)
+ */
+export async function quickAttack(
+  actor: FaseripActor,
+  attributeName: "fighting" | "agility" | "psyche"
+): Promise<void> {
+  let attackType: "melee" | "ranged" | "psyche";
+
+  switch (attributeName) {
+    case "fighting":
+      attackType = "melee";
+      break;
+    case "agility":
+      attackType = "ranged";
+      break;
+    case "psyche":
+      attackType = "psyche";
+      break;
+  }
+
+  await executeCombatAttack({
+    attacker: actor,
+    attackAttribute: attributeName,
+    attackType
+  });
+}

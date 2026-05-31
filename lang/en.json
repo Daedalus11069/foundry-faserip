@@ -70,6 +70,10 @@
         "name": "Enable Degrading Armor",
         "hint": "When enabled (requires Armor system), armor takes damage when it soaks incoming damage. Armor rating is reduced by the amount soaked. Example: Incredible (40) armor that soaks 30 damage becomes 10 rating. Armor can be repaired from the Armor tab."
       },
+      "weaponsEnabled": {
+        "name": "Enable Weapons System",
+        "hint": "Enable the houserule Weapons system. When enabled, characters can have weapons with damage values, type (ranged/melee), stat bonuses for to-hit rolls, and references to applicable talents. Ranged weapons use Agility, melee weapons use Fighting."
+      },
       "lockPlayerStats": {
         "name": "Lock Player Stat Editing",
         "hint": "When enabled, prevents players from editing character form attributes (Fighting, Agility, Strength, etc.) on their sheets. Only GMs can edit stats, but players can still sync from Charman and edit equipment/armor."

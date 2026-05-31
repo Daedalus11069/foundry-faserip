@@ -6,6 +6,7 @@ import PowersTab from "./PowersTab.vue";
 import TalentsTab from "./TalentsTab.vue";
 import BiographyTab from "./BiographyTab.vue";
 import ArmorTab from "./ArmorTab.vue";
+import WeaponsTab from "./WeaponsTab.vue";
 import { calculateHealth, stringToRank } from "../../utils";
 import { Rank } from "../../enums";
 
@@ -22,6 +23,10 @@ watch(activeTab, tab => {
 
 const armorEnabled = computed(
   () => game.settings.get("faserip", "armorEnabled") ?? false
+);
+
+const weaponsEnabled = computed(
+  () => game.settings.get("faserip", "weaponsEnabled") ?? false
 );
 
 // Reactive movement calculation based on current form's endurance
@@ -79,8 +84,9 @@ const tabs = computed(() => [
   { id: "stats", label: "Stats" },
   { id: "powers", label: "Powers" },
   { id: "talents", label: "Talents" },
+  ...(weaponsEnabled.value ? [{ id: "weapons", label: "Weapons" }] : []),
   ...(armorEnabled.value ? [{ id: "armor", label: "Armor" }] : []),
-  { id: "biography", label: "Biography" },
+  { id: "biography", label: "Notes" },
   { id: "edit", label: "Edit" }
 ]);
 
@@ -324,6 +330,7 @@ function copyMovementPath() {
       <StatsTab v-if="activeTab === 'stats'" />
       <PowersTab v-if="activeTab === 'powers'" />
       <TalentsTab v-if="activeTab === 'talents'" />
+      <WeaponsTab v-if="activeTab === 'weapons'" />
       <ArmorTab v-if="activeTab === 'armor'" />
       <BiographyTab v-if="activeTab === 'biography'" />
       <EditTab v-if="activeTab === 'edit'" />

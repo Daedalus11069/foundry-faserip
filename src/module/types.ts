@@ -35,6 +35,10 @@ export interface Power {
   mpCost?: number; // Mental Points cost (houserule: MP system)
   formIds?: string[]; // Form IDs this power applies to; empty = all forms
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs
+  effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // What effect this power has (uses power's rank)
+  attackType?: "none" | "melee" | "ranged"; // Attack type for dodge mechanics
+  damageType?: string; // Damage type (fire, cold, energy, etc.) - defaults to "none"
+  resistanceType?: string; // If this is a resistance power, what type it resists
 }
 
 /**

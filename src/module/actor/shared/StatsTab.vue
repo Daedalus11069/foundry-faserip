@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { inject, computed, ref, watch } from "vue";
-import { formatRankDisplay } from "../../enums";
+import {
+  formatRankDisplay,
+  applyChartShift,
+  type Rank,
+  RollResult
+} from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
 import { stringToRank, calculateHealth } from "../../utils";
 import { getCharmanService } from "../../charman-service";
@@ -9,6 +14,18 @@ import {
   showComboDialog
 } from "../../applications/dialog-utils";
 import type { Talent, Power, Form } from "../../types";
+import { executeCombatAttack } from "../../combat/combat-flow";
+
+interface Weapon {
+  id: string;
+  name: string;
+  type: "melee" | "ranged";
+  damage: string | number; // CS number for melee (+X), Rank string for ranged
+  stat: "fighting" | "agility";
+  applicableTalent?: string;
+  description?: string;
+  equipped?: boolean;
+}
 
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor<"pc" | "npc">;
@@ -50,10 +67,15 @@ const healthValue = computed(
 );
 
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
+const weapons = computed<Weapon[]>(() => reactiveActor.system.weapons || []);
 const powers = computed<Power[]>(() =>
   (reactiveActor.system.powers || []).filter(
     (p: Power) => !p.formIds?.length || p.formIds.includes(viewFormId.value)
   )
+);
+
+const weaponsEnabled = computed(
+  () => game.settings.get("faserip", "weaponsEnabled") ?? false
 );
 
 // Check if MP (Mental Points) system is enabled
@@ -96,6 +118,8 @@ async function applyDamage() {
 
   let incoming = damageAmount.value;
   const soakSources: string[] = [];
+  let equipmentArmorDamaged = false;
+  let bodyArmorPowerDamaged = false;
 
   // Equipped armor soaks first (house rule setting)
   if (equippedArmor.value) {
@@ -112,6 +136,7 @@ async function applyDamage() {
           0,
           equippedArmor.value.value - armorSoak
         );
+        equipmentArmorDamaged = true;
         if (equippedArmor.value.value === 0) {
           ui.notifications?.warn(`${equippedArmor.value.name} is destroyed!`);
         }
@@ -134,6 +159,7 @@ async function applyDamage() {
           0,
           bodyArmorPower.value.value - powerSoak
         );
+        bodyArmorPowerDamaged = true;
         if (bodyArmorPower.value.value === 0) {
           ui.notifications?.warn(`${bodyArmorPower.value.name} is destroyed!`);
         }
@@ -150,6 +176,36 @@ async function applyDamage() {
     // ui.notifications?.info(
     //   `Absorbed: ${soakSources.join(", ")}. ${incoming} damage applied.`
     // );
+  }
+
+  // Sync armor changes with Charman if character is linked
+  const charmanData = actor.system.charman;
+  if (charmanData?.username && charmanData?.characterName) {
+    try {
+      const service = getCharmanService();
+
+      // Sync equipment armor if damaged
+      if (equipmentArmorDamaged && equippedArmor.value) {
+        await service.updateEquipmentArmor(
+          charmanData.username,
+          charmanData.characterName,
+          equippedArmor.value.name,
+          equippedArmor.value.value
+        );
+      }
+
+      // Sync Body Armor power if damaged
+      if (bodyArmorPowerDamaged && bodyArmorPower.value) {
+        await service.updateBodyArmorPower(
+          charmanData.username,
+          charmanData.characterName,
+          bodyArmorPower.value.value
+        );
+      }
+    } catch (error) {
+      // Service not initialized or sync failed - ignore silently
+      console.warn("Could not sync armor to Charman:", error);
+    }
   }
 
   damageAmount.value = 0;
@@ -191,6 +247,60 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
   const attrLabel = attributes.find(a => a.key === attrKey)?.label || attrKey;
   const rank = stringToRank(attr.rank);
 
+  // For Fighting and Agility, check for equipped weapon
+  if (attrKey === "fighting" || attrKey === "agility") {
+    const equippedWeapon = weapons.value.find(w => {
+      if (attrKey === "fighting") return w.type === "melee" && w.equipped;
+      if (attrKey === "agility") return w.type === "ranged" && w.equipped;
+      return false;
+    });
+
+    if (equippedWeapon) {
+      // Attack with equipped weapon
+      await rollWeapon(equippedWeapon);
+      return;
+    } else if (attrKey === "fighting") {
+      // No equipped melee weapon - attack unarmed with Strength damage
+      const strengthRank = stringToRank(
+        currentForm.value.attributes.strength.rank
+      );
+
+      // Show talent selection dialog if talents are available and not skipped
+      let talentNames: string[] = [];
+      let talentCS = 0;
+
+      if (!skipTalents && talents.value.length > 0) {
+        const selectedTalents = await showTalentSelectionDialog(
+          talents.value,
+          attrLabel
+        );
+
+        if (selectedTalents === null) {
+          return;
+        }
+
+        if (selectedTalents.length > 0) {
+          talentNames = selectedTalents.map(t => t.name);
+          talentCS = selectedTalents.reduce((sum, t) => sum + t.bonus, 0);
+        }
+      }
+
+      await executeCombatAttack({
+        attacker: actor as any,
+        attackAttribute: "fighting",
+        attackType: "melee",
+        powerName: "Unarmed Strike",
+        powerRank: strengthRank,
+        damageType: undefined,
+        talentNames: talentNames.length > 0 ? talentNames : undefined,
+        talentCS: talentCS > 0 ? talentCS : undefined
+      });
+      return;
+    }
+    // For Agility with no equipped ranged weapon, fall through to standard roll
+  }
+
+  // Standard attribute roll (no combat flow)
   // Show talent selection dialog if talents are available and not skipped
   let totalCS = 0;
   let talentNames: string[] = [];
@@ -260,6 +370,108 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
   }
 }
 
+function formatWeaponDamage(weapon: Weapon): string {
+  if (weapon.type === "melee") {
+    const cs =
+      typeof weapon.damage === "number"
+        ? weapon.damage
+        : Number(weapon.damage) || 0;
+    if (!currentForm.value?.attributes?.strength?.rank) {
+      return `Str ${cs > 0 ? "+" : ""}${cs} CS`;
+    }
+    const strengthRank = stringToRank(
+      currentForm.value.attributes.strength.rank
+    );
+    const finalRank = applyChartShift(strengthRank, cs);
+    return formatRankDisplay(finalRank);
+  } else {
+    return formatRankDisplay(
+      typeof weapon.damage === "string" ? weapon.damage : "Typical"
+    );
+  }
+}
+
+async function rollWeapon(weapon: Weapon) {
+  if (!currentForm.value) return;
+
+  const attackAttribute = weapon.stat;
+  const attackType = weapon.type;
+  let damageRank: Rank;
+
+  // Calculate damage based on weapon type
+  if (weapon.type === "melee") {
+    // Melee: Strength + weapon CS
+    const strengthRank = stringToRank(
+      currentForm.value.attributes.strength.rank
+    );
+    const weaponCS =
+      typeof weapon.damage === "number"
+        ? weapon.damage
+        : Number(weapon.damage) || 0;
+    damageRank = applyChartShift(strengthRank, weaponCS);
+  } else {
+    // Ranged: Fixed damage rank
+    damageRank = stringToRank(
+      typeof weapon.damage === "string" ? weapon.damage : "Typical"
+    );
+  }
+
+  // Find applicable talent for bonus
+  const talentNames: string[] = [];
+  let talentCS = 0;
+  if (weapon.applicableTalent) {
+    const talent = talents.value.find(
+      t =>
+        t.name.toLowerCase().replace(/[\s_-]+/g, "") ===
+        weapon.applicableTalent?.toLowerCase().replace(/[\s_-]+/g, "")
+    );
+    if (talent) {
+      talentNames.push(talent.name);
+      talentCS = talent.bonus || 0;
+    }
+  }
+
+  // Use combat flow system
+  await executeCombatAttack({
+    attacker: actor as any,
+    attackAttribute,
+    attackType,
+    powerName: weapon.name,
+    powerRank: damageRank,
+    damageType: undefined,
+    talentNames: talentNames.length > 0 ? talentNames : undefined,
+    talentCS: talentCS > 0 ? talentCS : undefined
+  });
+}
+
+async function toggleEquip(weapon: Weapon) {
+  if (!reactiveActor.system.weapons) return;
+
+  const weaponIndex = reactiveActor.system.weapons.findIndex(
+    (w: Weapon) => w.id === weapon.id
+  );
+  if (weaponIndex === -1) return;
+
+  const newEquippedState = !weapon.equipped;
+
+  // If equipping, unequip any other weapon of the same type
+  if (newEquippedState) {
+    reactiveActor.system.weapons.forEach((w: Weapon, idx: number) => {
+      if (idx !== weaponIndex && w.type === weapon.type && w.equipped) {
+        w.equipped = false;
+      }
+    });
+  }
+
+  // Toggle this weapon's equipped state
+  reactiveActor.system.weapons[weaponIndex].equipped = newEquippedState;
+
+  // Persist to actor
+  // await actor.update({
+  //   "system.weapons": JSON.parse(JSON.stringify(reactiveActor.system.weapons))
+  // });
+}
+
 async function rollPower(power: any) {
   if (!currentForm.value) return;
 
@@ -278,8 +490,237 @@ async function rollPower(power: any) {
     }
   }
 
+  // Initialize CS and talent tracking (quick-roll doesn't show talent dialog)
   let totalCS = 0;
   let talentNames: string[] = [];
+
+  // Route healing powers - must be rolled first
+  if (power.effectType === "heal-health" || power.effectType === "heal-armor") {
+    // Roll the power
+    const faseripRoll = await FaseripRoll.rollAttribute(
+      power.name,
+      rank,
+      rankValue,
+      totalCS,
+      actor,
+      talentNames,
+      undefined,
+      0,
+      0,
+      false,
+      0
+    );
+
+    if (!faseripRoll) return;
+
+    const rollTotal = faseripRoll.roll.total || 0;
+    const rollResult = faseripRoll.result;
+
+    // Calculate healing/repair amount based on roll result
+    let amount = 0;
+
+    if (rollTotal === 100) {
+      const bonusRoll = await Roll.create("5d10");
+      await bonusRoll.evaluate();
+      amount = power.value + (bonusRoll.total || 0);
+      await bonusRoll.toMessage({
+        flavor: `${power.name} - Ultimate Critical ${power.effectType === "heal-health" ? "Healing" : "Repair"} Bonus`,
+        speaker: ChatMessage.getSpeaker({ actor })
+      });
+    } else if (rollResult === RollResult.Red) {
+      const bonusRoll = await Roll.create("3d6");
+      await bonusRoll.evaluate();
+      amount = power.value + (bonusRoll.total || 0);
+      await bonusRoll.toMessage({
+        flavor: `${power.name} - Critical ${power.effectType === "heal-health" ? "Healing" : "Repair"} Bonus`,
+        speaker: ChatMessage.getSpeaker({ actor })
+      });
+    } else if (rollResult === RollResult.Yellow) {
+      amount = power.value;
+    } else if (rollResult === RollResult.Green) {
+      amount = Math.floor(power.value / 2);
+    } else {
+      // White result - healing failed
+      amount = 0;
+      await ChatMessage.create({
+        content: `<div class="fsr-chat-card fsr-fail">
+          <h3>${power.effectType === "heal-health" ? "Healing" : "Repair"} Failed</h3>
+          <p><strong>${power.name}</strong> roll failed (White result)!</p>
+        </div>`,
+        speaker: ChatMessage.getSpeaker({ actor })
+      });
+    }
+
+    // Apply the healing/repair (all chat messages already awaited above)
+    if (power.effectType === "heal-health" && amount > 0) {
+      const healthMax = reactiveActor.system.resources.health.max;
+      const oldValue = reactiveActor.system.resources.health.value;
+      const newValue = Math.min(healthMax, oldValue + amount);
+      const actualHealing = newValue - oldValue;
+
+      if (actualHealing > 0) {
+        reactiveActor.system.resources.health.value = newValue;
+
+        // Post healing result to chat
+        await ChatMessage.create({
+          content: `<div class="fsr-chat-card" style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94);">
+            <h3 style="color: rgb(34, 197, 94);">Health Restored</h3>
+            <p><strong>${power.name}</strong> healed <strong>${actualHealing}</strong> health.</p>
+            <p style="font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
+          </div>`,
+          speaker: ChatMessage.getSpeaker({ actor })
+        });
+      } else {
+        await ChatMessage.create({
+          content: `<div class="fsr-chat-card" style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36);">
+            <h3 style="color: rgb(251, 191, 36);">Already Healthy</h3>
+            <p><strong>${power.name}</strong>: Already at full health (${healthMax}).</p>
+          </div>`,
+          speaker: ChatMessage.getSpeaker({ actor })
+        });
+      }
+    } else if (power.effectType === "heal-armor" && amount > 0) {
+      const bodyArmorPower = (reactiveActor.system.powers || []).find(
+        (p: any) =>
+          p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+          (!p.formIds?.length ||
+            p.formIds.includes(reactiveActor.system.currentFormId))
+      );
+
+      if (bodyArmorPower) {
+        const maxValue = bodyArmorPower.maxValue || bodyArmorPower.value;
+        const oldValue = bodyArmorPower.value;
+        const newValue = Math.min(maxValue, oldValue + amount);
+        const actualRepair = newValue - oldValue;
+
+        if (actualRepair > 0) {
+          bodyArmorPower.value = newValue;
+
+          // Post repair result to chat
+          await ChatMessage.create({
+            content: `<div class="fsr-chat-card" style="background: rgba(59, 130, 246, 0.15); border-left: 3px solid rgb(59, 130, 246);">
+              <h3 style="color: rgb(59, 130, 246);">Body Armor Repaired</h3>
+              <p><strong>${power.name}</strong> repaired <strong>${actualRepair}</strong> armor.</p>
+              <p style="font-size: 0.9em; opacity: 0.8;">Body Armor: ${oldValue} → ${newValue} / ${maxValue}</p>
+            </div>`,
+            speaker: ChatMessage.getSpeaker({ actor })
+          });
+
+          // Sync with Charman if character is linked
+          const charmanData = actor.system.charman;
+          if (charmanData?.username && charmanData?.characterName) {
+            try {
+              const service = getCharmanService();
+              await service.updateBodyArmorPower(
+                charmanData.username,
+                charmanData.characterName,
+                bodyArmorPower.value
+              );
+            } catch (error) {
+              console.warn(
+                "Could not sync Body Armor repair to Charman:",
+                error
+              );
+            }
+          }
+        } else {
+          await ChatMessage.create({
+            content: `<div class="fsr-chat-card" style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36);">
+              <h3 style="color: rgb(251, 191, 36);">Armor Already Full</h3>
+              <p><strong>${power.name}</strong>: Body Armor already at maximum (${maxValue}).</p>
+            </div>`,
+            speaker: ChatMessage.getSpeaker({ actor })
+          });
+        }
+      } else {
+        await ChatMessage.create({
+          content: `<div class="fsr-chat-card fsr-fail">
+            <h3>No Body Armor Found</h3>
+            <p><strong>${power.name}</strong>: No Body Armor power found to heal.</p>
+          </div>`,
+          speaker: ChatMessage.getSpeaker({ actor })
+        });
+      }
+    }
+
+    // Deduct MP
+    if (mpCost > 0) {
+      const currentMP = reactiveActor.system.resources.mentalPoints.value;
+      reactiveActor.system.resources.mentalPoints.value = Math.max(
+        0,
+        currentMP - mpCost
+      );
+    }
+
+    return;
+  }
+
+  // Route attack-type damage powers through combat flow
+  if (
+    power.effectType === "damage" &&
+    (power.attackType === "melee" || power.attackType === "ranged")
+  ) {
+    // Determine attack attribute based on type
+    let attackAttribute: "fighting" | "agility";
+    let attackType: "melee" | "ranged";
+
+    if (power.attackType === "melee") {
+      attackAttribute = "fighting";
+      attackType = "melee";
+    } else {
+      attackAttribute = "agility";
+      attackType = "ranged";
+    }
+
+    // Use combat flow system
+    await executeCombatAttack({
+      attacker: actor as any,
+      attackAttribute,
+      attackType,
+      powerName: power.name,
+      powerRank: rank, // Pass the power's rank for damage calculation
+      damageRoll: `1d${rankValue}`, // Simple damage based on power rank value
+      damageType: power.damageType !== "none" ? power.damageType : undefined
+    });
+
+    // Deduct MP after successful attack
+    if (mpCost > 0) {
+      const currentMP = reactiveActor.system.resources.mentalPoints.value;
+      reactiveActor.system.resources.mentalPoints.value = Math.max(
+        0,
+        currentMP - mpCost
+      );
+
+      await actor.update({
+        system: {
+          resources: {
+            mentalPoints: {
+              value: reactiveActor.system.resources.mentalPoints!.value
+            }
+          }
+        }
+      });
+
+      // Sync MP with Charman if character is linked
+      const charmanData = actor.system.charman;
+      if (charmanData?.username && charmanData?.characterName) {
+        try {
+          const service = getCharmanService();
+          await service.updateMP(
+            charmanData.username,
+            charmanData.characterName,
+            reactiveActor.system.resources.mentalPoints.value
+          );
+        } catch (error) {
+          console.warn("Could not sync MP to Charman:", error);
+        }
+      }
+    }
+
+    return; // Exit early - combat flow handles everything
+  }
+
+  // totalCS and talentNames already declared above
 
   if (!power.skipDialogs) {
     // Talent selection
@@ -353,15 +794,15 @@ async function rollPower(power: any) {
     );
 
     // Persist to actor
-    await actor.update({
-      system: {
-        resources: {
-          mentalPoints: {
-            value: reactiveActor.system.resources.mentalPoints!.value
-          }
-        }
-      }
-    });
+    // await actor.update({
+    //   system: {
+    //     resources: {
+    //       mentalPoints: {
+    //         value: reactiveActor.system.resources.mentalPoints!.value
+    //       }
+    //     }
+    //   }
+    // });
 
     // Sync MP with Charman if character is linked
     const charmanData = actor.system.charman;
@@ -469,86 +910,155 @@ async function rollPower(power: any) {
       </div>
     </div>
 
-    <!-- PHYSICAL Group -->
-    <div class="mb-3">
-      <h3 class="text-sm font-bold text-red-400 mb-2 uppercase tracking-wider">
-        PHYSICAL
-      </h3>
-      <div class="fsr-grid fsr-grid-2">
-        <div v-for="attr in faseAttributes" :key="attr.key" class="fsr-stat">
-          <div class="flex justify-between items-start mb-1">
-            <div>
-              <div class="fsr-stat-name">{{ attr.icon }} {{ attr.label }}</div>
-              <div class="fsr-stat-rank">
-                {{ formatRankDisplay(currentForm.attributes[attr.key].rank) }}
+    <!-- Two Column Layout: Stats (8/12) and Weapons/Powers (4/12) -->
+    <div class="flex gap-3">
+      <!-- Left Column: FASE and RIP Stats -->
+      <div class="basis-8/12">
+        <!-- PHYSICAL Group -->
+        <div class="mb-3">
+          <h3
+            class="text-sm font-bold text-red-400 mb-2 uppercase tracking-wider"
+          >
+            PHYSICAL
+          </h3>
+          <div class="fsr-grid fsr-grid-2">
+            <div
+              v-for="attr in faseAttributes"
+              :key="attr.key"
+              class="fsr-stat"
+            >
+              <div class="flex justify-between items-start mb-1">
+                <div>
+                  <div class="fsr-stat-name">
+                    {{ attr.icon }} {{ attr.label }}
+                  </div>
+                  <div class="fsr-stat-rank">
+                    {{
+                      formatRankDisplay(currentForm.attributes[attr.key].rank)
+                    }}
+                  </div>
+                </div>
+                <div class="fsr-stat-value">
+                  {{ currentForm.attributes[attr.key].value }}
+                </div>
               </div>
-            </div>
-            <div class="fsr-stat-value">
-              {{ currentForm.attributes[attr.key].value }}
+
+              <button
+                @click="rollAttribute(attr.key)"
+                class="fsr-roll-btn w-full mt-1"
+              >
+                🎲 {{ attr.label }}
+              </button>
             </div>
           </div>
-
-          <button
-            @click="rollAttribute(attr.key)"
-            class="fsr-roll-btn w-full mt-1"
-          >
-            🎲 {{ attr.label }}
-          </button>
         </div>
-      </div>
-    </div>
 
-    <!-- MENTAL Group -->
-    <div class="mb-3">
-      <h3 class="text-sm font-bold text-blue-400 mb-2 uppercase tracking-wider">
-        MENTAL
-      </h3>
-      <div class="fsr-grid fsr-grid-3">
-        <div v-for="attr in ripAttributes" :key="attr.key" class="fsr-stat">
-          <div class="flex justify-between items-start mb-1">
-            <div>
-              <div class="fsr-stat-name">{{ attr.icon }} {{ attr.label }}</div>
-              <div class="fsr-stat-rank">
-                {{ formatRankDisplay(currentForm.attributes[attr.key].rank) }}
+        <!-- MENTAL Group -->
+        <div class="mb-3">
+          <h3
+            class="text-sm font-bold text-blue-400 mb-2 uppercase tracking-wider"
+          >
+            MENTAL
+          </h3>
+          <div class="fsr-grid fsr-grid-3">
+            <div v-for="attr in ripAttributes" :key="attr.key" class="fsr-stat">
+              <div class="flex justify-between items-start mb-1">
+                <div>
+                  <div class="fsr-stat-name">
+                    {{ attr.icon }} {{ attr.label }}
+                  </div>
+                  <div class="fsr-stat-rank">
+                    {{
+                      formatRankDisplay(currentForm.attributes[attr.key].rank)
+                    }}
+                  </div>
+                </div>
+                <div class="fsr-stat-value">
+                  {{ currentForm.attributes[attr.key].value }}
+                </div>
               </div>
-            </div>
-            <div class="fsr-stat-value">
-              {{ currentForm.attributes[attr.key].value }}
+
+              <button
+                @click="rollAttribute(attr.key)"
+                class="fsr-roll-btn w-full mt-1"
+              >
+                🎲 {{ attr.label }}
+              </button>
             </div>
           </div>
-
-          <button
-            @click="rollAttribute(attr.key)"
-            class="fsr-roll-btn w-full mt-1"
-          >
-            🎲 {{ attr.label }}
-          </button>
         </div>
       </div>
-    </div>
 
-    <!-- POWERS Quick-Roll Section -->
-    <div v-if="powers.length > 0" class="mb-3">
-      <h3
-        class="text-sm font-bold text-purple-400 mb-2 uppercase tracking-wider"
-      >
-        POWERS
-      </h3>
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="power in powers"
-          :key="power.id"
-          @click="rollPower(power)"
-          class="fsr-btn fsr-btn-secondary text-xs px-3 py-1"
-          :title="`${power.name} (${formatRankDisplay(power.rank)})${
-            mpEnabled && power.mpCost ? ` - MP Cost: ${power.mpCost}` : ''
-          }`"
-        >
-          ⚡ {{ power.name }}
-          <span v-if="mpEnabled && power.mpCost" class="ml-1 text-yellow-400">
-            ({{ power.mpCost }} MP)
-          </span>
-        </button>
+      <!-- Right Column: Weapons and Powers -->
+      <div class="basis-4/12">
+        <!-- WEAPONS Quick-Roll Section -->
+        <div v-if="weaponsEnabled && weapons.length > 0" class="mb-3">
+          <h3
+            class="text-sm font-bold text-orange-400 mb-2 uppercase tracking-wider"
+          >
+            WEAPONS
+          </h3>
+          <div class="flex flex-col gap-2">
+            <div
+              v-for="weapon in weapons"
+              :key="weapon.id"
+              class="flex items-center gap-2"
+            >
+              <button
+                @click="rollWeapon(weapon)"
+                class="fsr-btn fsr-btn-secondary text-xs px-3 py-1 text-left flex-1"
+                :title="`${weapon.name} (${formatWeaponDamage(weapon)}) - ${weapon.stat.toUpperCase()}${
+                  weapon.applicableTalent ? ` + ${weapon.applicableTalent}` : ''
+                }`"
+              >
+                {{ weapon.type === "melee" ? "⚔️" : "🏹" }} {{ weapon.name }}
+                <span class="ml-1 fsr-rank-badge text-xs">{{
+                  formatWeaponDamage(weapon)
+                }}</span>
+              </button>
+              <button
+                @click="toggleEquip(weapon)"
+                class="text-xs px-2 py-1 rounded"
+                :class="[
+                  weapon.equipped
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : 'bg-gray-600 hover:bg-gray-500 text-gray-300'
+                ]"
+                :title="weapon.equipped ? 'Equipped' : 'Equip'"
+              >
+                {{ weapon.equipped ? "✓" : "○" }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- POWERS Quick-Roll Section -->
+        <div v-if="powers.length > 0" class="mb-3">
+          <h3
+            class="text-sm font-bold text-purple-400 mb-2 uppercase tracking-wider"
+          >
+            POWERS
+          </h3>
+          <div class="flex flex-col gap-2">
+            <button
+              v-for="power in powers"
+              :key="power.id"
+              @click="rollPower(power)"
+              class="fsr-btn fsr-btn-secondary text-xs px-3 py-1 text-left"
+              :title="`${power.name} (${formatRankDisplay(power.rank)})${
+                mpEnabled && power.mpCost ? ` - MP Cost: ${power.mpCost}` : ''
+              }`"
+            >
+              ⚡ {{ power.name }}
+              <span
+                v-if="mpEnabled && power.mpCost"
+                class="ml-1 text-yellow-400"
+              >
+                ({{ power.mpCost }} MP)
+              </span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

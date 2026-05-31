@@ -131,6 +131,24 @@ export enum RollResult {
 }
 
 /**
+ * Damage types for powers and resistances
+ */
+export enum DamageType {
+  None = "none", // Normal/untyped damage (physical weapons, etc.)
+  Fire = "fire",
+  Cold = "cold",
+  Electricity = "electricity",
+  Energy = "energy", // Generic energy (beams, blasts)
+  Radiation = "radiation",
+  Sonic = "sonic",
+  Acid = "acid",
+  Poison = "poison",
+  Mental = "mental", // Psychic/psionic damage
+  Magic = "magic",
+  Force = "force" // Force fields, telekinesis
+}
+
+/**
  * Rank short codes for Universal Table lookup
  */
 export const RANK_SHORTS: Record<Rank, string> = {
