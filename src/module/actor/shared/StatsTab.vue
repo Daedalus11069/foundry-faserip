@@ -592,8 +592,13 @@ async function rollPower(power: any) {
 
     // Build healing result section
     let healingResultHtml = "";
+    let healthToApply = 0;
+    let armorToApply = 0;
+    let bodyArmorPowerToUpdate: any = null;
+    let actualHealingAmount = 0;
+    let actualRepairAmount = 0;
 
-    // Apply the healing/repair
+    // Calculate healing/repair (but don't apply yet)
     if (power.effectType === "heal-health" && amount > 0) {
       const healthMax = reactiveActor.system.resources.health.max;
       const oldValue = reactiveActor.system.resources.health.value;
@@ -601,21 +606,18 @@ async function rollPower(power: any) {
       const actualHealing = newValue - oldValue;
 
       if (actualHealing > 0) {
-        reactiveActor.system.resources.health.value = newValue;
+        healthToApply = newValue;
+        actualHealingAmount = actualHealing;
         healingResultHtml = `<div style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
           <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Health Restored</h4>
           <p style="margin: 0.25rem 0;">Healed <strong>${actualHealing}</strong> health.</p>
           <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
         </div>`;
-        ui.notifications?.info(
-          `${power.name}: Healed ${actualHealing} health.`
-        );
       } else {
         healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
           <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Already Healthy</h4>
           <p style="margin: 0.25rem 0;">Already at full health (${healthMax}).</p>
         </div>`;
-        ui.notifications?.warn(`${power.name}: Already at full health.`);
       }
     } else if (power.effectType === "heal-armor" && amount > 0) {
       const bodyArmorPower = (reactiveActor.system.powers || []).find(
@@ -632,45 +634,25 @@ async function rollPower(power: any) {
         const actualRepair = newValue - oldValue;
 
         if (actualRepair > 0) {
-          bodyArmorPower.value = newValue;
+          armorToApply = newValue;
+          actualRepairAmount = actualRepair;
+          bodyArmorPowerToUpdate = bodyArmorPower;
           healingResultHtml = `<div style="background: rgba(59, 130, 246, 0.15); border-left: 3px solid rgb(59, 130, 246); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
             <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Body Armor Repaired</h4>
             <p style="margin: 0.25rem 0;">Repaired <strong>${actualRepair}</strong> armor.</p>
             <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Body Armor: ${oldValue} → ${newValue} / ${maxValue}</p>
           </div>`;
-          ui.notifications?.info(
-            `${power.name}: Repaired ${actualRepair} Body Armor.`
-          );
-
-          // Sync with Charman if character is linked
-          const charmanData = actor.system.charman;
-          if (charmanData?.username && charmanData?.characterName) {
-            try {
-              const service = getCharmanService();
-              await service.updateBodyArmorPower(
-                charmanData.username,
-                charmanData.characterName,
-                bodyArmorPower.value
-              );
-            } catch (error) {
-              // Service not initialized or sync failed - ignore silently
-            }
-          }
         } else {
           healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
             <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Armor Already Full</h4>
             <p style="margin: 0.25rem 0;">Body Armor already at maximum (${maxValue}).</p>
           </div>`;
-          ui.notifications?.warn(`${power.name}: Body Armor already at full.`);
         }
       } else {
         healingResultHtml = `<div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid rgb(239, 68, 68); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
           <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">No Body Armor Found</h4>
           <p style="margin: 0.25rem 0;">No Body Armor power found to heal.</p>
         </div>`;
-        ui.notifications?.warn(
-          `${power.name}: No Body Armor power found to heal.`
-        );
       }
     }
 
@@ -682,6 +664,46 @@ async function rollPower(power: any) {
       content: combinedContent,
       rolls: [faseripRoll.roll]
     });
+
+    // NOW apply the healing/repair after chat message is posted
+    if (healthToApply > 0) {
+      reactiveActor.system.resources.health.value = healthToApply;
+      ui.notifications?.info(
+        `${power.name}: Healed ${actualHealingAmount} health.`
+      );
+    } else if (armorToApply > 0 && bodyArmorPowerToUpdate) {
+      bodyArmorPowerToUpdate.value = armorToApply;
+      ui.notifications?.info(
+        `${power.name}: Repaired ${actualRepairAmount} Body Armor.`
+      );
+
+      // Sync with Charman if character is linked
+      const charmanData = actor.system.charman;
+      if (charmanData?.username && charmanData?.characterName) {
+        try {
+          const service = getCharmanService();
+          await service.updateBodyArmorPower(
+            charmanData.username,
+            charmanData.characterName,
+            bodyArmorPowerToUpdate.value
+          );
+        } catch (error) {
+          // Service not initialized or sync failed - ignore silently
+        }
+      }
+    } else if (
+      power.effectType === "heal-health" ||
+      power.effectType === "heal-armor"
+    ) {
+      // Show appropriate warning for failed healing
+      if (power.effectType === "heal-health") {
+        ui.notifications?.warn(`${power.name}: Already at full health.`);
+      } else {
+        ui.notifications?.warn(
+          `${power.name}: Body Armor already at full or not found.`
+        );
+      }
+    }
 
     // Deduct MP
     if (mpCost > 0) {
@@ -695,12 +717,9 @@ async function rollPower(power: any) {
     return;
   }
 
-  // Route attack-type damage powers through combat flow
-  if (
-    power.effectType === "damage" &&
-    (power.attackType === "melee" || power.attackType === "ranged")
-  ) {
-    // Determine attack attribute based on type
+  // Route ALL damage powers through combat flow
+  if (power.effectType === "damage") {
+    // Determine attack attribute and type based on power settings
     let attackAttribute: "fighting" | "agility";
     let attackType: "melee" | "ranged";
 
@@ -708,11 +727,12 @@ async function rollPower(power: any) {
       attackAttribute = "fighting";
       attackType = "melee";
     } else {
+      // Default to ranged for all other damage types (blast, area, etc.)
       attackAttribute = "agility";
       attackType = "ranged";
     }
 
-    // Use combat flow system
+    // Use combat flow system - handles all critical/ultimate bonus rolls
     await executeCombatAttack({
       attacker: actor as any,
       attackAttribute,

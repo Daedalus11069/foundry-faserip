@@ -77,6 +77,7 @@ export function initializeSocket(): void {
   // Register handler functions that can be called remotely
   socket.register("promptDefense", handleDefensePrompt);
   socket.register("cancelDefensePrompt", handleCancelDefensePrompt);
+  socket.register("applyDamage", handleApplyDamage);
 
   console.log("FASERIP Socket | Socket system initialized with socketlib");
 }
@@ -159,13 +160,17 @@ export async function requestDefenseResponse(
 
   const gmPromises = potentialControllers.map((user: any) =>
     socket.executeAsUser("promptDefense", user.id, data).then((result: any) => {
-      if (!firstResponseReceived && result?.defenseType !== "takeHit") {
+      // First valid response wins (including "takeHit")
+      if (!firstResponseReceived && result !== null) {
         firstResponseReceived = true;
         winningResponse = result;
 
-        // Cancel other GMs' prompts
+        // Cancel all other prompts (even if this user took the hit)
         potentialControllers.forEach((otherUser: any) => {
           if (otherUser.id !== user.id) {
+            console.log(
+              `FASERIP Socket | Canceling prompt for ${otherUser.name} (${user.name} responded first)`
+            );
             socket.executeAsUser("cancelDefensePrompt", otherUser.id, {
               promptId,
               winnerUserId: user.id
@@ -330,8 +335,8 @@ async function handleDefensePrompt(
     0
   );
 
-  // Show defense modal
-  const result = await VueDialog.show(
+  // Create dialog instance BEFORE showing it so we can track and cancel it
+  const dialog = new VueDialog(
     DefenseResponseModal,
     {
       targetActor,
@@ -360,13 +365,22 @@ async function handleDefensePrompt(
     }
   );
 
-  // Store prompt for cancellation
-  if (promptId) {
-    const prompt = activeDefensePrompts.get(promptId);
-    if (prompt) {
-      activeDefensePrompts.delete(promptId);
-    }
-  }
+  // Store prompt for cancellation BEFORE showing the dialog
+  const dialogPromise = new Promise<DefenseResponse | null>(resolve => {
+    activeDefensePrompts.set(promptId, { dialog, resolve });
+  });
+
+  // Render the dialog
+  await dialog.render(true);
+
+  // Wait for either the dialog result or external cancellation
+  const result = await Promise.race([
+    dialog.wait() as Promise<DefenseResponse | null>,
+    dialogPromise
+  ]);
+
+  // Clean up the prompt from tracking
+  activeDefensePrompts.delete(promptId);
 
   // Handle cancellation by another GM
   if (!result) {
@@ -409,4 +423,222 @@ function handleCancelDefensePrompt(data: {
     prompt.resolve(null);
     activeDefensePrompts.delete(data.promptId);
   }
+}
+
+/**
+ * Data structure for damage application
+ */
+interface ApplyDamageData {
+  targetActorId: string;
+  targetTokenId?: string;
+  damage: number;
+  armorUpdates?: any[];
+  powerUpdates?: any[];
+}
+
+/**
+ * Request damage application on the target owner's client
+ * Called by the attacker's client after calculating damage
+ */
+export async function requestDamageApplication(
+  targetActor: FaseripActor,
+  damage: number
+): Promise<{
+  armorDamage: number;
+  healthDamage: number;
+  newArmorValue: number;
+  newHealthValue: number;
+} | null> {
+  console.log("FASERIP Socket | Requesting damage application:", {
+    targetActorId: targetActor.id,
+    damage
+  });
+
+  if (!socket) {
+    console.warn(
+      "FASERIP Socket | Socket not initialized - applying damage locally"
+    );
+    // Fallback: apply locally if user is GM or owns the target
+    if (game.user?.isGM || targetActor.isOwner) {
+      return await handleApplyDamage({
+        targetActorId: targetActor.id!,
+        damage
+      });
+    }
+    console.error("FASERIP Socket | Cannot apply damage locally");
+    return null;
+  }
+
+  // Find the owner of the target
+  const owner = findTokenControllers(targetActor)[0];
+  if (!owner) {
+    console.warn("FASERIP Socket | No owner found - applying damage as GM");
+    return await handleApplyDamage({
+      targetActorId: targetActor.id!,
+      damage
+    });
+  }
+
+  // Execute damage application on the owner's client
+  return await socket.executeAsUser("applyDamage", owner.id, {
+    targetActorId: targetActor.id!,
+    damage
+  });
+}
+
+/**
+ * Handle applying damage to an actor on the owner's client
+ * This function is called remotely via socketlib
+ */
+async function handleApplyDamage(data: ApplyDamageData): Promise<{
+  armorDamage: number;
+  healthDamage: number;
+  newArmorValue: number;
+  newHealthValue: number;
+} | null> {
+  console.log("FASERIP Socket | Handling damage application:", {
+    userId: game.user?.id,
+    userName: game.user?.name,
+    targetActorId: data.targetActorId,
+    damage: data.damage
+  });
+
+  // Get the target actor
+  const targetActor = game.actors?.get(data.targetActorId) as
+    | FaseripActor
+    | undefined;
+
+  if (!targetActor) {
+    console.error("FASERIP Socket | Target actor not found");
+    return null;
+  }
+
+  // Security check - verify this user owns the target
+  if (!game.user?.isGM && !targetActor.isOwner) {
+    console.warn(
+      "FASERIP Socket | User doesn't own target - cannot apply damage"
+    );
+    return null;
+  }
+
+  const system = targetActor.system as any;
+  const currentFormId = system.currentFormId;
+
+  // Armor is derived from body armor power + equipped armor
+  const activeFormId = system.currentFormId;
+  const bodyArmorPower = (system.powers || []).find(
+    (p: any) =>
+      p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+      (!p.formIds?.length || p.formIds.includes(activeFormId))
+  );
+  const equippedArmor = (system.armors || []).find((a: any) => a.equipped);
+
+  const currentArmor = system.resources?.armor?.value || 0;
+  const currentHealth =
+    system.healthByForm?.[currentFormId] ??
+    system.resources?.health?.value ??
+    0;
+
+  let armorDamage = 0;
+  let healthDamage = 0;
+  let newArmorValue = currentArmor;
+  let newHealthValue = currentHealth;
+
+  const updates: Record<string, any> = {};
+
+  if (currentArmor > 0) {
+    // Apply damage to armor first
+    armorDamage = Math.min(data.damage, currentArmor);
+    newArmorValue = currentArmor - armorDamage;
+
+    // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
+    let remainingArmorDamage = armorDamage;
+
+    // Equipped armor soaks first
+    if (equippedArmor && remainingArmorDamage > 0) {
+      const equippedArmorReduction = Math.min(
+        remainingArmorDamage,
+        equippedArmor.value
+      );
+      // Clone armors array and update the specific armor
+      const updatedArmors = [...system.armors];
+      const armorIndex = updatedArmors.findIndex(
+        (a: any) => a.id === equippedArmor.id
+      );
+      if (armorIndex !== -1) {
+        updatedArmors[armorIndex] = {
+          ...updatedArmors[armorIndex],
+          value: equippedArmor.value - equippedArmorReduction
+        };
+        updates["system.armors"] = updatedArmors;
+      }
+      remainingArmorDamage -= equippedArmorReduction;
+    }
+
+    // Body Armor power soaks remainder
+    if (bodyArmorPower && remainingArmorDamage > 0) {
+      const bodyArmorReduction = Math.min(
+        remainingArmorDamage,
+        bodyArmorPower.value
+      );
+      // Clone powers array and update the specific power
+      const updatedPowers = [...system.powers];
+      const powerIndex = updatedPowers.findIndex(
+        (p: any) => p.id === bodyArmorPower.id
+      );
+      if (powerIndex !== -1) {
+        updatedPowers[powerIndex] = {
+          ...updatedPowers[powerIndex],
+          value: bodyArmorPower.value - bodyArmorReduction
+        };
+        updates["system.powers"] = updatedPowers;
+      }
+    }
+
+    // If damage exceeds armor, overflow to health
+    const overflow = data.damage - armorDamage;
+    if (overflow > 0) {
+      healthDamage = overflow;
+      newHealthValue = currentHealth - healthDamage;
+    }
+  } else {
+    // No armor, all damage goes to health
+    healthDamage = data.damage;
+    newHealthValue = currentHealth - healthDamage;
+  }
+
+  // Update health in healthByForm for current form
+  if (healthDamage > 0) {
+    // Get existing healthByForm or create new one
+    const existingHealthByForm = system.healthByForm || {};
+    const updatedHealthByForm = {
+      ...existingHealthByForm,
+      [currentFormId]: newHealthValue
+    };
+    updates["system.healthByForm"] = updatedHealthByForm;
+    // CRITICAL: Also update resources.health.value directly
+    // prepareDerivedData() will recalculate from healthByForm, but we need immediate update
+    updates["system.resources.health.value"] = newHealthValue;
+  }
+
+  // Update actor with new values
+  try {
+    await targetActor.update(updates);
+    console.log("FASERIP Socket | Damage applied successfully:", {
+      armorDamage,
+      healthDamage,
+      newArmorValue,
+      newHealthValue
+    });
+  } catch (error) {
+    console.error("FASERIP Socket | Error updating actor:", error);
+    return null;
+  }
+
+  return {
+    armorDamage,
+    healthDamage,
+    newArmorValue,
+    newHealthValue
+  };
 }

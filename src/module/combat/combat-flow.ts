@@ -5,7 +5,10 @@
 
 import type { FaseripActor } from "../documents";
 import { FaseripRoll } from "../rolling/FaseripRoll";
-import { requestDefenseResponse } from "../socket/faserip-socket";
+import {
+  requestDefenseResponse,
+  requestDamageApplication
+} from "../socket/faserip-socket";
 import { showAttackOptionsDialog } from "../applications/dialog-utils";
 import { stringToRank } from "../utils";
 import {
@@ -816,23 +819,34 @@ export async function executeCombatAttack(
         isUltimateBotch
       );
 
-      // Apply damage to target actor
-      const damageApplication = await applyDamageToActor(
+      // Apply damage to target actor via socket (executes on target owner's client)
+      const damageApplication = await requestDamageApplication(
         targetActor,
         damageResult.damage
       );
 
+      // Handle case where damage application failed
+      if (!damageApplication) {
+        console.error(
+          "FASERIP Combat | Damage application failed for:",
+          targetActor.name
+        );
+        // Continue with chat message even if application failed
+      }
+
       // Build damage application text
       let damageApplicationText = "";
-      if (
-        damageApplication.armorDamage > 0 &&
-        damageApplication.healthDamage > 0
-      ) {
-        damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining), ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
-      } else if (damageApplication.armorDamage > 0) {
-        damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)</div>`;
-      } else if (damageApplication.healthDamage > 0) {
-        damageApplicationText = `<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+      if (damageApplication) {
+        if (
+          damageApplication.armorDamage > 0 &&
+          damageApplication.healthDamage > 0
+        ) {
+          damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining), ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+        } else if (damageApplication.armorDamage > 0) {
+          damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)</div>`;
+        } else if (damageApplication.healthDamage > 0) {
+          damageApplicationText = `<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+        }
       }
 
       // Build compact defense info
@@ -842,13 +856,18 @@ export async function executeCombatAttack(
         defenseResponse.defenseType === "defend" &&
         defenseResponse._isUltimateBotch === true;
 
-      if (combatComparison.defenseTier > 0 && defenseRoll) {
+      // Check if defender actually rolled (not takeHit) rather than checking tier
+      // This handles botch cases where defenseTier is 0 but they still defended
+      const defendedWithRoll =
+        defenseResponse && defenseResponse.defenseType === "defend";
+
+      if (defendedWithRoll && defenseRoll) {
         if (isUltimateBotchDefense) {
           defenseInfo = `<span style="color: #dc2626; font-weight: 600;">ULTIMATE BOTCH! Attack +2 CS</span>`;
         } else if (damageResult.rankReduction > 0) {
           defenseInfo = `reduced ${damageResult.rankReduction} rank${damageResult.rankReduction > 1 ? "s" : ""}`;
         } else if (damageResult.defenseTier === 0) {
-          defenseInfo = `no reduction (White)`;
+          defenseInfo = `no reduction (White defense)`;
         } else {
           defenseInfo = `no reduction`;
         }

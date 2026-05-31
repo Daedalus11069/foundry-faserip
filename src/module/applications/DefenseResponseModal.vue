@@ -66,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, toRaw } from "vue";
 import type { FaseripActor } from "../documents";
 import { FaseripRoll } from "../rolling/FaseripRoll";
 import { formatRankDisplay, type Rank, applyChartShift } from "../enums";
@@ -143,14 +143,18 @@ const defenseRankDisplay = computed(() => {
 async function handleDefend() {
   console.log("FASERIP Defense | Rolling defense with", props.defenseAttribute);
 
+  // CRITICAL: Use toRaw() to unwrap Vue proxy before passing to Foundry API
+  // Vue reactive proxies cause issues with Foundry's internal property access
+  const rawActor = toRaw(props.targetActor);
+
   // Roll defense using FASERIP roll system
   const defenseRank = stringToRank(props.defenseRank) as Rank;
-  const system = (props.targetActor as any).system;
+  const system = (rawActor as any).system;
   const currentKarma = system?.resources?.karma?.value ?? 0;
 
   // Show defense options dialog for karma spending
   const defenseOptions = await showDefenseOptionsDialog(
-    props.targetActor.name!,
+    rawActor.name!,
     props.defenseAttribute,
     defenseRank,
     currentKarma,
@@ -180,7 +184,7 @@ async function handleDefend() {
     defenseRank,
     props.defenseValue,
     totalChartShift, // Manual chart shift only
-    props.targetActor,
+    rawActor, // Use unwrapped actor to avoid Vue proxy issues with Foundry API
     undefined, // No talents
     {
       defenseRoll: true,

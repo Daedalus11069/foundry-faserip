@@ -200,12 +200,9 @@ async function rollPower(power: Power) {
     }
   }
 
-  // NEW: Route attack-type damage powers through combat flow
-  if (
-    power.effectType === "damage" &&
-    (power.attackType === "melee" || power.attackType === "ranged")
-  ) {
-    // Determine attack attribute based on type
+  // Route ALL damage powers through combat flow
+  if (power.effectType === "damage") {
+    // Determine attack attribute and type based on power settings
     let attackAttribute: "fighting" | "agility";
     let attackType: "melee" | "ranged";
 
@@ -213,11 +210,12 @@ async function rollPower(power: Power) {
       attackAttribute = "fighting";
       attackType = "melee";
     } else {
+      // Default to ranged for all other damage types (blast, area, etc.)
       attackAttribute = "agility";
       attackType = "ranged";
     }
 
-    // Use combat flow system
+    // Use combat flow system - handles all critical/ultimate bonus rolls
     await executeCombatAttack({
       attacker: actor as any,
       attackAttribute,
@@ -371,7 +369,7 @@ async function rollPower(power: Power) {
     }
   }
 
-  // Apply power effect (damage or healing) if configured
+  // Apply power effect (healing only - damage goes through combat flow)
   if ((power.effectType || "none") !== "none") {
     // @ts-expect-error - game.user.targets is a Set, but TypeScript doesn't know that
     const targets = Array.from(game.user?.targets || []);
@@ -380,19 +378,9 @@ async function rollPower(power: Power) {
     let applyToSelf = false;
     let applyToTargets = targets.length > 0;
 
-    if (power.effectType === "damage") {
-      // Damage requires targets
-      if (!applyToTargets) {
-        ui.notifications?.warn(
-          `${power.name}: No targets selected. Select targets to damage.`
-        );
-        return;
-      }
-    } else {
-      // Healing can be used on self if no targets
-      if (!applyToTargets) {
-        applyToSelf = true;
-      }
+    // Healing can be used on self if no targets
+    if (!applyToTargets) {
+      applyToSelf = true;
     }
 
     // Apply to targeted actors
@@ -402,247 +390,7 @@ async function rollPower(power: Power) {
         const targetActor = token.actor;
         if (!targetActor) continue;
 
-        if (power.effectType === "damage") {
-          // Handle damage with defense roll interaction
-          let baseDamageRank = stringToRank(power.rank);
-          let baseDamageValue = power.value;
-
-          // Check if there's a dodge opportunity
-          let dodgeAttribute: "agility" | "fighting" | null = null;
-          if (power.attackType === "ranged") {
-            dodgeAttribute = "agility";
-          } else if (power.attackType === "melee") {
-            dodgeAttribute = "fighting";
-          }
-
-          // Prompt for dodge if applicable
-          let defenseRollResult: RollResult | null = null;
-          let defenseRollTotal = 0;
-
-          if (dodgeAttribute && faseripRoll) {
-            const dodgeRank =
-              targetActor.system.attributes[dodgeAttribute]?.rank || "typical";
-            const dodgeValue =
-              targetActor.system.attributes[dodgeAttribute]?.value || 6;
-
-            const dodgeAttempt =
-              // @ts-expect-error - DialogV2 path not fully typed
-              await foundry.applications.api.DialogV2.confirm({
-                window: { title: `Dodge ${power.name}?` },
-                content: `<p><strong>${targetActor.name}</strong> is targeted by <strong>${power.name}</strong> (${power.attackType} attack).</p>
-                        <p>Attempt to dodge using <strong>${dodgeAttribute.charAt(0).toUpperCase() + dodgeAttribute.slice(1)}</strong> (${formatRankDisplay(dodgeRank)} / ${dodgeValue})?</p>`,
-                modal: true,
-                rejectClose: false,
-                yes: { label: "Dodge", icon: "fa-solid fa-person-running" },
-                no: { label: "Don't Dodge", icon: "fa-solid fa-xmark" }
-              });
-
-            if (dodgeAttempt) {
-              // Roll dodge
-              const dodgeRoll = await FaseripRoll.rollAttribute(
-                `Dodge ${power.name}`,
-                dodgeRank,
-                dodgeValue,
-                0,
-                targetActor,
-                [],
-                undefined,
-                0,
-                0,
-                false,
-                0
-              );
-
-              defenseRollResult = dodgeRoll.result;
-              defenseRollTotal = dodgeRoll.roll.total || 0;
-
-              // Only apply rank reduction if defense succeeded (not White)
-              if (defenseRollResult !== RollResult.White) {
-                // Calculate rank reduction based on tier difference
-                const attackTier = getResultTier(
-                  faseripRoll.result,
-                  faseripRoll.roll.total || 0
-                );
-                const defenseTier = getResultTier(
-                  defenseRollResult,
-                  defenseRollTotal
-                );
-
-                let rankReduction = 0;
-                let comparisonResult = "";
-
-                // Compare tiers first
-                if (defenseTier > attackTier) {
-                  // Defense beat attack by color
-                  rankReduction = 0;
-                  baseDamageValue = 0; // Complete dodge
-                  comparisonResult = "complete dodge";
-                } else if (defenseTier < attackTier) {
-                  // Attack beat defense by color
-                  rankReduction = attackTier - defenseTier;
-                } else {
-                  // Same tier - compare percentages
-                  const attackRoll = faseripRoll.roll.total || 0;
-
-                  if (defenseRollTotal > attackRoll) {
-                    // Defense percentage higher - complete dodge
-                    rankReduction = 0;
-                    baseDamageValue = 0;
-                    comparisonResult = `complete dodge (${defenseRollTotal}% vs ${attackRoll}%)`;
-                  } else if (defenseRollTotal < attackRoll) {
-                    // Attack percentage higher - no reduction
-                    rankReduction = 0;
-                    comparisonResult = `contested (${attackRoll}% beats ${defenseRollTotal}%)`;
-                  } else {
-                    // Same percentage - compare ranks
-                    const attackRankIndex = RANK_ORDER.indexOf(
-                      stringToRank(power.rank)
-                    );
-                    const defenseRankIndex = RANK_ORDER.indexOf(
-                      stringToRank(dodgeRank)
-                    );
-
-                    if (defenseRankIndex > attackRankIndex) {
-                      // Defense rank higher - complete dodge
-                      rankReduction = 0;
-                      baseDamageValue = 0;
-                      comparisonResult = `complete dodge (${formatRankDisplay(dodgeRank)} vs ${formatRankDisplay(power.rank)})`;
-                    } else if (defenseRankIndex < attackRankIndex) {
-                      // Attack rank higher - no reduction
-                      rankReduction = 0;
-                      comparisonResult = `contested (${formatRankDisplay(power.rank)} beats ${formatRankDisplay(dodgeRank)})`;
-                    } else {
-                      // Coin flip
-                      const coinFlip = await Roll.create("1d2");
-                      await coinFlip.evaluate();
-                      const flipResult = coinFlip.total || 0;
-
-                      if (flipResult === 1) {
-                        // Defender wins
-                        rankReduction = 0;
-                        baseDamageValue = 0;
-                        comparisonResult =
-                          "complete dodge (coin flip: defender wins!)";
-                      } else {
-                        // Attacker wins
-                        rankReduction = 0;
-                        comparisonResult =
-                          "contested (coin flip: attacker wins!)";
-                      }
-                    }
-                  }
-                }
-
-                // Apply rank reduction if applicable
-                if (
-                  baseDamageValue === 0 &&
-                  comparisonResult.includes("complete dodge")
-                ) {
-                  await ChatMessage.create({
-                    content: `<div class="fsr-chat-card fsr-success">
-                      <h3>Complete Dodge!</h3>
-                      <p><strong>${targetActor.name}</strong> completely avoided the attack (${comparisonResult})</p>
-                    </div>`,
-                    speaker: ChatMessage.getSpeaker({ actor: targetActor })
-                  });
-                } else if (rankReduction > 0) {
-                  // Reduce the base damage rank
-                  const reducedRank = applyChartShift(
-                    baseDamageRank,
-                    -rankReduction
-                  );
-                  baseDamageValue = RANK_VALUES[reducedRank];
-
-                  await ChatMessage.create({
-                    content: `<div class="fsr-chat-card">
-                      <h3>Defense Success</h3>
-                      <p><strong>${targetActor.name}</strong>'s ${formatRankDisplay(dodgeRank)} dodge reduces damage rank by <strong>${rankReduction}</strong></p>
-                      <p class="fsr-rank-change">${formatRankDisplay(baseDamageRank)} → ${formatRankDisplay(reducedRank)}</p>
-                    </div>`,
-                    speaker: ChatMessage.getSpeaker({ actor: targetActor })
-                  });
-                } else if (comparisonResult.includes("contested")) {
-                  await ChatMessage.create({
-                    content: `<div class="fsr-chat-card fsr-contested">
-                      <h3>Contested Roll</h3>
-                      <p><strong>${targetActor.name}</strong>'s dodge contested but attack prevails (${comparisonResult})</p>
-                    </div>`,
-                    speaker: ChatMessage.getSpeaker({ actor: targetActor })
-                  });
-                }
-              } else {
-                await ChatMessage.create({
-                  content: `<div class="fsr-chat-card fsr-fail">
-                    <h3>Defense Failed</h3>
-                    <p><strong>${targetActor.name}</strong>'s dodge failed (White result) - no damage reduction!</p>
-                  </div>`,
-                  speaker: ChatMessage.getSpeaker({ actor: targetActor })
-                });
-              }
-            }
-          }
-
-          // Calculate final damage based on attack roll result and reduced base
-          let finalDamage = baseDamageValue;
-
-          // Skip damage calculation if completely dodged
-          if (
-            baseDamageValue === 0 &&
-            defenseRollResult &&
-            defenseRollResult !== RollResult.White
-          ) {
-            // Complete dodge - no damage at all
-            finalDamage = 0;
-          } else if (faseripRoll) {
-            const rollTotal = faseripRoll.roll.total || 0;
-            const rollResult = faseripRoll.result;
-
-            if (rollTotal === 100) {
-              // Ultimate critical: full amount + 5d10
-              const bonusRoll = await Roll.create("5d10");
-              await bonusRoll.evaluate();
-              finalDamage = baseDamageValue + (bonusRoll.total || 0);
-              await bonusRoll.toMessage({
-                flavor: `${power.name} - Ultimate Critical Damage Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor })
-              });
-            } else if (rollResult === RollResult.Red) {
-              // Critical: full amount + 3d6
-              const bonusRoll = await Roll.create("3d6");
-              await bonusRoll.evaluate();
-              finalDamage = baseDamageValue + (bonusRoll.total || 0);
-              await bonusRoll.toMessage({
-                flavor: `${power.name} - Critical Damage Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor })
-              });
-            } else if (rollResult === RollResult.Yellow) {
-              // Success: full amount
-              finalDamage = baseDamageValue;
-            } else if (rollResult === RollResult.Green) {
-              // Half success: half amount
-              finalDamage = Math.floor(baseDamageValue / 2);
-            } else {
-              // White (failure): no damage
-              finalDamage = 0;
-              await ChatMessage.create({
-                content: `<div class="fsr-chat-card fsr-fail">
-                  <h3>Attack Failed</h3>
-                  <p><strong>${power.name}</strong> attack roll failed (White result)!</p>
-                </div>`,
-                speaker: ChatMessage.getSpeaker({ actor })
-              });
-            }
-          }
-
-          await applyDamageToTarget(
-            targetActor,
-            finalDamage,
-            power.name,
-            power.attackType || "none",
-            true, // skipDodge - we already handled it
-            power.damageType || "none"
-          );
-        } else if (power.effectType === "heal-health") {
+        if (power.effectType === "heal-health") {
           // Calculate healing based on roll result
           let healAmount = power.value;
 
@@ -1009,6 +757,29 @@ async function applyHealthHealingToTarget(
   const newValue = Math.min(healthMax, oldValue + healAmount);
   const actualHealing = newValue - oldValue;
 
+  // Post healing result to chat BEFORE updating actor
+  if (actualHealing > 0) {
+    await ChatMessage.create({
+      content: `<div class="fsr-chat-card fsr-success">
+        <h3>Health Restored</h3>
+        <p><strong>${powerName}</strong> → <strong>${targetActor.name}</strong></p>
+        <p>Healed <strong>${actualHealing}</strong> health.</p>
+        <p style="font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
+      </div>`,
+      speaker: ChatMessage.getSpeaker({ actor })
+    });
+  } else {
+    await ChatMessage.create({
+      content: `<div class="fsr-chat-card fsr-warning">
+        <h3>Already Healthy</h3>
+        <p><strong>${powerName}</strong> → <strong>${targetActor.name}</strong></p>
+        <p>Already at full health (${healthMax}).</p>
+      </div>`,
+      speaker: ChatMessage.getSpeaker({ actor })
+    });
+  }
+
+  // NOW update the actor
   if (actualHealing > 0) {
     await targetActor.update({
       "system.resources.health.value": newValue
@@ -1043,6 +814,29 @@ async function applyArmorHealingToTarget(
     const newValue = Math.min(maxValue, oldValue + repairAmount);
     const actualRepair = newValue - oldValue;
 
+    // Post repair result to chat BEFORE updating actor
+    if (actualRepair > 0) {
+      await ChatMessage.create({
+        content: `<div class="fsr-chat-card fsr-success">
+          <h3>Body Armor Repaired</h3>
+          <p><strong>${powerName}</strong> → <strong>${targetActor.name}</strong></p>
+          <p>Repaired <strong>${actualRepair}</strong> armor.</p>
+          <p style="font-size: 0.9em; opacity: 0.8;">Body Armor: ${oldValue} → ${newValue} / ${maxValue}</p>
+        </div>`,
+        speaker: ChatMessage.getSpeaker({ actor })
+      });
+    } else {
+      await ChatMessage.create({
+        content: `<div class="fsr-chat-card fsr-warning">
+          <h3>Armor Already Full</h3>
+          <p><strong>${powerName}</strong> → <strong>${targetActor.name}</strong></p>
+          <p>Body Armor already at maximum (${maxValue}).</p>
+        </div>`,
+        speaker: ChatMessage.getSpeaker({ actor })
+      });
+    }
+
+    // NOW update the actor
     if (actualRepair > 0) {
       bodyArmorPower.value = newValue;
 
@@ -1075,6 +869,16 @@ async function applyArmorHealingToTarget(
       );
     }
   } else {
+    // No Body Armor power found - show error in chat
+    await ChatMessage.create({
+      content: `<div class="fsr-chat-card fsr-fail">
+        <h3>No Body Armor Found</h3>
+        <p><strong>${powerName}</strong> → <strong>${targetActor.name}</strong></p>
+        <p>No Body Armor power found to repair.</p>
+      </div>`,
+      speaker: ChatMessage.getSpeaker({ actor })
+    });
+
     ui.notifications?.warn(
       `${powerName} → ${targetActor.name}: No Body Armor power found to heal.`
     );
