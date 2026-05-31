@@ -815,8 +815,8 @@ export class CharmanService {
         messageParts.push(`(${dataParts.join(", ")})`);
       }
 
+      // @ts-expect-error - Foundry's ui.notifications may not be typed
       ui.notifications?.success(messageParts.join(" "));
-      // @ts-expect-error - Accessing system data for new actor
       return actor as Actor;
     }
   }

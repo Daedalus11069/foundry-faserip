@@ -33,6 +33,36 @@ interface AttackData {
 }
 
 /**
+ * FASERIP-specific chat message flags for combat messages
+ */
+interface FaseripCombatFlags {
+  combatMessage: boolean;
+  damageMessage: boolean;
+  targetId: string;
+  damage: number;
+  baseRank: Rank;
+  reducedRank: Rank;
+  attackTier: number;
+  defenseTier: number;
+  rankReduction: number;
+  attackRoll: number;
+  defenseRoll: number | null;
+  resultText: string;
+  resultClass: string;
+  powerName?: string;
+  damageType?: string;
+}
+
+/**
+ * FASERIP-specific chat message flags for deprecated damage roll messages (house rules)
+ */
+interface FaseripDamageRollFlags {
+  damageRoll: boolean;
+  targetId: string;
+  damageType?: string;
+}
+
+/**
  * Result of damage calculation
  */
 interface DamageResult {
@@ -74,11 +104,44 @@ function getResultTier(roll: FaseripRoll): number {
 }
 
 /**
+ * Get background and text colors for a result class
+ * Used for dynamically coloring Attack/Defense boxes in combat messages
+ */
+function getResultColors(resultClass: string): {
+  background: string;
+  color: string;
+} {
+  switch (resultClass) {
+    case "fsr-roll-perfect":
+      return { background: "#ffd700", color: "#7c2d12" }; // Gold background, dark brown text
+    case "fsr-roll-red":
+      return { background: "#dc2626", color: "#fecaca" }; // Red background, light red text
+    case "fsr-roll-yellow":
+      return { background: "#fbbf24", color: "#78350f" }; // Yellow background, dark yellow text
+    case "fsr-roll-green":
+      return { background: "#22c55e", color: "#dcfce7" }; // Green background, light green text
+    case "fsr-roll-botch":
+      return { background: "#991b1b", color: "#fca5a5" }; // Dark red background, light red text
+    case "fsr-roll-ultimate-botch":
+    case "fsr-roll-white":
+    default:
+      return { background: "#6b7280", color: "#f3f4f6" }; // Gray background, light gray text
+  }
+}
+
+/**
  * Calculate damage using hybrid system:
+ * - SPECIAL RULES (bypass normal calculation - handled in executeCombatAttack):
+ *   - Ultimate (100) ALWAYS TRUMPS: 100 attack beats Red defense, 100 defense beats Red attack
+ *   - Ultimate vs Ultimate: Defense wins + counter (melee attacks only)
+ *   - Red defense (not 100): Complete defense + counter against non-100 attacks (melee attacks only)
  * - Failed defense (tier 0): No rank reduction, attack at full power
  * - Ultimate botch defense: Attack gets +2 CS bonus (catastrophic failure)
- * - Successful defense: Rank reduction = (attack tier - defense tier), minimum 0
- * - Tier-specific damage formulas:
+ * - Successful defense (Green/Yellow): Rank reduction = 1 + tier difference
+ *   - Base: 1 CS for any successful defense
+ *   - Additional: (defense tier - attack tier) if defender did better
+ *   - Examples: Same tier = 1 CS, defense 1 tier better = 2 CS
+ * - Tier-specific damage formulas (for attack rolls):
  *   - White (tier 0): base ÷ 4 (quarter damage)
  *   - Green (tier 1): base ÷ 2 (half damage)
  *   - Yellow (tier 2): base (full damage)
@@ -102,8 +165,13 @@ async function calculateDamage(
 
   // Calculate rank reduction
   // Failed defense (tier 0) means no reduction; successful defense reduces based on tier difference
-  const rankReduction =
-    defenseTier > 0 ? Math.max(0, attackTier - defenseTier) : 0;
+  let rankReduction = 0;
+  if (defenseTier > 0) {
+    // Base reduction: 1 CS for any successful defense
+    // Additional reduction: how much better the defender did than the attacker
+    const tierDifference = Math.max(0, defenseTier - attackTier);
+    rankReduction = 1 + tierDifference;
+  }
 
   // Apply chart shifts to reduce base rank
   // Note: botchBonus increases attack power, so it's added (not subtracted)
@@ -113,7 +181,7 @@ async function calculateDamage(
   let damage = 0;
   let formula = "";
   let description = "";
-  let bonusRoll: Roll | null = null;
+  let bonusRoll: Roll | undefined = undefined;
 
   // Apply tier-specific damage formula to reduced base
   const rollValue = attackRoll.roll.total || 0;
@@ -314,7 +382,6 @@ export async function executeCombatAttack(
 ): Promise<void> {
   const {
     attacker,
-    attackerToken,
     attackAttribute,
     attackType,
     powerName,
@@ -323,7 +390,8 @@ export async function executeCombatAttack(
   } = attackData;
 
   // Get targeted tokens
-  const targets = Array.from(game.user?.targets ?? []);
+  // @ts-expect-error - game.user.targets may not be typed
+  const targets = Array.from(game.user?.targets ?? []) as Token[];
 
   // If no targets, just roll the attack without combat flow
   if (targets.length === 0) {
@@ -566,21 +634,23 @@ export async function executeCombatAttack(
       const attackTier = getResultTier(attackRoll);
       const defenseTier = defenseRoll ? getResultTier(defenseRoll) : 0;
 
-      // Determine hit: Compare tiers first, then roll totals if tied
-      if (attackTier > defenseTier) {
-        // Attack has higher tier (Red > Yellow > Green > White) - attack wins
-        attackHit = true;
-      } else if (attackTier < defenseTier) {
-        // Defense has higher tier - defense wins
+      // Check for Ultimate (100) results - 100 ALWAYS TRUMPS except another 100
+      const attackIs100 = (attackRoll.roll.total || 0) === 100;
+      const defenseIs100 = defenseRoll
+        ? (defenseRoll.roll.total || 0) === 100
+        : false;
+
+      if (attackIs100 && defenseIs100) {
+        // Both rolled 100 - defense wins (defender advantage on ties) + counter (melee only)
         attackHit = false;
 
-        // CRITICAL DODGE COUNTER-ATTACK: If defense was critical (Red/Ultimate) against melee, offer counter
-        if (defenseTier >= 3 && attackType === "melee") {
+        // Offer counter-attack for Ultimate defense (melee attacks only)
+        if (attackType === "melee") {
           // @ts-expect-error - DialogV2 types
           const shouldCounter = await foundry.applications.api.DialogV2.confirm(
             {
-              window: { title: "Critical Dodge - Counter Attack?" },
-              content: `<p><strong>${targetActor.name}</strong> critically dodged a melee attack!</p><p>Counter-attack ${attacker.name}?</p>`,
+              window: { title: "Ultimate Defense - Counter Attack?" },
+              content: `<p><strong>${targetActor.name}</strong> rolled Ultimate (100) defense against Ultimate (100) attack!</p><p>Complete defense achieved. Counter-attack ${attacker.name}?</p>`,
               modal: true,
               rejectClose: false,
               yes: { label: "Counter-Attack!", icon: "fa-solid fa-hand-fist" },
@@ -589,7 +659,87 @@ export async function executeCombatAttack(
           );
 
           if (shouldCounter) {
-            // Show counter message
+            await ChatMessage.create({
+              speaker: ChatMessage.getSpeaker({ actor: targetActor }),
+              content: `<div class="fsr-combat-message result-ultimate">
+                <h3 style="margin: 0; font-size: 1rem;">⚡ Ultimate Counter-Attack!</h3>
+                <p style="margin: 0.25rem 0; font-size: 0.9rem;"><strong>${targetActor.name}</strong> counters ${attacker.name}'s Ultimate attack!</p>
+              </div>`
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await executeCombatAttack({
+              attacker: targetActor,
+              attackAttribute: "fighting",
+              attackType: "melee",
+              powerName: "Ultimate Counter-Attack"
+            });
+
+            continue;
+          }
+        }
+      } else if (attackIs100) {
+        // Attack is 100, defense is not - attack ALWAYS hits (trumps Red defense)
+        attackHit = true;
+      } else if (defenseIs100) {
+        // Defense is 100, attack is not - defense ALWAYS succeeds + counter (melee only)
+        attackHit = false;
+
+        // Offer counter-attack (melee attacks only)
+        if (attackType === "melee") {
+          // @ts-expect-error - DialogV2 types
+          const shouldCounter = await foundry.applications.api.DialogV2.confirm(
+            {
+              window: { title: "Ultimate Defense - Counter Attack?" },
+              content: `<p><strong>${targetActor.name}</strong> rolled Ultimate (100) defense!</p><p>Complete defense achieved. Counter-attack ${attacker.name}?</p>`,
+              modal: true,
+              rejectClose: false,
+              yes: { label: "Counter-Attack!", icon: "fa-solid fa-hand-fist" },
+              no: { label: "Don't Counter", icon: "fa-solid fa-xmark" }
+            }
+          );
+
+          if (shouldCounter) {
+            await ChatMessage.create({
+              speaker: ChatMessage.getSpeaker({ actor: targetActor }),
+              content: `<div class="fsr-combat-message result-ultimate">
+                <h3 style="margin: 0; font-size: 1rem;">⚡ Ultimate Counter-Attack!</h3>
+                <p style="margin: 0.25rem 0; font-size: 0.9rem;"><strong>${targetActor.name}</strong> counters ${attacker.name}'s attack!</p>
+              </div>`
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await executeCombatAttack({
+              attacker: targetActor,
+              attackAttribute: "fighting",
+              attackType: "melee",
+              powerName: "Ultimate Counter-Attack"
+            });
+
+            continue;
+          }
+        }
+      } else if (defenseTier === 3) {
+        // Defense is Red (not 100), attack is not 100 - complete defense + counter (melee only)
+        attackHit = false;
+
+        // Offer counter-attack (melee attacks only)
+        if (attackType === "melee") {
+          // @ts-expect-error - DialogV2 types
+          const shouldCounter = await foundry.applications.api.DialogV2.confirm(
+            {
+              window: { title: "Critical Defense - Counter Attack?" },
+              content: `<p><strong>${targetActor.name}</strong> rolled Critical (Red) defense!</p><p>Complete defense achieved. Counter-attack ${attacker.name}?</p>`,
+              modal: true,
+              rejectClose: false,
+              yes: { label: "Counter-Attack!", icon: "fa-solid fa-hand-fist" },
+              no: { label: "Don't Counter", icon: "fa-solid fa-xmark" }
+            }
+          );
+
+          if (shouldCounter) {
             await ChatMessage.create({
               speaker: ChatMessage.getSpeaker({ actor: targetActor }),
               content: `<div class="fsr-combat-message result-red">
@@ -598,10 +748,8 @@ export async function executeCombatAttack(
               </div>`
             });
 
-            // Execute counter-attack after brief delay
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Counter with Fighting attribute
             await executeCombatAttack({
               attacker: targetActor,
               attackAttribute: "fighting",
@@ -609,13 +757,21 @@ export async function executeCombatAttack(
               powerName: "Counter-Attack"
             });
 
-            // Skip damage for original attack since it was countered
             continue;
           }
         }
       } else {
-        // Same tier - compare roll totals (defense wins if >= attack)
-        attackHit = defenseTotal < attackTotal;
+        // Normal defense (Green/Yellow) - Compare tiers first, then roll totals if tied
+        if (attackTier > defenseTier) {
+          // Attack has higher tier (Red > Yellow > Green > White) - attack wins
+          attackHit = true;
+        } else if (attackTier < defenseTier) {
+          // Defense has higher tier - defense wins
+          attackHit = false;
+        } else {
+          // Same tier - compare roll totals (defense wins if >= attack)
+          attackHit = defenseTotal < attackTotal;
+        }
       }
 
       // Build result message with roll card information
@@ -623,10 +779,6 @@ export async function executeCombatAttack(
       const attackResultClass = attackRoll.getResultClass();
       const defenseResultText = defenseRoll?.getResultText() || "Unknown";
       const defenseResultClass = defenseRoll?.getResultClass() || "white";
-
-      const resultText = attackHit
-        ? `<span style="color: #ef4444;">Attack HITS!</span>`
-        : `<span style="color: #22c55e;">Defense SUCCEEDS!</span>`;
 
       // Store combat comparison data for later use in damage card
       combatComparison = {
@@ -719,6 +871,34 @@ export async function executeCombatAttack(
         }
       }
 
+      // Get colors for attack and defense result badges
+      const attackColors = getResultColors(combatComparison.attackResultClass);
+      const defenseColors = getResultColors(
+        combatComparison.defenseResultClass
+      );
+
+      // Build flags object with proper typing
+      const combatFlags: FaseripCombatFlags = {
+        combatMessage: true,
+        damageMessage: true,
+        targetId: targetActor.id!,
+        damage: damageResult.damage,
+        baseRank: damageResult.baseRank,
+        reducedRank: damageResult.reducedRank,
+        attackTier: damageResult.attackTier,
+        defenseTier: damageResult.defenseTier,
+        rankReduction: damageResult.rankReduction,
+        attackRoll: combatComparison.attackTotal,
+        defenseRoll:
+          combatComparison.defenseTier > 0
+            ? combatComparison.defenseTotal
+            : null,
+        resultText,
+        resultClass,
+        powerName,
+        damageType: attackData.damageType
+      };
+
       await ChatMessage.create({
         speaker: ChatMessage.getSpeaker({ actor: attacker }),
         content: `<div class="fsr-combat-message result-${resultClass}">
@@ -728,12 +908,12 @@ export async function executeCombatAttack(
             combatComparison.defenseTier > 0
               ? `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; margin: 0 0 0.35rem 0; font-size: 0.8rem;">
             <div style="text-align: center;">
-              <div style="font-weight: 600; background: #dbeafe; color: #1e3a8a; padding: 0.15rem 0.4rem; border-radius: 3px;">Attack: ${combatComparison.attackTotal}</div>
-              <div><span class="result-badge ${combatComparison.attackResultClass}" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;">${combatComparison.attackResultText}</span> (T${combatComparison.attackTier})</div>
+              <div style="font-weight: 600; background: ${attackColors.background}; color: ${attackColors.color}; padding: 0.15rem 0.4rem; border-radius: 3px;">Attack: ${combatComparison.attackTotal}</div>
+              <div class="result-badge ${combatComparison.attackResultClass}" style="padding: 0.15rem 0.4rem; font-size: 0.75rem;">${combatComparison.attackResultText} (T${combatComparison.attackTier})</div>
             </div>
             <div style="text-align: center;">
-              <div style="font-weight: 600; background: #dcfce7; color: #14532d; padding: 0.15rem 0.4rem; border-radius: 3px;">Defense: ${combatComparison.defenseTotal}</div>
-              <div><span class="result-badge ${combatComparison.defenseResultClass}" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;">${combatComparison.defenseResultText}</span> (T${combatComparison.defenseTier})</div>
+              <div style="font-weight: 600; background: ${defenseColors.background}; color: ${defenseColors.color}; padding: 0.15rem 0.4rem; border-radius: 3px;">Defense: ${combatComparison.defenseTotal}</div>
+              <div class="result-badge ${combatComparison.defenseResultClass}" style="padding: 0.15rem 0.4rem; font-size: 0.75rem;">${combatComparison.defenseResultText} (T${combatComparison.defenseTier})</div>
             </div>
           </div>
           ${comparisonNote}`
@@ -752,27 +932,8 @@ export async function executeCombatAttack(
           <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">${damageResult.description}${attackData.damageType ? ` • ${attackData.damageType}` : ""}</div>
         </div>`,
         flags: {
-          faserip: {
-            combatMessage: true,
-            damageMessage: true,
-            targetId: targetActor.id,
-            damage: damageResult.damage,
-            baseRank: damageResult.baseRank,
-            reducedRank: damageResult.reducedRank,
-            attackTier: damageResult.attackTier,
-            defenseTier: damageResult.defenseTier,
-            rankReduction: damageResult.rankReduction,
-            attackRoll: combatComparison.attackTotal,
-            defenseRoll:
-              combatComparison.defenseTier > 0
-                ? combatComparison.defenseTotal
-                : null,
-            resultText,
-            resultClass,
-            powerName,
-            damageType: attackData.damageType
-          }
-        }
+          faserip: combatFlags
+        } as Record<string, unknown>
       });
 
       // Show bonus damage roll if applicable (Red/Ultimate)
@@ -793,7 +954,9 @@ export async function executeCombatAttack(
  *
  * Roll damage and show in chat (House Rules Only)
  */
-async function rollDamage(
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// @ts-expect-error - Deprecated function kept for reference, intentionally unused
+async function _rollDamage(
   attacker: FaseripActor,
   target: FaseripActor,
   damageFormula: string,
@@ -809,6 +972,13 @@ async function rollDamage(
     damageTypeText = `<p><strong>Damage Type:</strong> ${damageType.charAt(0).toUpperCase() + damageType.slice(1)}</p>`;
   }
 
+  // Build flags object with proper typing
+  const damageFlags: FaseripDamageRollFlags = {
+    damageRoll: true,
+    targetId: target.id!,
+    damageType
+  };
+
   await ChatMessage.create({
     speaker: ChatMessage.getSpeaker({ actor: attacker }),
     content: `<div class="fsr-damage-roll">
@@ -822,12 +992,8 @@ async function rollDamage(
     </div>`,
     rolls: [damageRoll],
     flags: {
-      faserip: {
-        damageRoll: true,
-        targetId: target.id,
-        damageType
-      }
-    }
+      faserip: damageFlags
+    } as Record<string, unknown>
   });
 
   // TODO: Apply damage to target (requires damage application system)

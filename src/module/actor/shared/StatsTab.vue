@@ -393,6 +393,14 @@ function formatWeaponDamage(weapon: Weapon): string {
 async function rollWeapon(weapon: Weapon) {
   if (!currentForm.value) return;
 
+  // Only equipped weapons may be attacked with
+  if (!weapon.equipped) {
+    ui.notifications?.warn(
+      `${weapon.name} must be equipped to attack with it.`
+    );
+    return;
+  }
+
   const attackAttribute = weapon.stat;
   const attackType = weapon.type;
   let damageRank: Rank;
@@ -1028,10 +1036,22 @@ async function rollPower(power: any) {
             >
               <button
                 @click="rollWeapon(weapon)"
-                class="fsr-btn fsr-btn-secondary text-xs px-3 py-1 text-left flex-1"
-                :title="`${weapon.name} (${formatWeaponDamage(weapon)}) - ${weapon.stat.toUpperCase()}${
-                  weapon.applicableTalent ? ` + ${weapon.applicableTalent}` : ''
-                }`"
+                :disabled="!weapon.equipped"
+                :class="[
+                  'fsr-btn text-xs px-3 py-1 text-left flex-1',
+                  weapon.equipped
+                    ? 'fsr-btn-secondary'
+                    : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-60'
+                ]"
+                :title="
+                  weapon.equipped
+                    ? `${weapon.name} (${formatWeaponDamage(weapon)}) - ${weapon.stat.toUpperCase()}${
+                        weapon.applicableTalent
+                          ? ` + ${weapon.applicableTalent}`
+                          : ''
+                      }`
+                    : 'Weapon must be equipped to attack'
+                "
               >
                 {{ weapon.type === "melee" ? "⚔️" : "🏹" }} {{ weapon.name }}
                 <span class="ml-1 fsr-rank-badge text-xs">{{

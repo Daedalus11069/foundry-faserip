@@ -53,7 +53,7 @@
     </div>
 
     <div class="action-buttons">
-      <button class="fsr-btn fsr-btn-danger" @click="handleTakeHit">
+      <button class="fsr-btn fsr-btn-danger grow" @click="handleTakeHit">
         <i class="fas fa-person-falling"></i>
         Take Hit
       </button>
@@ -342,22 +342,22 @@ function handleTakeHit() {
 .action-buttons {
   display: flex;
   gap: 0.75rem;
-  justify-content: stretch;
+  justify-content: space-between;
 }
 
 .fsr-btn {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 600;
   border: none;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
+  min-width: fit-content;
 }
 
 .fsr-btn i {
