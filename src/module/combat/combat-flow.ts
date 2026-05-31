@@ -7,7 +7,8 @@ import type { FaseripActor } from "../documents";
 import { FaseripRoll } from "../rolling/FaseripRoll";
 import {
   requestDefenseResponse,
-  requestDamageApplication
+  requestDamageApplication,
+  requestCounterAttackResponse
 } from "../socket/faserip-socket";
 import { showAttackOptionsDialog } from "../applications/dialog-utils";
 import { stringToRank } from "../utils";
@@ -649,19 +650,17 @@ export async function executeCombatAttack(
 
         // Offer counter-attack for Ultimate defense (melee attacks only)
         if (attackType === "melee") {
-          // @ts-expect-error - DialogV2 types
-          const shouldCounter = await foundry.applications.api.DialogV2.confirm(
-            {
-              window: { title: "Ultimate Defense - Counter Attack?" },
-              content: `<p><strong>${targetActor.name}</strong> rolled Ultimate (100) defense against Ultimate (100) attack!</p><p>Complete defense achieved. Counter-attack ${attacker.name}?</p>`,
-              modal: true,
-              rejectClose: false,
-              yes: { label: "Counter-Attack!", icon: "fa-solid fa-hand-fist" },
-              no: { label: "Don't Counter", icon: "fa-solid fa-xmark" }
-            }
-          );
+          const counterResponse = await requestCounterAttackResponse({
+            defenderActorId: targetActor.id!,
+            defenderTokenId: target.id,
+            defenderName: targetActor.name,
+            attackerName: attacker.name,
+            defenseRoll: defenseRoll.roll.total || 100,
+            attackRoll: attackRoll.roll.total || 100,
+            counterType: "ultimate-vs-ultimate"
+          });
 
-          if (shouldCounter) {
+          if (counterResponse?.counterAttack) {
             await ChatMessage.create({
               speaker: ChatMessage.getSpeaker({ actor: targetActor }),
               content: `<div class="fsr-combat-message result-ultimate">
@@ -691,19 +690,17 @@ export async function executeCombatAttack(
 
         // Offer counter-attack (melee attacks only)
         if (attackType === "melee") {
-          // @ts-expect-error - DialogV2 types
-          const shouldCounter = await foundry.applications.api.DialogV2.confirm(
-            {
-              window: { title: "Ultimate Defense - Counter Attack?" },
-              content: `<p><strong>${targetActor.name}</strong> rolled Ultimate (100) defense!</p><p>Complete defense achieved. Counter-attack ${attacker.name}?</p>`,
-              modal: true,
-              rejectClose: false,
-              yes: { label: "Counter-Attack!", icon: "fa-solid fa-hand-fist" },
-              no: { label: "Don't Counter", icon: "fa-solid fa-xmark" }
-            }
-          );
+          const counterResponse = await requestCounterAttackResponse({
+            defenderActorId: targetActor.id!,
+            defenderTokenId: target.id,
+            defenderName: targetActor.name,
+            attackerName: attacker.name,
+            defenseRoll: defenseRoll.roll.total || 100,
+            attackRoll: attackRoll.roll.total || 0,
+            counterType: "ultimate-vs-normal"
+          });
 
-          if (shouldCounter) {
+          if (counterResponse?.counterAttack) {
             await ChatMessage.create({
               speaker: ChatMessage.getSpeaker({ actor: targetActor }),
               content: `<div class="fsr-combat-message result-ultimate">
@@ -730,19 +727,17 @@ export async function executeCombatAttack(
 
         // Offer counter-attack (melee attacks only)
         if (attackType === "melee") {
-          // @ts-expect-error - DialogV2 types
-          const shouldCounter = await foundry.applications.api.DialogV2.confirm(
-            {
-              window: { title: "Critical Defense - Counter Attack?" },
-              content: `<p><strong>${targetActor.name}</strong> rolled Critical (Red) defense!</p><p>Complete defense achieved. Counter-attack ${attacker.name}?</p>`,
-              modal: true,
-              rejectClose: false,
-              yes: { label: "Counter-Attack!", icon: "fa-solid fa-hand-fist" },
-              no: { label: "Don't Counter", icon: "fa-solid fa-xmark" }
-            }
-          );
+          const counterResponse = await requestCounterAttackResponse({
+            defenderActorId: targetActor.id!,
+            defenderTokenId: target.id,
+            defenderName: targetActor.name,
+            attackerName: attacker.name,
+            defenseRoll: defenseRoll.roll.total || 0,
+            attackRoll: attackRoll.roll.total || 0,
+            counterType: "red-vs-normal"
+          });
 
-          if (shouldCounter) {
+          if (counterResponse?.counterAttack) {
             await ChatMessage.create({
               speaker: ChatMessage.getSpeaker({ actor: targetActor }),
               content: `<div class="fsr-combat-message result-red">
@@ -822,7 +817,9 @@ export async function executeCombatAttack(
       // Apply damage to target actor via socket (executes on target owner's client)
       const damageApplication = await requestDamageApplication(
         targetActor,
-        damageResult.damage
+        damageResult.damage,
+        attackData.damageType,
+        attackData.powerName
       );
 
       // Handle case where damage application failed

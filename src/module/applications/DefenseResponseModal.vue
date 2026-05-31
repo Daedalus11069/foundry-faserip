@@ -280,6 +280,14 @@ function handleTakeHit() {
   gap: 0.5rem;
 }
 
+/* Fallback for browsers without flexbox gap support (Waterfox) */
+@supports not (gap: 0.5rem) {
+  .attack-details > *:not(:last-child),
+  .defense-details > *:not(:last-child) {
+    margin-bottom: 0.5rem;
+  }
+}
+
 .detail-row {
   display: flex;
   justify-content: space-between;
@@ -349,6 +357,13 @@ function handleTakeHit() {
   justify-content: space-between;
 }
 
+/* Fallback for browsers without flexbox gap support (Waterfox) */
+@supports not (gap: 0.75rem) {
+  .action-buttons > *:not(:last-child) {
+    margin-right: 0.75rem;
+  }
+}
+
 .fsr-btn {
   display: flex;
   align-items: center;
@@ -362,6 +377,13 @@ function handleTakeHit() {
   cursor: pointer;
   transition: all 0.2s ease;
   min-width: fit-content;
+}
+
+/* Fallback for browsers without flexbox gap support (Waterfox) */
+@supports not (gap: 0.5rem) {
+  .fsr-btn > *:not(:last-child) {
+    margin-right: 0.5rem;
+  }
 }
 
 .fsr-btn i {
