@@ -914,21 +914,21 @@ async function rollPower(power: any) {
       >
         <span v-if="bodyArmorPower" class="flex items-center gap-1">
           🦾 <span>{{ bodyArmorPower.name }}</span>
-          <span class="fsr-rank-badge">{{ bodyArmorPower.rank }}</span>
+          <span class="fsr-rank-badge">({{ bodyArmorPower.rank }}, </span>
           <span v-if="degradingEnabled"
             >absorbs {{ bodyArmorPower.value }}/{{
               bodyArmorPower.maxValue || bodyArmorPower.value
-            }}</span
+            }})</span
           >
           <span v-else>absorbs {{ bodyArmorPower.value }}</span>
         </span>
         <span v-if="equippedArmor" class="flex items-center gap-1">
           🛡️ <span>{{ equippedArmor.name }}</span>
-          <span class="fsr-rank-badge">{{ equippedArmor.rank }}</span>
+          <span class="fsr-rank-badge">({{ equippedArmor.rank }}, </span>
           <span v-if="degradingEnabled"
             >absorbs {{ equippedArmor.value }}/{{
               equippedArmor.maxValue || equippedArmor.value
-            }}</span
+            }})</span
           >
           <span v-else>absorbs {{ equippedArmor.value }}</span>
         </span>
