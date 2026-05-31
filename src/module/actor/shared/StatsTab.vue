@@ -496,7 +496,7 @@ async function rollPower(power: any) {
 
   // Route healing powers - must be rolled first
   if (power.effectType === "heal-health" || power.effectType === "heal-armor") {
-    // Roll the power
+    // Roll the power (skipMessage: true so we can combine with healing result)
     const faseripRoll = await FaseripRoll.rollAttribute(
       power.name,
       rank,
@@ -507,7 +507,7 @@ async function rollPower(power: any) {
       undefined,
       0,
       0,
-      false,
+      true, // skipMessage - we'll create combined card below
       0
     );
 
@@ -551,7 +551,33 @@ async function rollPower(power: any) {
       });
     }
 
-    // Apply the healing/repair (all chat messages already awaited above)
+    // Build combined roll + healing result card
+    const resultText = faseripRoll.getResultText();
+    const resultClass = faseripRoll.getResultClass();
+    const rollCardContent =
+      await foundry.applications.handlebars.renderTemplate(
+        "/systems/faserip/templates/chat/roll-card.hbs",
+        {
+          checkName: power.name,
+          resultText,
+          resultClass,
+          rankDisplay: formatRankDisplay(rank),
+          targetValue: rankValue,
+          rollTotal: faseripRoll.roll.total,
+          chartShift: faseripRoll.chartShift,
+          chartShiftText:
+            faseripRoll.chartShift !== 0
+              ? faseripRoll.chartShift > 0
+                ? `+${faseripRoll.chartShift} CS`
+                : `${faseripRoll.chartShift} CS`
+              : undefined
+        }
+      );
+
+    // Build healing result section
+    let healingResultHtml = "";
+
+    // Apply the healing/repair
     if (power.effectType === "heal-health" && amount > 0) {
       const healthMax = reactiveActor.system.resources.health.max;
       const oldValue = reactiveActor.system.resources.health.value;
@@ -560,24 +586,20 @@ async function rollPower(power: any) {
 
       if (actualHealing > 0) {
         reactiveActor.system.resources.health.value = newValue;
-
-        // Post healing result to chat
-        await ChatMessage.create({
-          content: `<div class="fsr-chat-card" style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94);">
-            <h3 style="color: rgb(34, 197, 94);">Health Restored</h3>
-            <p><strong>${power.name}</strong> healed <strong>${actualHealing}</strong> health.</p>
-            <p style="font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
-          </div>`,
-          speaker: ChatMessage.getSpeaker({ actor })
-        });
+        healingResultHtml = `<div style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+          <h4 style="color: rgb(34, 197, 94); margin: 0 0 0.25rem 0; font-size: 1em;">Health Restored</h4>
+          <p style="margin: 0.25rem 0;">Healed <strong>${actualHealing}</strong> health.</p>
+          <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
+        </div>`;
+        ui.notifications?.info(
+          `${power.name}: Healed ${actualHealing} health.`
+        );
       } else {
-        await ChatMessage.create({
-          content: `<div class="fsr-chat-card" style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36);">
-            <h3 style="color: rgb(251, 191, 36);">Already Healthy</h3>
-            <p><strong>${power.name}</strong>: Already at full health (${healthMax}).</p>
-          </div>`,
-          speaker: ChatMessage.getSpeaker({ actor })
-        });
+        healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+          <h4 style="color: rgb(251, 191, 36); margin: 0 0 0.25rem 0; font-size: 1em;">Already Healthy</h4>
+          <p style="margin: 0.25rem 0;">Already at full health (${healthMax}).</p>
+        </div>`;
+        ui.notifications?.warn(`${power.name}: Already at full health.`);
       }
     } else if (power.effectType === "heal-armor" && amount > 0) {
       const bodyArmorPower = (reactiveActor.system.powers || []).find(
@@ -595,16 +617,14 @@ async function rollPower(power: any) {
 
         if (actualRepair > 0) {
           bodyArmorPower.value = newValue;
-
-          // Post repair result to chat
-          await ChatMessage.create({
-            content: `<div class="fsr-chat-card" style="background: rgba(59, 130, 246, 0.15); border-left: 3px solid rgb(59, 130, 246);">
-              <h3 style="color: rgb(59, 130, 246);">Body Armor Repaired</h3>
-              <p><strong>${power.name}</strong> repaired <strong>${actualRepair}</strong> armor.</p>
-              <p style="font-size: 0.9em; opacity: 0.8;">Body Armor: ${oldValue} → ${newValue} / ${maxValue}</p>
-            </div>`,
-            speaker: ChatMessage.getSpeaker({ actor })
-          });
+          healingResultHtml = `<div style="background: rgba(59, 130, 246, 0.15); border-left: 3px solid rgb(59, 130, 246); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+            <h4 style="color: rgb(59, 130, 246); margin: 0 0 0.25rem 0; font-size: 1em;">Body Armor Repaired</h4>
+            <p style="margin: 0.25rem 0;">Repaired <strong>${actualRepair}</strong> armor.</p>
+            <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Body Armor: ${oldValue} → ${newValue} / ${maxValue}</p>
+          </div>`;
+          ui.notifications?.info(
+            `${power.name}: Repaired ${actualRepair} Body Armor.`
+          );
 
           // Sync with Charman if character is linked
           const charmanData = actor.system.charman;
@@ -624,24 +644,31 @@ async function rollPower(power: any) {
             }
           }
         } else {
-          await ChatMessage.create({
-            content: `<div class="fsr-chat-card" style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36);">
-              <h3 style="color: rgb(251, 191, 36);">Armor Already Full</h3>
-              <p><strong>${power.name}</strong>: Body Armor already at maximum (${maxValue}).</p>
-            </div>`,
-            speaker: ChatMessage.getSpeaker({ actor })
-          });
+          healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+            <h4 style="color: rgb(251, 191, 36); margin: 0 0 0.25rem 0; font-size: 1em;">Armor Already Full</h4>
+            <p style="margin: 0.25rem 0;">Body Armor already at maximum (${maxValue}).</p>
+          </div>`;
+          ui.notifications?.warn(`${power.name}: Body Armor already at full.`);
         }
       } else {
-        await ChatMessage.create({
-          content: `<div class="fsr-chat-card fsr-fail">
-            <h3>No Body Armor Found</h3>
-            <p><strong>${power.name}</strong>: No Body Armor power found to heal.</p>
-          </div>`,
-          speaker: ChatMessage.getSpeaker({ actor })
-        });
+        healingResultHtml = `<div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid rgb(239, 68, 68); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+          <h4 style="color: rgb(239, 68, 68); margin: 0 0 0.25rem 0; font-size: 1em;">No Body Armor Found</h4>
+          <p style="margin: 0.25rem 0;">No Body Armor power found to heal.</p>
+        </div>`;
+        ui.notifications?.warn(
+          `${power.name}: No Body Armor power found to heal.`
+        );
       }
     }
+
+    // Create combined chat message with roll + healing result
+    const combinedContent = `<div>${rollCardContent}${healingResultHtml}</div>`;
+
+    await ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor }),
+      content: combinedContent,
+      rolls: [faseripRoll.roll]
+    });
 
     // Deduct MP
     if (mpCost > 0) {

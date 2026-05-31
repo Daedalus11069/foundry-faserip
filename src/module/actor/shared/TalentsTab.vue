@@ -137,7 +137,7 @@ function removeTalent(index: number) {
           >
           <button
             @click="toggleFormPanel(talent.id)"
-            class="fsr-btn fsr-btn-sm text-xs bg-gray-600 hover:bg-gray-500 text-white px-2 py-0.5 ml-auto"
+            class="fsr-btn fsr-btn-sm text-xs bg-gray-600 hover:bg-gray-500 text-white px-2 py-0.5"
           >
             {{ expandedFormPanel === talent.id ? "▲ Forms" : "▼ Forms" }}
           </button>
@@ -174,16 +174,21 @@ function removeTalent(index: number) {
         </div>
 
         <div class="mb-2">
-          <label class="fsr-label">Chart Shift Bonus</label>
-          <input
-            v-model.number="talent.bonus"
-            type="number"
-            class="fsr-input"
-            placeholder="CS modifier (e.g., 1 for +1CS)"
-          />
-          <span v-if="talent.bonus !== 0" class="text-sm text-gray-400 ml-2">
-            {{ talent.bonus > 0 ? "+" : "" }}{{ talent.bonus }} CS
-          </span>
+          <div class="text-sm text-gray-400 flex">
+            <div class="flex flex-col">
+              <label class="fsr-label align-middle">Chart Shift Bonus:</label>
+            </div>
+            <div class="ml-2">{{ talent.bonus > 0 ? "+" : "" }}</div>
+            <div class="mx-2">
+              <input
+                v-model.number="talent.bonus"
+                type="number"
+                class="fsr-input"
+                placeholder="CS modifier (e.g., 1 for +1CS)"
+              />
+            </div>
+            <div>CS</div>
+          </div>
         </div>
 
         <div

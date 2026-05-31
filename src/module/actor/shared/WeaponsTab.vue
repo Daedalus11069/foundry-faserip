@@ -206,19 +206,11 @@ async function toggleEquip(weapon: Weapon) {
           </button>
 
           <button
-            @click="attackWithWeapon(weapon)"
-            class="fsr-btn fsr-btn-sm fsr-btn-primary text-xs px-2 py-1"
-            title="Attack with weapon"
-          >
-            ⚔️
-          </button>
-
-          <button
             @click="removeWeapon(index)"
             class="text-red-400 hover:text-red-300 px-2"
             title="Delete weapon"
           >
-            🗑️
+            <i class="fas fa-trash"></i>
           </button>
         </div>
 
