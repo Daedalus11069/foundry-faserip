@@ -223,7 +223,81 @@ Combat results show:
 - `calculateDamage()`: Damage calculation with tier-based reduction
 - `applyDamageToActor()`: Damage application to armor/health
 - `getResultTier()`: Converts roll result to numeric tier
+- `getResultColors()`: Returns background/text colors for result badges
 - `requestDefenseResponse()`: Socket-based defense prompts
+
+### TypeScript Type Safety
+
+All combat-related chat messages use proper TypeScript interfaces for flags:
+
+#### FaseripCombatFlags Interface
+
+```typescript
+interface FaseripCombatFlags {
+  combatMessage: boolean;
+  damageMessage: boolean;
+  targetId: string;
+  damage: number;
+  baseRank: Rank;
+  reducedRank: Rank;
+  attackTier: number;
+  defenseTier: number;
+  rankReduction: number;
+  attackRoll: number;
+  defenseRoll: number | null;
+  resultText: string;
+  resultClass: string;
+  powerName?: string;
+  damageType?: string;
+}
+```
+
+**Usage Pattern:**
+
+```typescript
+// Create typed flags object
+const combatFlags: FaseripCombatFlags = {
+  combatMessage: true,
+  damageMessage: true,
+  targetId: targetActor.id!,
+  damage: damageResult.damage,
+  baseRank: damageResult.baseRank,
+  reducedRank: damageResult.reducedRank,
+  attackTier: damageResult.attackTier,
+  defenseTier: damageResult.defenseTier,
+  rankReduction: damageResult.rankReduction,
+  attackRoll: combatComparison.attackTotal,
+  defenseRoll:
+    combatComparison.defenseTier > 0 ? combatComparison.defenseTotal : null,
+  resultText,
+  resultClass,
+  powerName,
+  damageType: attackData.damageType
+};
+
+// Use in ChatMessage.create() with proper typing
+await ChatMessage.create({
+  speaker: ChatMessage.getSpeaker({ actor: attacker }),
+  content: `...`,
+  flags: {
+    faserip: combatFlags
+  } as Record<string, unknown>
+});
+```
+
+**Why `as Record<string, unknown>`?**
+
+- Foundry's ChatMessage flags type doesn't include custom system flags
+- Using `Record<string, unknown>` provides type assertion without casting to `any`
+- Maintains type safety for the `combatFlags` object itself
+- Allows Foundry to accept our custom namespaced flags
+
+**Benefits:**
+
+- Full IDE autocomplete and type checking for flag properties
+- Catches typos and missing properties at compile time
+- Documents the expected flag structure
+- Avoids unsafe `any` casts throughout the codebase
 
 ### Multiplayer Support
 

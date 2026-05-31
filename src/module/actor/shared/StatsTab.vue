@@ -68,10 +68,19 @@ const healthValue = computed(
 
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
 const weapons = computed<Weapon[]>(() => reactiveActor.system.weapons || []);
-const powers = computed<Power[]>(() =>
+const allPowers = computed<Power[]>(() =>
   (reactiveActor.system.powers || []).filter(
     (p: Power) => !p.formIds?.length || p.formIds.includes(viewFormId.value)
   )
+);
+
+// Separate resistance powers from regular powers
+const resistancePowers = computed<Power[]>(() =>
+  allPowers.value.filter((p: Power) => p.resistanceType)
+);
+
+const powers = computed<Power[]>(() =>
+  allPowers.value.filter((p: Power) => !p.resistanceType)
 );
 
 const weaponsEnabled = computed(
@@ -1014,6 +1023,37 @@ async function rollPower(power: any) {
               >
                 🎲 {{ attr.label }}
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RESISTANCES Group -->
+        <div v-if="resistancePowers.length > 0" class="mb-3">
+          <h3
+            class="text-sm font-bold text-green-400 mb-2 uppercase tracking-wider"
+          >
+            RESISTANCES
+          </h3>
+          <div class="flex flex-col gap-1">
+            <div
+              v-for="power in resistancePowers"
+              :key="power.id"
+              class="p-2 bg-gray-800 rounded border border-gray-700"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-green-400">🛡️</span>
+                <div class="flex-1">
+                  <div class="text-sm font-semibold text-gray-200">
+                    {{ power.name }}
+                  </div>
+                  <div class="text-xs text-gray-400">
+                    {{ formatRankDisplay(power.rank) }}: {{ power.value }}
+                    <span class="text-green-400 ml-1">
+                      vs {{ power.resistanceType }}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
