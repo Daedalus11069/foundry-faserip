@@ -259,6 +259,21 @@ const initHandler = () => {
     }
   });
 
+  // House Rules: Vulnerability Damage Increase Percentage
+  game.settings.register("faserip", "vulnerabilityDamageIncrease", {
+    name: "FASERIP.Settings.vulnerabilityDamageIncrease.name",
+    hint: "FASERIP.Settings.vulnerabilityDamageIncrease.hint",
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 25,
+    range: {
+      min: 0,
+      max: 100,
+      step: 5
+    }
+  });
+
   // House Rules: Weapons System
   game.settings.register("faserip", "weaponsEnabled", {
     name: "FASERIP.Settings.weaponsEnabled.name",

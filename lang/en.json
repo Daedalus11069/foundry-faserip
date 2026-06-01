@@ -72,7 +72,11 @@
       },
       "vulnerabilityPowers": {
         "name": "Enable Vulnerability Powers",
-        "hint": "When enabled, powers with a vulnerabilityType set will increase incoming damage of that type by 25% (representing 1 CS weaker defense). Example: A character with 'Vulnerability: Fire' takes 25% more damage from fire attacks."
+        "hint": "When enabled, powers with a vulnerabilityType set will increase incoming damage of that type. The percentage increase is configured in the 'Vulnerability Damage Increase' setting below."
+      },
+      "vulnerabilityDamageIncrease": {
+        "name": "Vulnerability Damage Increase (%)",
+        "hint": "Percentage increase to incoming damage when a character has a matching vulnerability power. Default is 25% (representing 1 CS weaker defense). Example: 25% means a character with 'Vulnerability: Fire' takes 25% more damage from fire attacks."
       },
       "weaponsEnabled": {
         "name": "Enable Weapons System",

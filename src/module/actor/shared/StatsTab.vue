@@ -91,6 +91,11 @@ const mpEnabled = computed(
   () => game.settings.get("faserip", "mpEnabled") ?? false
 );
 
+// Get vulnerability damage increase percentage from settings
+const vulnerabilityPercent = computed(
+  () => game.settings.get("faserip", "vulnerabilityDamageIncrease") ?? 25
+);
+
 const faseAttributes = [
   { key: "fighting", label: "Fighting", icon: "⚔️" },
   { key: "agility", label: "Agility", icon: "🏃" },
@@ -1157,7 +1162,8 @@ async function rollPower(power: any) {
                     </div>
                     <div class="text-xs text-gray-400">
                       <span class="text-red-400">
-                        +25% damage from {{ power.vulnerabilityType }}
+                        +{{ vulnerabilityPercent }}% damage from
+                        {{ power.vulnerabilityType }}
                       </span>
                     </div>
                   </div>

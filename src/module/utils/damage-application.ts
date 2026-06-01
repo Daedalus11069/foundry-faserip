@@ -91,8 +91,12 @@ export function applyDamageToActor(
     );
 
     if (vulnerabilityPower) {
-      // Vulnerability increases damage by 25% (1 CS weaker)
-      vulnerabilityIncrease = Math.floor(damage * 0.25);
+      // Vulnerability increases damage by configured percentage (house rule)
+      const vulnerabilityPercent = game.settings.get(
+        "faserip",
+        "vulnerabilityDamageIncrease"
+      ) as number;
+      vulnerabilityIncrease = Math.floor(damage * (vulnerabilityPercent / 100));
       damage += vulnerabilityIncrease;
     }
   }
