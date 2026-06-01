@@ -2,6 +2,37 @@
 
 All notable changes to the FASERIP system will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Configurable vulnerability damage increase** setting
+  - New game setting `vulnerabilityDamageIncrease` (default: 25%)
+  - Range slider from 0% to 100% (5% increments)
+  - Accessible via Game Settings → FASERIP Settings
+  - Allows GMs to customize vulnerability house rule severity
+
+### Changed
+
+- **Vulnerability display now shows configured percentage** in StatsTab
+  - Dynamic percentage display (e.g., "+30% damage from fire" instead of hardcoded "+25%")
+  - Tooltip includes reference to configurable setting
+- **Damage calculation uses dynamic vulnerability percentage**
+  - Updated `damage-application.ts` to read from game settings
+  - Vulnerability now applies configured percentage instead of hardcoded 25%
+
+### Fixed
+
+- **TypeScript compilation errors in socket system**
+  - Fixed 26 TypeScript errors in `faserip-socket.ts`
+  - Proper type guards for Foundry Game API properties
+  - Replaced invalid `Collection.get()` calls with `find()` method
+  - Removed unused variable declarations
+  - Fixed VueDialog instantiation pattern
+  - Added null safety checks for canvas and token properties
+
+---
+
 ## [1.2.0] - 2026-05-31
 
 ### Added
