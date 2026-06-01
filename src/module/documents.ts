@@ -2,6 +2,15 @@ import { ActorType } from "./enums";
 import { Rank } from "./enums";
 import { calculateHealth, calculateMentalPoints, stringToRank } from "./utils";
 
+declare module "fvtt-types/configuration" {
+  interface DocumentClassConfig {
+    Actor: typeof FaseripActor<Actor.SubType>;
+  }
+  interface ConfiguredActor<SubType extends Actor.SubType> {
+    document: FaseripActor<SubType>;
+  }
+}
+
 function getDefaultMovementByRank(): Record<Rank, number> {
   // Base defaults convert area movement to squares using 1 area = 1 square.
   return {
@@ -56,7 +65,9 @@ function getConfiguredMovementByRank(): Record<Rank, number> {
 /**
  * Custom Actor document for FASERIP
  */
-export class FaseripActor extends Actor {
+export class FaseripActor<
+  SubType extends Actor.SubType = Actor.SubType
+> extends Actor<SubType> {
   /**
    * Pre-create hook to set default prototypeToken configuration
    */
@@ -373,4 +384,24 @@ export class FaseripActor extends Actor {
       }
     }
   }
+
+  // Type guards
+  is_pc(): this is FaseripPC {
+    return this.type === ActorType.Pc;
+  }
+
+  is_npc(): this is FaseripNPC {
+    return this.type === ActorType.Npc;
+  }
+}
+
+// Type aliases for properly typed actor subtypes
+export type FaseripPC = FaseripActor<ActorType.Pc>;
+export type FaseripNPC = FaseripActor<ActorType.Npc>;
+
+// Array of valid actor types
+export const FASERIP_ACTOR_TYPES: ActorType[] = [ActorType.Pc, ActorType.Npc];
+
+export function is_actor_type(type: any): type is ActorType {
+  return FASERIP_ACTOR_TYPES.includes(type as ActorType);
 }

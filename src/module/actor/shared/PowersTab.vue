@@ -1,13 +1,6 @@
 <script setup lang="ts">
 import { inject, computed, ref } from "vue";
-import {
-  formatRankDisplay,
-  RANK_ORDER,
-  RollResult,
-  applyChartShift,
-  RANK_VALUES,
-  Rank
-} from "../../enums";
+import { formatRankDisplay, RANK_ORDER, RollResult } from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
 import { executeCombatAttack } from "../../combat/combat-flow";
 import { stringToRank, getRankValue } from "../../utils";
@@ -16,19 +9,21 @@ import {
   showTalentSelectionDialog,
   showComboDialog
 } from "../../applications/dialog-utils";
-import type { Power, Form, Talent } from "../../types";
+import type { Talent } from "../../types";
+import type { ReactiveActorData, PowerData } from "../../types/actor-system";
+import type { FaseripActor } from "../../documents";
 
-const reactiveActor = inject("reactiveActor") as any;
-const actor = inject("actor") as Actor<"pc" | "npc">;
+const reactiveActor = inject("reactiveActor") as ReactiveActorData;
+const actor = inject("actor") as FaseripActor;
 
-const powers = computed<Power[]>(() => reactiveActor.system.powers || []);
-const forms = computed<Form[]>(() => reactiveActor.system.forms || []);
+const powers = computed(() => reactiveActor.system.powers || []);
+const forms = computed(() => reactiveActor.system.forms || []);
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
 
 // Form filter: '' = show all forms, otherwise show only matching
 const filterFormId = ref("");
 
-const filteredPowers = computed<Power[]>(() => {
+const filteredPowers = computed(() => {
   const all = powers.value;
   if (!filterFormId.value) return all;
   return all.filter(
@@ -47,13 +42,7 @@ function toggleFormPanel(powerId: string) {
     expandedFormPanel.value === powerId ? null : powerId;
 }
 
-function isPowerInForm(power: Power, formId: string): boolean {
-  return !power.formIds || power.formIds.length === 0
-    ? true // universal — shown in all forms
-    : power.formIds.includes(formId);
-}
-
-function togglePowerForm(power: Power, formId: string) {
+function togglePowerForm(power: PowerData, formId: string) {
   if (!power.formIds) power.formIds = [];
   const idx = power.formIds.indexOf(formId);
   if (idx === -1) {
@@ -78,7 +67,7 @@ function addPower() {
     reactiveActor.system.powers = [];
   }
 
-  const newPower: Power = {
+  const newPower: PowerData = {
     id: crypto.randomUUID(),
     name: "New Power",
     rank: "typical",
@@ -98,11 +87,11 @@ function removePower(index: number) {
   reactiveActor.system.powers.splice(index, 1);
 }
 
-function isBodyArmor(power: Power): boolean {
+function isBodyArmor(power: PowerData): boolean {
   return power.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor";
 }
 
-async function repairPower(power: Power) {
+async function repairPower(power: PowerData) {
   const maxValue = power.maxValue || power.value;
   const currentDamage = maxValue - power.value;
 
@@ -123,7 +112,7 @@ async function repairPower(power: Power) {
     rejectClose: false,
     ok: {
       label: "Repair",
-      callback: (event: any, button: any, dialog: any) => {
+      callback: (_event: any, button: any, _dialog: any) => {
         const form = button.form;
         return new FormDataExtended(form).object;
       }
@@ -139,6 +128,7 @@ async function repairPower(power: Power) {
 
     // Sync Body Armor power repair with Charman if character is linked and this is Body Armor
     if (isBodyArmor(power)) {
+      // @ts-expect-error - charman property exists on system
       const charmanData = actor.system.charman;
       if (charmanData?.username && charmanData?.characterName) {
         try {
@@ -157,34 +147,17 @@ async function repairPower(power: Power) {
   }
 }
 
-function onPowerRankChange(power: Power, rank: string) {
+function onPowerRankChange(power: PowerData, rank: string) {
   power.rank = rank;
   const newValue = getRankValue(rank);
   power.value = newValue;
   power.maxValue = newValue;
 }
 
-/**
- * Convert RollResult to tier number for damage calculation
- * Used to calculate rank reduction from defense rolls
- */
-function getResultTier(result: RollResult, rollTotal: number): number {
-  if (rollTotal === 100) return 4; // Ultimate critical
-  switch (result) {
-    case RollResult.Red:
-      return 3;
-    case RollResult.Yellow:
-      return 2;
-    case RollResult.Green:
-      return 1;
-    case RollResult.White:
-      return 0;
-    default:
-      return 0;
-  }
-}
-
-async function rollPower(power: Power) {
+/*
+// Legacy power rolling function - replaced by combat flow system
+// Kept for reference but not currently used
+async function _rollPower(power: PowerData) {
   const rank = stringToRank(power.rank);
   const value = power.value || 6;
 
@@ -217,7 +190,7 @@ async function rollPower(power: Power) {
 
     // Use combat flow system - handles all critical/ultimate bonus rolls
     await executeCombatAttack({
-      attacker: actor as any,
+      attacker: actor,
       attackAttribute,
       attackType,
       powerName: power.name,
@@ -227,24 +200,22 @@ async function rollPower(power: Power) {
     });
 
     // Deduct MP after successful attack
-    if (mpCost > 0) {
-      const currentMP = reactiveActor.system.resources.mentalPoints.value;
-      reactiveActor.system.resources.mentalPoints.value = Math.max(
-        0,
-        currentMP - mpCost
-      );
+    if (mpCost > 0 && reactiveActor.system.resources.mentalPoints) {
+      const mentalPoints = reactiveActor.system.resources.mentalPoints;
+      mentalPoints.value = Math.max(0, mentalPoints.value - mpCost);
 
       await actor.update({
         system: {
           resources: {
             mentalPoints: {
-              value: reactiveActor.system.resources.mentalPoints!.value
+              value: reactiveActor.system.resources.mentalPoints.value
             }
           }
         }
       });
 
       // Sync MP with Charman if character is linked
+      // @ts-expect-error - charman property exists on system
       const charmanData = actor.system.charman;
       if (charmanData?.username && charmanData?.characterName) {
         try {
@@ -334,12 +305,9 @@ async function rollPower(power: Power) {
   }
 
   // Deduct MP after successful roll
-  if (mpCost > 0) {
-    const currentMP = reactiveActor.system.resources.mentalPoints.value;
-    reactiveActor.system.resources.mentalPoints.value = Math.max(
-      0,
-      currentMP - mpCost
-    );
+  if (mpCost > 0 && reactiveActor.system.resources.mentalPoints) {
+    const mentalPoints = reactiveActor.system.resources.mentalPoints;
+    mentalPoints.value = Math.max(0, mentalPoints.value - mpCost);
 
     // Persist to actor
     // await actor.update({
@@ -353,6 +321,7 @@ async function rollPower(power: Power) {
     // });
 
     // Sync MP with Charman if character is linked
+    // @ts-expect-error - charman property exists on system
     const charmanData = actor.system.charman;
     if (charmanData?.username && charmanData?.characterName) {
       try {
@@ -404,7 +373,7 @@ async function rollPower(power: Power) {
               healAmount = power.value + (bonusRoll.total || 0);
               await bonusRoll.toMessage({
                 flavor: `${power.name} - Ultimate Critical Healing Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor })
+                speaker: ChatMessage.getSpeaker({ actor: actor as any })
               });
             } else if (rollResult === RollResult.Red) {
               const bonusRoll = await Roll.create("3d6");
@@ -412,7 +381,7 @@ async function rollPower(power: Power) {
               healAmount = power.value + (bonusRoll.total || 0);
               await bonusRoll.toMessage({
                 flavor: `${power.name} - Critical Healing Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor })
+                speaker: ChatMessage.getSpeaker({ actor: actor as any })
               });
             } else if (rollResult === RollResult.Yellow) {
               healAmount = power.value;
@@ -425,7 +394,7 @@ async function rollPower(power: Power) {
                   <h3>Healing Failed</h3>
                   <p><strong>${power.name}</strong> healing roll failed (White result)!</p>
                 </div>`,
-                speaker: ChatMessage.getSpeaker({ actor })
+                speaker: ChatMessage.getSpeaker({ actor: actor as any })
               });
             }
           }
@@ -445,7 +414,7 @@ async function rollPower(power: Power) {
               repairAmount = power.value + (bonusRoll.total || 0);
               await bonusRoll.toMessage({
                 flavor: `${power.name} - Ultimate Critical Repair Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor })
+                speaker: ChatMessage.getSpeaker({ actor: actor as any })
               });
             } else if (rollResult === RollResult.Red) {
               const bonusRoll = await Roll.create("3d6");
@@ -453,7 +422,7 @@ async function rollPower(power: Power) {
               repairAmount = power.value + (bonusRoll.total || 0);
               await bonusRoll.toMessage({
                 flavor: `${power.name} - Critical Repair Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor })
+                speaker: ChatMessage.getSpeaker({ actor: actor as any })
               });
             } else if (rollResult === RollResult.Yellow) {
               repairAmount = power.value;
@@ -466,7 +435,7 @@ async function rollPower(power: Power) {
                   <h3>Repair Failed</h3>
                   <p><strong>${power.name}</strong> repair roll failed (White result)!</p>
                 </div>`,
-                speaker: ChatMessage.getSpeaker({ actor })
+                speaker: ChatMessage.getSpeaker({ actor: actor as any })
               });
             }
           }
@@ -496,7 +465,7 @@ async function rollPower(power: Power) {
             healAmount = power.value + (bonusRoll.total || 0);
             await bonusRoll.toMessage({
               flavor: `${power.name} - Ultimate Critical Healing Bonus`,
-              speaker: ChatMessage.getSpeaker({ actor })
+              speaker: ChatMessage.getSpeaker({ actor: actor as any })
             });
           } else if (rollResult === RollResult.Red) {
             const bonusRoll = await Roll.create("3d6");
@@ -504,7 +473,7 @@ async function rollPower(power: Power) {
             healAmount = power.value + (bonusRoll.total || 0);
             await bonusRoll.toMessage({
               flavor: `${power.name} - Critical Healing Bonus`,
-              speaker: ChatMessage.getSpeaker({ actor })
+              speaker: ChatMessage.getSpeaker({ actor: actor as any })
             });
           } else if (rollResult === RollResult.Yellow) {
             healAmount = power.value;
@@ -517,7 +486,7 @@ async function rollPower(power: Power) {
                 <h3>Healing Failed</h3>
                 <p><strong>${power.name}</strong> healing roll failed (White result)!</p>
               </div>`,
-              speaker: ChatMessage.getSpeaker({ actor })
+              speaker: ChatMessage.getSpeaker({ actor: actor as any })
             });
           }
         }
@@ -537,7 +506,7 @@ async function rollPower(power: Power) {
             repairAmount = power.value + (bonusRoll.total || 0);
             await bonusRoll.toMessage({
               flavor: `${power.name} - Ultimate Critical Repair Bonus`,
-              speaker: ChatMessage.getSpeaker({ actor })
+              speaker: ChatMessage.getSpeaker({ actor: actor as any })
             });
           } else if (rollResult === RollResult.Red) {
             const bonusRoll = await Roll.create("3d6");
@@ -545,7 +514,7 @@ async function rollPower(power: Power) {
             repairAmount = power.value + (bonusRoll.total || 0);
             await bonusRoll.toMessage({
               flavor: `${power.name} - Critical Repair Bonus`,
-              speaker: ChatMessage.getSpeaker({ actor })
+              speaker: ChatMessage.getSpeaker({ actor: actor as any })
             });
           } else if (rollResult === RollResult.Yellow) {
             repairAmount = power.value;
@@ -558,7 +527,7 @@ async function rollPower(power: Power) {
                 <h3>Repair Failed</h3>
                 <p><strong>${power.name}</strong> repair roll failed (White result)!</p>
               </div>`,
-              speaker: ChatMessage.getSpeaker({ actor })
+              speaker: ChatMessage.getSpeaker({ actor: actor as any })
             });
           }
         }
@@ -568,8 +537,10 @@ async function rollPower(power: Power) {
     }
   }
 }
+*/
 
-// Helper function to apply damage to a target
+// Helper function to apply damage to a target (currently unused - entire function commented out)
+/*
 async function applyDamageToTarget(
   targetActor: any,
   damageAmount: number,
@@ -745,6 +716,7 @@ async function applyDamageToTarget(
     );
   }
 }
+*/
 
 // Helper function to apply health healing to a target
 async function applyHealthHealingToTarget(
@@ -766,7 +738,7 @@ async function applyHealthHealingToTarget(
         <p>Healed <strong>${actualHealing}</strong> health.</p>
         <p style="font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
       </div>`,
-      speaker: ChatMessage.getSpeaker({ actor })
+      speaker: ChatMessage.getSpeaker({ actor: actor as any })
     });
   } else {
     await ChatMessage.create({
@@ -775,7 +747,7 @@ async function applyHealthHealingToTarget(
         <p><strong>${powerName}</strong> → <strong>${targetActor.name}</strong></p>
         <p>Already at full health (${healthMax}).</p>
       </div>`,
-      speaker: ChatMessage.getSpeaker({ actor })
+      speaker: ChatMessage.getSpeaker({ actor: actor as any })
     });
   }
 
@@ -823,7 +795,7 @@ async function applyArmorHealingToTarget(
           <p>Repaired <strong>${actualRepair}</strong> armor.</p>
           <p style="font-size: 0.9em; opacity: 0.8;">Body Armor: ${oldValue} → ${newValue} / ${maxValue}</p>
         </div>`,
-        speaker: ChatMessage.getSpeaker({ actor })
+        speaker: ChatMessage.getSpeaker({ actor: actor as any })
       });
     } else {
       await ChatMessage.create({
@@ -832,7 +804,7 @@ async function applyArmorHealingToTarget(
           <p><strong>${powerName}</strong> → <strong>${targetActor.name}</strong></p>
           <p>Body Armor already at maximum (${maxValue}).</p>
         </div>`,
-        speaker: ChatMessage.getSpeaker({ actor })
+        speaker: ChatMessage.getSpeaker({ actor: actor as any })
       });
     }
 
@@ -876,7 +848,7 @@ async function applyArmorHealingToTarget(
         <p><strong>${powerName}</strong> → <strong>${targetActor.name}</strong></p>
         <p>No Body Armor power found to repair.</p>
       </div>`,
-      speaker: ChatMessage.getSpeaker({ actor })
+      speaker: ChatMessage.getSpeaker({ actor: actor as any })
     });
 
     ui.notifications?.warn(
@@ -926,7 +898,7 @@ async function applyArmorHealingToTarget(
 
     <div class="fsr-list">
       <div
-        v-for="(power, index) in filteredPowers"
+        v-for="power in filteredPowers"
         :key="power.id"
         class="fsr-list-item"
         :title="`${power.name} - ${formatRankDisplay(power.rank)}`"

@@ -286,25 +286,18 @@ async function unlinkCharacter() {
       "Unlink this character from Charman? This will not delete the character data."
     )
   ) {
-    await actor.update({
-      // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
-      "system.charman.username": "",
-      "system.charman.characterName": "",
-      "system.charman.characterId": null,
-      "system.charman.lastSync": null
-    });
+    reactiveActor.system.charman.username = "";
+    reactiveActor.system.charman.characterName = "";
+    reactiveActor.system.charman.characterId = null;
+    reactiveActor.system.charman.lastSync = null;
     ui.notifications?.info("Character unlinked from Charman");
   }
 }
 
 async function saveCharmanLink() {
-  await actor.update({
-    // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
-    "system.charman.username": editUsername.value,
-    "system.charman.characterName": editCallname.value
-  });
+  reactiveActor.system.charman.username = editUsername.value;
+  reactiveActor.system.charman.characterName = editCallname.value;
   editingLink.value = false;
-  // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
   ui.notifications?.success("Charman link saved");
 }
 

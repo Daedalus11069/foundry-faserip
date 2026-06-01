@@ -45,12 +45,14 @@ export interface FormAttributeSet {
   reasoning: AttributeData;
   intuition: AttributeData;
   psyche: AttributeData;
+  [key: string]: AttributeData; // Index signature for dynamic access
 }
 
 export interface FormData {
   id: string;
   name: string;
   description?: string;
+  isPrimary: boolean; // Required to match Form interface
 
   // Token appearance
   tokenImage?: string;
@@ -67,8 +69,15 @@ export interface PowerData {
   rank: string;
   category?: string;
   value: number;
+  maxValue: number; // Required to match Power interface (used for degrading powers like Body Armor)
   description?: string;
   mpCost?: number;
+  resistanceType?: string; // For resistance powers
+  effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // For damage/healing powers
+  attackType?: "none" | "melee" | "ranged"; // Attack type for dodge mechanics
+  damageType?: string; // Damage type (fire, cold, energy, etc.)
+  formIds?: string[]; // Form IDs this power is active in
+  skipDialogs?: boolean; // Roll directly without talent/combo dialogs
 }
 
 export interface TalentData {
@@ -96,6 +105,7 @@ export interface WeaponData {
   stat: "fighting" | "agility"; // Stat used for to-hit rolls
   applicableTalent?: string; // Name of talent that applies to this weapon
   description?: string;
+  equipped?: boolean; // Whether weapon is equipped
 }
 
 /**
@@ -130,4 +140,29 @@ export interface PcActorSystemData extends BaseActorSystemData {
  */
 export interface NpcActorSystemData extends BaseActorSystemData {
   // NPC-specific properties can be added here
+}
+
+/**
+ * Type for reactive actor clones used in Vue components
+ * This represents the serialized actor data structure
+ */
+export interface ReactiveActorData {
+  _id: string;
+  name: string;
+  img: string | null;
+  system: BaseActorSystemData;
+}
+
+/**
+ * Type-safe reactive actor for PC actors
+ */
+export interface ReactivePcData extends ReactiveActorData {
+  system: PcActorSystemData;
+}
+
+/**
+ * Type-safe reactive actor for NPC actors
+ */
+export interface ReactiveNpcData extends ReactiveActorData {
+  system: NpcActorSystemData;
 }

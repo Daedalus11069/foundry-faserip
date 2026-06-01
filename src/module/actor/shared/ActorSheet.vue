@@ -9,10 +9,12 @@ import ArmorTab from "./ArmorTab.vue";
 import WeaponsTab from "./WeaponsTab.vue";
 import { calculateHealth, stringToRank } from "../../utils";
 import { Rank } from "../../enums";
+import { getCharmanService } from "../../charman-service";
+import type { ReactiveActorData } from "../../types/actor-system";
+import type { FaseripActor } from "../../documents";
 
-const reactiveActor = inject("reactiveActor") as any;
-const actor = inject("actor") as Actor;
-const sheet = inject("sheet") as any;
+const reactiveActor = inject("reactiveActor") as ReactiveActorData;
+const actor = inject("actor") as FaseripActor;
 
 const activeTab = ref<string>(
   (actor.getFlag("faserip", "activeTab") as string | undefined) ?? "edit"
@@ -167,28 +169,38 @@ const armorPercent = computed(() => {
 
 const forms = computed(() => reactiveActor.system.forms || []);
 
+// Computed armor list for compact display
+const armorList = computed(() => {
+  const armors: Array<{ icon: string; name: string; title: string }> = [];
+
+  if (bodyArmorPower.value) {
+    const absorbs = degradingEnabled.value
+      ? `absorbs ${bodyArmorPower.value.value}/${bodyArmorPower.value.maxValue || bodyArmorPower.value.value}`
+      : `absorbs ${bodyArmorPower.value.value}`;
+    armors.push({
+      icon: "🦾",
+      name: bodyArmorPower.value.name,
+      title: `${bodyArmorPower.value.rank}, ${absorbs}`
+    });
+  }
+
+  if (equippedArmor.value) {
+    const absorbs = degradingEnabled.value
+      ? `absorbs ${equippedArmor.value.value}/${equippedArmor.value.maxValue || equippedArmor.value.value}`
+      : `absorbs ${equippedArmor.value.value}`;
+    armors.push({
+      icon: "🛡️",
+      name: equippedArmor.value.name,
+      title: `${equippedArmor.value.rank}, ${absorbs}`
+    });
+  }
+
+  return armors;
+});
+
 async function switchForm(formId: string) {
   // Call the actor's switchForm method which handles token transformation
-  // @ts-expect-error - switchForm is a custom method on FaseripActor
   await actor.switchForm(formId);
-}
-
-async function updateAvatar(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-
-  if (file) {
-    // Use Foundry's file picker or upload
-    // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
-    const fp = new foundry.applications.apps.FilePicker.implementation({
-      type: "image",
-      callback: async (path: string) => {
-        reactiveActor.img = path;
-        await actor.update({ img: path });
-      }
-    });
-    fp.browse();
-  }
 }
 
 function openImagePicker() {
@@ -216,6 +228,115 @@ function copyMovementPath() {
       ui.notifications?.error("Failed to copy to clipboard");
     });
 }
+
+// Damage/Healing
+const damageAmount = ref(0);
+
+async function applyDamage() {
+  if (damageAmount.value === 0) return;
+
+  let incoming = damageAmount.value;
+  const soakSources: string[] = [];
+  let equipmentArmorDamaged = false;
+  let bodyArmorPowerDamaged = false;
+
+  // Equipped armor soaks first (house rule setting)
+  if (equippedArmor.value) {
+    const armorSoak = Math.min(incoming, equippedArmor.value.value);
+    if (armorSoak > 0) {
+      soakSources.push(`${equippedArmor.value.name} –${armorSoak}`);
+      incoming = Math.max(0, incoming - armorSoak);
+
+      // Degrade armor if the setting is enabled
+      const degradingEnabled =
+        game.settings.get("faserip", "degradingArmor") ?? false;
+      if (degradingEnabled) {
+        equippedArmor.value.value = Math.max(
+          0,
+          equippedArmor.value.value - armorSoak
+        );
+        equipmentArmorDamaged = true;
+        if (equippedArmor.value.value === 0) {
+          ui.notifications?.warn(`${equippedArmor.value.name} is destroyed!`);
+        }
+      }
+    }
+  }
+
+  // Body Armor power soaks remainder (always active)
+  if (bodyArmorPower.value && incoming > 0) {
+    const powerSoak = Math.min(incoming, bodyArmorPower.value.value);
+    if (powerSoak > 0) {
+      soakSources.push(`${bodyArmorPower.value.name} –${powerSoak}`);
+      incoming = Math.max(0, incoming - powerSoak);
+
+      // Degrade Body Armor power if the setting is enabled
+      const degradingEnabled =
+        game.settings.get("faserip", "degradingArmor") ?? false;
+      if (degradingEnabled) {
+        bodyArmorPower.value.value = Math.max(
+          0,
+          bodyArmorPower.value.value - powerSoak
+        );
+        bodyArmorPowerDamaged = true;
+        if (bodyArmorPower.value.value === 0) {
+          ui.notifications?.warn(`${bodyArmorPower.value.name} is destroyed!`);
+        }
+      }
+    }
+  }
+
+  reactiveActor.system.resources.health.value = Math.max(
+    -20,
+    healthValue.value - incoming
+  );
+
+  // Sync armor changes with Charman if character is linked
+  // @ts-expect-error - charman is a custom property
+  const charmanData = actor.system.charman;
+  if (charmanData?.username && charmanData?.characterName) {
+    try {
+      const service = getCharmanService();
+
+      // Sync equipment armor if damaged
+      if (equipmentArmorDamaged && equippedArmor.value) {
+        await service.updateEquipmentArmor(
+          charmanData.username,
+          charmanData.characterName,
+          equippedArmor.value.name,
+          equippedArmor.value.value
+        );
+      }
+
+      // Sync Body Armor power if damaged
+      if (bodyArmorPowerDamaged && bodyArmorPower.value) {
+        await service.updateBodyArmorPower(
+          charmanData.username,
+          charmanData.characterName,
+          bodyArmorPower.value.value
+        );
+      }
+    } catch (error) {
+      // Service not initialized or sync failed - ignore silently
+    }
+  }
+
+  damageAmount.value = 0;
+}
+
+async function applyHealing() {
+  if (damageAmount.value === 0) return;
+
+  const newValue = Math.min(
+    healthMax.value,
+    healthValue.value + damageAmount.value
+  );
+
+  // Update reactive actor (base sheet class handles syncing to Foundry actor)
+  reactiveActor.system.resources.health.value = newValue;
+
+  damageAmount.value = 0;
+}
 </script>
 
 <template>
@@ -226,7 +347,7 @@ function copyMovementPath() {
         <!-- Avatar -->
         <div class="cursor-pointer" @click="openImagePicker">
           <img
-            :src="reactiveActor.img"
+            :src="reactiveActor.img ?? ''"
             :alt="reactiveActor.name"
             class="fsr-avatar"
           />
@@ -307,6 +428,50 @@ function copyMovementPath() {
                 </span>
                 <span v-else> Armor: {{ armorValue }} </span>
               </div>
+            </div>
+          </div>
+
+          <!-- Health Management -->
+          <div class="mt-3 p-2 bg-gray-800 rounded border border-gray-700">
+            <!-- Equipped armor / body armor power indicator -->
+            <div
+              v-if="armorList.length > 0"
+              class="mb-2 text-xs text-green-400"
+            >
+              <span
+                v-for="(armor, index) in armorList"
+                :key="armor.name"
+                :title="armor.title"
+                class="cursor-help"
+              >
+                <template v-if="index > 0">, </template>{{ armor.icon }}
+                {{ armor.name }}</span
+              >
+            </div>
+            <div class="flex gap-2 items-center">
+              <input
+                type="number"
+                v-model.number="damageAmount"
+                :min="0"
+                class="flex-1 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-white text-sm"
+                placeholder="Amount"
+              />
+              <button
+                @click="applyDamage"
+                :disabled="damageAmount <= 0"
+                class="fsr-btn fsr-btn-danger px-3 py-1 text-sm"
+                :class="{ 'opacity-50 cursor-not-allowed': damageAmount <= 0 }"
+              >
+                💔 Damage
+              </button>
+              <button
+                @click="applyHealing"
+                :disabled="damageAmount <= 0"
+                class="fsr-btn fsr-btn-success px-3 py-1 text-sm"
+                :class="{ 'opacity-50 cursor-not-allowed': damageAmount <= 0 }"
+              >
+                💚 Heal
+              </button>
             </div>
           </div>
         </div>

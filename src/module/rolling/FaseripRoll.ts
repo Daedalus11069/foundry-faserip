@@ -9,6 +9,7 @@ import {
 } from "../enums";
 import { showKarmaSpendDialog } from "../applications/dialog-utils";
 import { getCharmanService } from "../charman-service";
+import type { FaseripActor } from "../documents";
 
 /**
  * FASERIP roll evaluation
@@ -132,7 +133,7 @@ export class FaseripRoll {
     attributeRank: Rank,
     attributeValue: number,
     chartShift: number = 0,
-    actor?: Actor,
+    actor?: FaseripActor,
     talentNames?: string[],
     additionalFlags?: Record<string, any>,
     preSpecifiedKarmaShifts?: number,
@@ -348,7 +349,7 @@ export class FaseripRoll {
     attributeValue: number,
     chartShift: number = 0,
     comboCount: number = 1,
-    actor?: Actor,
+    actor?: FaseripActor,
     talentNames?: string[],
     additionalFlags?: Record<string, any>,
     attackKarmaSettings?: Array<{ columnShifts: number; resultShift: number }>,
@@ -417,7 +418,7 @@ export class FaseripRoll {
   private static async createCombinedComboMessage(
     rolls: Array<FaseripRoll & { comboPenalty: number; index: number }>,
     attributeName: string,
-    actor: Actor | undefined,
+    actor: FaseripActor | undefined,
     talentNames: string[] | undefined,
     additionalFlags: Record<string, any> | undefined
   ): Promise<void> {
@@ -533,7 +534,7 @@ export class FaseripRoll {
    */
   static async createCombinedRollMessage(
     rolls: FaseripRoll[],
-    actor: Actor | undefined,
+    actor: FaseripActor | undefined,
     additionalFlags?: Record<string, any>,
     globalReason?: string
   ): Promise<void> {
@@ -663,7 +664,7 @@ export class FaseripRoll {
    */
   static async rollInitiative(
     agilityRank: Rank | string,
-    actor?: Actor
+    actor?: FaseripActor
   ): Promise<Roll> {
     const agilityValue = RANK_VALUES[agilityRank as Rank] || 6;
     const dieSize = Math.min(agilityValue, 100);
@@ -698,7 +699,7 @@ export class FaseripRoll {
    */
   async toMessage(
     checkName: string,
-    actor?: Actor,
+    actor?: FaseripActor,
     talentNames?: string[],
     preRollKarma: number = 0,
     postRollKarma: number = 0,
@@ -707,24 +708,6 @@ export class FaseripRoll {
   ): Promise<ChatMessage | undefined> {
     const resultText = this.getResultText();
     const resultClass = this.getResultClass();
-
-    let talentSection = "";
-    if (talentNames && talentNames.length > 0) {
-      talentSection = `<div class="fsr-roll-card-detail">
-        <strong>Talents:</strong> <span>${talentNames.join(", ")}</span>
-      </div>`;
-    }
-
-    let csSection = "";
-    if (this.chartShift !== 0) {
-      const csText =
-        this.chartShift > 0
-          ? `+${this.chartShift} CS`
-          : `${this.chartShift} CS`;
-      csSection = `<div class="fsr-roll-card-detail">
-        <strong>Chart Shift:</strong> <span>${csText}</span>
-      </div>`;
-    }
 
     let karmaSpentText = "";
     const totalKarmaSpent = preRollKarma + postRollKarma;
@@ -775,7 +758,7 @@ export async function rollFaseripCheck(
   attributeRank: Rank,
   attributeValue: number,
   bonus: number = 0,
-  actor?: Actor
+  actor?: FaseripActor
 ): Promise<FaseripRoll> {
   return await FaseripRoll.rollAttribute(
     attributeName,
@@ -788,7 +771,7 @@ export async function rollFaseripCheck(
 
 export async function rollFaseripInitiative(
   agilityRank: Rank | string,
-  actor?: Actor
+  actor?: FaseripActor
 ): Promise<Roll> {
   return await FaseripRoll.rollInitiative(agilityRank, actor);
 }

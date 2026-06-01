@@ -335,7 +335,6 @@ const initHandler = () => {
   });
 
   // Register the custom Actor document class
-  // @ts-expect-error - TypeScript doesn't recognize custom Actor subclass
   CONFIG.Actor.documentClass = FaseripActor;
 
   // Register data models for each actor type

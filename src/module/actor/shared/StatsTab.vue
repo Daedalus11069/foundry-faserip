@@ -7,14 +7,16 @@ import {
   RollResult
 } from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
-import { stringToRank, calculateHealth } from "../../utils";
+import { stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import {
   showTalentSelectionDialog,
   showComboDialog
 } from "../../applications/dialog-utils";
-import type { Talent, Power, Form } from "../../types";
+import type { Talent } from "../../types";
 import { executeCombatAttack } from "../../combat/combat-flow";
+import type { ReactiveActorData, PowerData } from "../../types/actor-system";
+import type { FaseripActor } from "../../documents";
 
 interface Weapon {
   id: string;
@@ -27,10 +29,10 @@ interface Weapon {
   equipped?: boolean;
 }
 
-const reactiveActor = inject("reactiveActor") as any;
-const actor = inject("actor") as Actor<"pc" | "npc">;
+const reactiveActor = inject("reactiveActor") as ReactiveActorData;
+const actor = inject("actor") as FaseripActor;
 
-const forms = computed<Form[]>(() => reactiveActor.system.forms || []);
+const forms = computed(() => reactiveActor.system.forms || []);
 
 // Local ref: which form is being viewed/rolled (independent of active combat form)
 const viewFormId = ref("");
@@ -51,36 +53,25 @@ watch(forms, list => {
   }
 });
 
-const currentForm = computed<Form | undefined>(
+const currentForm = computed(
   () => forms.value.find(f => f.id === viewFormId.value) ?? forms.value[0]
-);
-
-// Computed health max based on current form (recalculated reactively)
-const healthMax = computed(() => {
-  const form = currentForm.value;
-  if (!form) return reactiveActor.system.resources.health.max || 0;
-  return calculateHealth(form);
-});
-
-const healthValue = computed(
-  () => reactiveActor.system.resources.health.value ?? 0
 );
 
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
 const weapons = computed<Weapon[]>(() => reactiveActor.system.weapons || []);
-const allPowers = computed<Power[]>(() =>
+const allPowers = computed(() =>
   (reactiveActor.system.powers || []).filter(
-    (p: Power) => !p.formIds?.length || p.formIds.includes(viewFormId.value)
+    (p: PowerData) => !p.formIds?.length || p.formIds.includes(viewFormId.value)
   )
 );
 
 // Separate resistance powers from regular powers
-const resistancePowers = computed<Power[]>(() =>
-  allPowers.value.filter((p: Power) => p.resistanceType)
+const resistancePowers = computed(() =>
+  allPowers.value.filter((p: PowerData) => p.resistanceType)
 );
 
-const powers = computed<Power[]>(() =>
-  allPowers.value.filter((p: Power) => !p.resistanceType)
+const powers = computed(() =>
+  allPowers.value.filter((p: PowerData) => !p.resistanceType)
 );
 
 const weaponsEnabled = computed(
@@ -91,147 +82,6 @@ const weaponsEnabled = computed(
 const mpEnabled = computed(
   () => game.settings.get("faserip", "mpEnabled") ?? false
 );
-
-const armorEnabled = computed(
-  () => game.settings.get("faserip", "armorEnabled") ?? false
-);
-
-const degradingEnabled = computed(
-  () => game.settings.get("faserip", "degradingArmor") ?? false
-);
-
-const equippedArmor = computed(() => {
-  if (!armorEnabled.value) return null;
-  return (
-    (reactiveActor.system.armors || []).find((a: any) => a.equipped) ?? null
-  );
-});
-
-// Body Armor power — always active regardless of the armor setting
-const bodyArmorPower = computed(() => {
-  const activeFormId = reactiveActor.system.currentFormId;
-  return (
-    (reactiveActor.system.powers || []).find(
-      (p: any) =>
-        p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
-        (!p.formIds?.length || p.formIds.includes(activeFormId))
-    ) ?? null
-  );
-});
-
-// Damage/Healing
-const damageAmount = ref(0);
-
-async function applyDamage() {
-  if (damageAmount.value === 0) return;
-
-  let incoming = damageAmount.value;
-  const soakSources: string[] = [];
-  let equipmentArmorDamaged = false;
-  let bodyArmorPowerDamaged = false;
-
-  // Equipped armor soaks first (house rule setting)
-  if (equippedArmor.value) {
-    const armorSoak = Math.min(incoming, equippedArmor.value.value);
-    if (armorSoak > 0) {
-      soakSources.push(`${equippedArmor.value.name} –${armorSoak}`);
-      incoming = Math.max(0, incoming - armorSoak);
-
-      // Degrade armor if the setting is enabled
-      const degradingEnabled =
-        game.settings.get("faserip", "degradingArmor") ?? false;
-      if (degradingEnabled) {
-        equippedArmor.value.value = Math.max(
-          0,
-          equippedArmor.value.value - armorSoak
-        );
-        equipmentArmorDamaged = true;
-        if (equippedArmor.value.value === 0) {
-          ui.notifications?.warn(`${equippedArmor.value.name} is destroyed!`);
-        }
-      }
-    }
-  }
-
-  // Body Armor power soaks remainder (always active)
-  if (bodyArmorPower.value && incoming > 0) {
-    const powerSoak = Math.min(incoming, bodyArmorPower.value.value);
-    if (powerSoak > 0) {
-      soakSources.push(`${bodyArmorPower.value.name} –${powerSoak}`);
-      incoming = Math.max(0, incoming - powerSoak);
-
-      // Degrade Body Armor power if the setting is enabled
-      const degradingEnabled =
-        game.settings.get("faserip", "degradingArmor") ?? false;
-      if (degradingEnabled) {
-        bodyArmorPower.value.value = Math.max(
-          0,
-          bodyArmorPower.value.value - powerSoak
-        );
-        bodyArmorPowerDamaged = true;
-        if (bodyArmorPower.value.value === 0) {
-          ui.notifications?.warn(`${bodyArmorPower.value.name} is destroyed!`);
-        }
-      }
-    }
-  }
-
-  reactiveActor.system.resources.health.value = Math.max(
-    -20,
-    healthValue.value - incoming
-  );
-
-  if (soakSources.length > 0) {
-    // ui.notifications?.info(
-    //   `Absorbed: ${soakSources.join(", ")}. ${incoming} damage applied.`
-    // );
-  }
-
-  // Sync armor changes with Charman if character is linked
-  const charmanData = actor.system.charman;
-  if (charmanData?.username && charmanData?.characterName) {
-    try {
-      const service = getCharmanService();
-
-      // Sync equipment armor if damaged
-      if (equipmentArmorDamaged && equippedArmor.value) {
-        await service.updateEquipmentArmor(
-          charmanData.username,
-          charmanData.characterName,
-          equippedArmor.value.name,
-          equippedArmor.value.value
-        );
-      }
-
-      // Sync Body Armor power if damaged
-      if (bodyArmorPowerDamaged && bodyArmorPower.value) {
-        await service.updateBodyArmorPower(
-          charmanData.username,
-          charmanData.characterName,
-          bodyArmorPower.value.value
-        );
-      }
-    } catch (error) {
-      // Service not initialized or sync failed - ignore silently
-    }
-  }
-
-  damageAmount.value = 0;
-}
-
-async function applyHealing() {
-  if (damageAmount.value === 0) return;
-
-  const newValue = Math.min(
-    healthMax.value,
-    healthValue.value + damageAmount.value
-  );
-
-  // Update reactive actor (base sheet class handles syncing to Foundry actor)
-  reactiveActor.system.resources.health.value = newValue;
-
-  damageAmount.value = 0;
-}
 
 const faseAttributes = [
   { key: "fighting", label: "Fighting", icon: "⚔️" },
@@ -678,6 +528,7 @@ async function rollPower(power: any) {
       );
 
       // Sync with Charman if character is linked
+      // @ts-expect-error - charman property exists on system
       const charmanData = actor.system.charman;
       if (charmanData?.username && charmanData?.characterName) {
         try {
@@ -706,12 +557,9 @@ async function rollPower(power: any) {
     }
 
     // Deduct MP
-    if (mpCost > 0) {
-      const currentMP = reactiveActor.system.resources.mentalPoints.value;
-      reactiveActor.system.resources.mentalPoints.value = Math.max(
-        0,
-        currentMP - mpCost
-      );
+    if (mpCost > 0 && reactiveActor.system.resources.mentalPoints) {
+      const mentalPoints = reactiveActor.system.resources.mentalPoints;
+      mentalPoints.value = Math.max(0, mentalPoints.value - mpCost);
     }
 
     return;
@@ -744,24 +592,12 @@ async function rollPower(power: any) {
     });
 
     // Deduct MP after successful attack
-    if (mpCost > 0) {
-      const currentMP = reactiveActor.system.resources.mentalPoints.value;
-      reactiveActor.system.resources.mentalPoints.value = Math.max(
-        0,
-        currentMP - mpCost
-      );
-
-      await actor.update({
-        system: {
-          resources: {
-            mentalPoints: {
-              value: reactiveActor.system.resources.mentalPoints!.value
-            }
-          }
-        }
-      });
+    if (mpCost > 0 && reactiveActor.system.resources.mentalPoints) {
+      const mentalPoints = reactiveActor.system.resources.mentalPoints;
+      mentalPoints.value = Math.max(0, mentalPoints.value - mpCost);
 
       // Sync MP with Charman if character is linked
+      // @ts-expect-error - charman property exists on system
       const charmanData = actor.system.charman;
       if (charmanData?.username && charmanData?.characterName) {
         try {
@@ -846,7 +682,7 @@ async function rollPower(power: any) {
   }
 
   // Deduct MP after successful roll
-  if (mpCost > 0) {
+  if (mpCost > 0 && reactiveActor.system.resources.mentalPoints) {
     const currentMP = reactiveActor.system.resources.mentalPoints.value;
     reactiveActor.system.resources.mentalPoints.value = Math.max(
       0,
@@ -865,6 +701,7 @@ async function rollPower(power: any) {
     // });
 
     // Sync MP with Charman if character is linked
+    // @ts-expect-error - charman property exists on system
     const charmanData = actor.system.charman;
     if (charmanData?.username && charmanData?.characterName) {
       try {
@@ -872,7 +709,7 @@ async function rollPower(power: any) {
         await service.updateMP(
           charmanData.username,
           charmanData.characterName,
-          reactiveActor.system.resources.mentalPoints.value
+          reactiveActor.system.resources.mentalPoints!.value
         );
       } catch (error) {
         // Service not initialized or sync failed - ignore silently
@@ -900,73 +737,6 @@ async function rollPower(power: any) {
         <span v-if="form.isPrimary" class="mr-1 text-yellow-400">★</span
         >{{ form.name }}
       </button>
-    </div>
-
-    <!-- Damage/Healing Section -->
-    <div class="mb-4 p-3 bg-gray-800 rounded border border-gray-700">
-      <h3 class="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">
-        Health Management
-      </h3>
-      <!-- Equipped armor / body armor power indicator -->
-      <div
-        v-if="bodyArmorPower || equippedArmor"
-        class="mb-2 flex flex-wrap gap-3 text-xs text-green-400"
-      >
-        <span v-if="bodyArmorPower" class="flex items-center gap-1">
-          🦾 <span>{{ bodyArmorPower.name }}</span>
-          <span class="fsr-rank-badge">({{ bodyArmorPower.rank }}, </span>
-          <span v-if="degradingEnabled"
-            >absorbs {{ bodyArmorPower.value }}/{{
-              bodyArmorPower.maxValue || bodyArmorPower.value
-            }})</span
-          >
-          <span v-else>absorbs {{ bodyArmorPower.value }}</span>
-        </span>
-        <span v-if="equippedArmor" class="flex items-center gap-1">
-          🛡️ <span>{{ equippedArmor.name }}</span>
-          <span class="fsr-rank-badge">({{ equippedArmor.rank }}, </span>
-          <span v-if="degradingEnabled"
-            >absorbs {{ equippedArmor.value }}/{{
-              equippedArmor.maxValue || equippedArmor.value
-            }})</span
-          >
-          <span v-else>absorbs {{ equippedArmor.value }}</span>
-        </span>
-      </div>
-      <div class="flex gap-2 items-center">
-        <input
-          type="number"
-          v-model.number="damageAmount"
-          :min="0"
-          class="flex-1 px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white"
-          placeholder="Amount"
-        />
-        <button
-          @click="applyDamage"
-          :disabled="damageAmount <= 0"
-          class="fsr-btn fsr-btn-danger px-4 py-2"
-          :class="{ 'opacity-50 cursor-not-allowed': damageAmount <= 0 }"
-        >
-          💔 Damage
-        </button>
-        <button
-          @click="applyHealing"
-          :disabled="damageAmount <= 0"
-          class="fsr-btn fsr-btn-success px-4 py-2"
-          :class="{ 'opacity-50 cursor-not-allowed': damageAmount <= 0 }"
-        >
-          💚 Heal
-        </button>
-      </div>
-      <div
-        class="mt-2 text-xs"
-        :class="healthValue < 0 ? 'text-red-400 font-bold' : 'text-gray-400'"
-      >
-        Current Health: {{ healthValue }} / {{ healthMax }}
-        <span v-if="healthValue < 0" class="ml-2 text-red-500">
-          (Dying/Unconscious)
-        </span>
-      </div>
     </div>
 
     <!-- Two Column Layout: Stats (8/12) and Weapons/Powers (4/12) -->
