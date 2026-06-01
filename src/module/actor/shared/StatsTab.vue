@@ -11,7 +11,7 @@ import { stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import {
   showTalentSelectionDialog,
-  showComboDialog
+  showAttackOptionsDialog
 } from "../../applications/dialog-utils";
 import type { Talent } from "../../types";
 import { executeCombatAttack } from "../../combat/combat-flow";
@@ -219,16 +219,63 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         }
       }
 
-      await executeCombatAttack({
-        attacker: actor as any,
-        attackAttribute: "fighting",
-        attackType: "melee",
-        powerName: "Unarmed Strike",
-        powerRank: strengthRank,
-        damageType: undefined,
-        talentNames: talentNames.length > 0 ? talentNames : undefined,
-        talentCS: talentCS > 0 ? talentCS : undefined
-      });
+      // Show attack options dialog for unarmed strike
+      const fightingRank = stringToRank(
+        currentForm.value.attributes.fighting.rank
+      );
+      const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+
+      const comboResult = await showAttackOptionsDialog(
+        actor.name || "Unknown",
+        "Fighting",
+        fightingRank,
+        availableKarma,
+        "Unarmed Strike",
+        talentCS
+      );
+
+      if (comboResult === null) {
+        return; // User cancelled
+      }
+
+      // Handle combo attacks
+      if (comboResult.comboCount > 1) {
+        // Execute multiple attacks with distributed karma
+        for (let i = 0; i < comboResult.comboCount; i++) {
+          const attackKarma = comboResult.attackKarmaSettings[i];
+
+          await executeCombatAttack({
+            attacker: actor as any,
+            attackAttribute: "fighting",
+            attackType: "melee",
+            powerName: "Unarmed Strike",
+            powerRank: strengthRank,
+            damageType: undefined,
+            talentNames: talentNames.length > 0 ? talentNames : undefined,
+            talentCS: talentCS > 0 ? talentCS : undefined,
+            karmaColumnShifts: attackKarma?.columnShifts ?? 0,
+            karmaResultShift: attackKarma?.resultShift ?? 0,
+            manualChartShift: comboResult.manualChartShift ?? 0
+          });
+        }
+      } else {
+        // Single attack
+        const firstAttackKarma = comboResult.attackKarmaSettings[0];
+
+        await executeCombatAttack({
+          attacker: actor as any,
+          attackAttribute: "fighting",
+          attackType: "melee",
+          powerName: "Unarmed Strike",
+          powerRank: strengthRank,
+          damageType: undefined,
+          talentNames: talentNames.length > 0 ? talentNames : undefined,
+          talentCS: talentCS > 0 ? talentCS : undefined,
+          karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
+          karmaResultShift: firstAttackKarma?.resultShift ?? 0,
+          manualChartShift: comboResult.manualChartShift ?? 0
+        });
+      }
       return;
     }
     // For Agility with no equipped ranged weapon, fall through to standard roll
@@ -258,14 +305,15 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
     }
   }
 
-  // All stats go through the combo/karma dialog
+  // All stats go through the attack options dialog
   const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
 
-  const comboResult = await showComboDialog(
+  const comboResult = await showAttackOptionsDialog(
+    actor.name || "Unknown",
     attrLabel,
     rank,
     availableKarma,
-    talentNames,
+    undefined,
     totalCS
   );
 
@@ -373,17 +421,63 @@ async function rollWeapon(weapon: Weapon) {
     }
   }
 
-  // Use combat flow system
-  await executeCombatAttack({
-    attacker: actor as any,
-    attackAttribute,
-    attackType,
-    powerName: weapon.name,
-    powerRank: damageRank,
-    damageType: undefined,
-    talentNames: talentNames.length > 0 ? talentNames : undefined,
-    talentCS: talentCS > 0 ? talentCS : undefined
-  });
+  // Show attack options dialog
+  const attackRank = stringToRank(
+    currentForm.value.attributes[attackAttribute].rank
+  );
+  const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+
+  const comboResult = await showAttackOptionsDialog(
+    actor.name || "Unknown",
+    attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+    attackRank,
+    availableKarma,
+    weapon.name,
+    talentCS
+  );
+
+  if (comboResult === null) {
+    return; // User cancelled
+  }
+
+  // Handle combo attacks
+  if (comboResult.comboCount > 1) {
+    // Execute multiple attacks with distributed karma
+    for (let i = 0; i < comboResult.comboCount; i++) {
+      const attackKarma = comboResult.attackKarmaSettings[i];
+
+      await executeCombatAttack({
+        attacker: actor as any,
+        attackAttribute,
+        attackType,
+        powerName: weapon.name,
+        powerRank: damageRank,
+        damageType: undefined,
+        talentNames: talentNames.length > 0 ? talentNames : undefined,
+        talentCS: talentCS > 0 ? talentCS : undefined,
+        karmaColumnShifts: attackKarma?.columnShifts ?? 0,
+        karmaResultShift: attackKarma?.resultShift ?? 0,
+        manualChartShift: comboResult.manualChartShift ?? 0
+      });
+    }
+  } else {
+    // Single attack
+    const firstAttackKarma = comboResult.attackKarmaSettings[0];
+
+    await executeCombatAttack({
+      attacker: actor as any,
+      attackAttribute,
+      attackType,
+      powerName: weapon.name,
+      powerRank: damageRank,
+      damageType: undefined,
+      talentNames: talentNames.length > 0 ? talentNames : undefined,
+      talentCS: talentCS > 0 ? talentCS : undefined,
+      karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
+      karmaResultShift: firstAttackKarma?.resultShift ?? 0,
+      manualChartShift: comboResult.manualChartShift ?? 0
+    });
+  }
 }
 
 async function toggleEquip(weapon: Weapon) {
@@ -865,16 +959,65 @@ async function rollPower(power: any) {
       attackType = "ranged";
     }
 
-    // Use combat flow system - handles all critical/ultimate bonus rolls
-    await executeCombatAttack({
-      attacker: actor as any,
-      attackAttribute,
-      attackType,
-      powerName: power.name,
-      powerRank: rank, // Pass the power's rank for damage calculation
-      damageRoll: `1d${rankValue}`, // Simple damage based on power rank value
-      damageType: power.damageType !== "none" ? power.damageType : undefined
-    });
+    // Show attack options dialog for damage powers (allows combo attacks with karma distribution)
+    const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+
+    const comboResult = await showAttackOptionsDialog(
+      actor.name || "Unknown",
+      attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+      rank,
+      availableKarma,
+      power.name,
+      totalCS
+    );
+
+    if (comboResult === null) {
+      return; // User cancelled
+    }
+
+    // Handle combo attacks (multiple targets with same power)
+    if (comboResult.comboCount > 1) {
+      // Execute multiple attacks with distributed karma
+      for (let i = 0; i < comboResult.comboCount; i++) {
+        const attackKarma = comboResult.attackKarmaSettings[i];
+
+        await executeCombatAttack({
+          attacker: actor as any,
+          attackAttribute,
+          attackType,
+          powerName: power.name,
+          powerRank: rank,
+          damageRoll: `1d${rankValue}`,
+          damageType:
+            power.damageType !== "none" ? power.damageType : undefined,
+          talentNames: talentNames.length > 0 ? talentNames : undefined,
+          talentCS: totalCS > 0 ? totalCS : undefined,
+          // Pass karma settings from combo dialog
+          karmaColumnShifts: attackKarma?.columnShifts ?? 0,
+          karmaResultShift: attackKarma?.resultShift ?? 0,
+          manualChartShift: comboResult.manualChartShift ?? 0
+        });
+      }
+    } else {
+      // Single attack with karma from combo dialog
+      const firstAttackKarma = comboResult.attackKarmaSettings[0];
+
+      await executeCombatAttack({
+        attacker: actor as any,
+        attackAttribute,
+        attackType,
+        powerName: power.name,
+        powerRank: rank,
+        damageRoll: `1d${rankValue}`,
+        damageType: power.damageType !== "none" ? power.damageType : undefined,
+        talentNames: talentNames.length > 0 ? talentNames : undefined,
+        talentCS: totalCS > 0 ? totalCS : undefined,
+        // Pass karma settings from combo dialog
+        karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
+        karmaResultShift: firstAttackKarma?.resultShift ?? 0,
+        manualChartShift: comboResult.manualChartShift ?? 0
+      });
+    }
 
     // Deduct MP after successful attack
     if (mpCost > 0 && reactiveActor.system.resources.mentalPoints) {
@@ -924,11 +1067,12 @@ async function rollPower(power: any) {
   }
   const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
 
-  const comboResult = await showComboDialog(
+  const comboResult = await showAttackOptionsDialog(
+    actor.name || "Unknown",
     power.name,
     rank,
     availableKarma,
-    talentNames,
+    power.name,
     totalCS
   );
 

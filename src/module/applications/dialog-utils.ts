@@ -128,7 +128,7 @@ export async function showComboDialog(
 }
 
 /**
- * Show attack options dialog (karma spending + modifiers)
+ * Show attack options dialog (karma spending + modifiers + combo attacks)
  */
 export async function showAttackOptionsDialog(
   attackerName: string,
@@ -138,8 +138,8 @@ export async function showAttackOptionsDialog(
   powerName?: string,
   talentCS?: number
 ): Promise<{
-  karmaColumnShifts: number;
-  karmaResultShift: number;
+  comboCount: number;
+  attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
   manualChartShift: number;
 } | null> {
   const result = await VueDialog.show(
@@ -160,14 +160,14 @@ export async function showAttackOptionsDialog(
         resizable: false
       },
       position: {
-        width: 550
+        width: 700
       }
     }
   );
 
   return result as {
-    karmaColumnShifts: number;
-    karmaResultShift: number;
+    comboCount: number;
+    attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
     manualChartShift: number;
   } | null;
 }

@@ -34,6 +34,9 @@ interface AttackData {
   damageType?: string; // Type of damage (fire, cold, etc.)
   talentNames?: string[]; // Optional: Talent names that apply to this attack
   talentCS?: number; // Optional: Column shift bonus from talents
+  karmaColumnShifts?: number; // Optional: Pre-determined karma column shifts (from combo dialog)
+  karmaResultShift?: number; // Optional: Pre-determined karma result shifts (from combo dialog)
+  manualChartShift?: number; // Optional: Manual chart shift modifier (from combo dialog)
 }
 
 /**
@@ -266,6 +269,10 @@ async function applyDamageToActor(
   const system = actor.system as any;
   const currentFormId = system.currentFormId;
 
+  // Get degrading armor setting
+  const degradingArmorEnabled =
+    game.settings.get("faserip", "degradingArmor") ?? false;
+
   // Armor is derived from body armor power + equipped armor
   const activeFormId = system.currentFormId;
   const bodyArmorPower = (system.powers || []).find(
@@ -291,51 +298,63 @@ async function applyDamageToActor(
   if (currentArmor > 0) {
     // Apply damage to armor first
     armorDamage = Math.min(damage, currentArmor);
-    newArmorValue = currentArmor - armorDamage;
 
-    // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
-    let remainingArmorDamage = armorDamage;
+    // Calculate new armor value based on degrading setting
+    // When degrading is disabled, armor soaks but doesn't reduce
+    newArmorValue = degradingArmorEnabled
+      ? currentArmor - armorDamage
+      : currentArmor;
 
-    // Equipped armor soaks first
-    if (equippedArmor && remainingArmorDamage > 0) {
-      const equippedArmorReduction = Math.min(
-        remainingArmorDamage,
-        equippedArmor.value
-      );
-      // Clone armors array and update the specific armor
-      const updatedArmors = [...system.armors];
-      const armorIndex = updatedArmors.findIndex(
-        (a: any) => a.id === equippedArmor.id
-      );
-      if (armorIndex !== -1) {
-        updatedArmors[armorIndex] = {
-          ...updatedArmors[armorIndex],
-          value: equippedArmor.value - equippedArmorReduction
-        };
-        updates["system.armors"] = updatedArmors;
+    // Only reduce armor values if degrading armor is enabled
+    if (degradingArmorEnabled) {
+      // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
+      let remainingArmorDamage = armorDamage;
+
+      // Equipped armor soaks first
+      if (equippedArmor && remainingArmorDamage > 0) {
+        const equippedArmorReduction = Math.min(
+          remainingArmorDamage,
+          equippedArmor.value
+        );
+        // Clone armors array and update the specific armor
+        const updatedArmors = [...system.armors];
+        const armorIndex = updatedArmors.findIndex(
+          (a: any) => a.id === equippedArmor.id
+        );
+        if (armorIndex !== -1) {
+          updatedArmors[armorIndex] = {
+            ...updatedArmors[armorIndex],
+            value: equippedArmor.value - equippedArmorReduction
+          };
+          updates["system.armors"] = updatedArmors;
+        }
+        remainingArmorDamage -= equippedArmorReduction;
       }
-      remainingArmorDamage -= equippedArmorReduction;
+
+      // Body Armor power soaks remainder
+      if (bodyArmorPower && remainingArmorDamage > 0) {
+        const bodyArmorReduction = Math.min(
+          remainingArmorDamage,
+          bodyArmorPower.value
+        );
+        // Clone powers array and update the specific power
+        const updatedPowers = [...system.powers];
+        const powerIndex = updatedPowers.findIndex(
+          (p: any) => p.id === bodyArmorPower.id
+        );
+        if (powerIndex !== -1) {
+          updatedPowers[powerIndex] = {
+            ...updatedPowers[powerIndex],
+            value: bodyArmorPower.value - bodyArmorReduction
+          };
+          updates["system.powers"] = updatedPowers;
+        }
+      }
     }
 
-    // Body Armor power soaks remainder
-    if (bodyArmorPower && remainingArmorDamage > 0) {
-      const bodyArmorReduction = Math.min(
-        remainingArmorDamage,
-        bodyArmorPower.value
-      );
-      // Clone powers array and update the specific power
-      const updatedPowers = [...system.powers];
-      const powerIndex = updatedPowers.findIndex(
-        (p: any) => p.id === bodyArmorPower.id
-      );
-      if (powerIndex !== -1) {
-        updatedPowers[powerIndex] = {
-          ...updatedPowers[powerIndex],
-          value: bodyArmorPower.value - bodyArmorReduction
-        };
-        updates["system.powers"] = updatedPowers;
-      }
-    }
+    // NOTE: Do NOT manually set system.resources.armor.value here
+    // It's a derived value that gets automatically recalculated in prepareDerivedData()
+    // from the individual armor sources (equipped armor + body armor power)
 
     // If damage exceeds armor, overflow to health
     const overflow = damage - armorDamage;
@@ -390,7 +409,10 @@ export async function executeCombatAttack(
     attackType,
     powerName,
     talentNames,
-    talentCS
+    talentCS,
+    karmaColumnShifts: presetKarmaColumnShifts,
+    karmaResultShift: presetKarmaResultShift,
+    manualChartShift: presetManualChartShift
   } = attackData;
 
   // Get targeted tokens
@@ -423,18 +445,39 @@ export async function executeCombatAttack(
     const attackValue = attackAttr.value;
     const currentKarma = system.resources?.karma?.value ?? 0;
 
-    // Show attack options dialog
-    const attackOptions = await showAttackOptionsDialog(
-      attacker.name!,
-      attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
-      attackRank,
-      currentKarma,
-      powerName,
-      talentCS
-    );
+    // If karma/modifiers are already set (from caller), use them directly
+    let karmaColumnShifts: number;
+    let karmaResultShift: number;
+    let manualChartShift: number;
 
-    if (!attackOptions) {
-      return;
+    if (
+      presetKarmaColumnShifts !== undefined ||
+      presetKarmaResultShift !== undefined ||
+      presetManualChartShift !== undefined
+    ) {
+      karmaColumnShifts = presetKarmaColumnShifts ?? 0;
+      karmaResultShift = presetKarmaResultShift ?? 0;
+      manualChartShift = presetManualChartShift ?? 0;
+    } else {
+      // Show attack options dialog
+      const attackOptions = await showAttackOptionsDialog(
+        attacker.name!,
+        attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+        attackRank,
+        currentKarma,
+        powerName,
+        talentCS
+      );
+
+      if (!attackOptions) {
+        return;
+      }
+
+      // Extract first attack's karma settings from combo result
+      const firstAttackKarma = attackOptions.attackKarmaSettings[0];
+      karmaColumnShifts = firstAttackKarma?.columnShifts ?? 0;
+      karmaResultShift = firstAttackKarma?.resultShift ?? 0;
+      manualChartShift = attackOptions.manualChartShift ?? 0;
     }
 
     // Roll and show attack (no combat flow) - include talent bonus in chart shift
@@ -443,7 +486,7 @@ export async function executeCombatAttack(
         attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
       attackRank,
       attackValue,
-      attackOptions.manualChartShift + (talentCS || 0),
+      manualChartShift + (talentCS || 0),
       attacker,
       talentNames,
       {
@@ -451,8 +494,8 @@ export async function executeCombatAttack(
         attackType,
         powerName
       },
-      attackOptions.karmaColumnShifts,
-      attackOptions.karmaResultShift,
+      karmaColumnShifts,
+      karmaResultShift,
       false // Show message
     );
 
@@ -479,24 +522,47 @@ export async function executeCombatAttack(
   const attackRank = stringToRank(attackAttr.rank) as Rank;
   const attackValue = attackAttr.value;
 
-  // Step 0.5: Show attack options dialog (karma spending + modifiers)
+  // Step 0.5: Get attack options (either preset from caller or show options dialog)
   const currentKarma = system.resources?.karma?.value ?? 0;
-  const attackOptions = await showAttackOptionsDialog(
-    attacker.name!,
-    attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
-    attackRank,
-    currentKarma,
-    powerName,
-    talentCS
-  );
+  let attackOptions;
+  let karmaColumnShifts: number;
+  let karmaResultShift: number;
+  let manualChartShift: number;
 
-  if (!attackOptions) {
-    // User cancelled
-    return;
+  if (
+    presetKarmaColumnShifts !== undefined ||
+    presetKarmaResultShift !== undefined ||
+    presetManualChartShift !== undefined
+  ) {
+    // Use preset values from caller (combo attack scenario)
+    karmaColumnShifts = presetKarmaColumnShifts ?? 0;
+    karmaResultShift = presetKarmaResultShift ?? 0;
+    manualChartShift = presetManualChartShift ?? 0;
+  } else {
+    // Show attack options dialog
+    attackOptions = await showAttackOptionsDialog(
+      attacker.name!,
+      attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+      attackRank,
+      currentKarma,
+      powerName,
+      talentCS
+    );
+
+    if (!attackOptions) {
+      // User cancelled
+      return;
+    }
+
+    // Extract first attack's karma settings from combo result
+    const firstAttackKarma = attackOptions.attackKarmaSettings[0];
+    karmaColumnShifts = firstAttackKarma?.columnShifts ?? 0;
+    karmaResultShift = firstAttackKarma?.resultShift ?? 0;
+    manualChartShift = attackOptions.manualChartShift ?? 0;
   }
 
   // Calculate total chart shift (manual + talent bonuses - karma shifts handled by rollAttribute)
-  const totalChartShift = attackOptions.manualChartShift + (talentCS || 0);
+  const totalChartShift = manualChartShift + (talentCS || 0);
 
   // Step 1: Roll attack with applied chart shifts
   // Pass karma shifts to rollAttribute - it will handle deduction and application
@@ -512,8 +578,8 @@ export async function executeCombatAttack(
       attackType,
       powerName
     },
-    attackOptions.karmaColumnShifts, // Let rollAttribute handle column shifts
-    attackOptions.karmaResultShift, // Let rollAttribute handle result shift
+    karmaColumnShifts, // Let rollAttribute handle column shifts
+    karmaResultShift, // Let rollAttribute handle result shift
     true // Skip message - we'll show it after defenses are chosen
   );
 
@@ -548,9 +614,7 @@ export async function executeCombatAttack(
   // Calculate effective attack rank after all modifiers
   const effectiveAttackRank = applyChartShift(
     attackRank,
-    attackOptions.karmaColumnShifts +
-      attackOptions.manualChartShift +
-      (talentCS || 0)
+    karmaColumnShifts + manualChartShift + (talentCS || 0)
   );
 
   // Step 2: Request defense responses from all targets
@@ -848,13 +912,25 @@ export async function executeCombatAttack(
       // Build damage application text
       let damageApplicationText = "";
       if (damageApplication) {
+        // Check degrading armor setting for display
+        const degradingArmorEnabled =
+          game.settings.get("faserip", "degradingArmor") ?? false;
+
         if (
           damageApplication.armorDamage > 0 &&
           damageApplication.healthDamage > 0
         ) {
-          damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining), ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+          // Show "remaining" for armor only if degrading is enabled
+          const armorText = degradingArmorEnabled
+            ? `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`
+            : `${damageApplication.armorDamage} absorbed by armor`;
+          damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
         } else if (damageApplication.armorDamage > 0) {
-          damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)</div>`;
+          // Show "remaining" only if degrading is enabled
+          const armorText = degradingArmorEnabled
+            ? `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`
+            : `${damageApplication.armorDamage} absorbed by armor`;
+          damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}</div>`;
         } else if (damageApplication.healthDamage > 0) {
           damageApplicationText = `<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
         }

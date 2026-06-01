@@ -206,10 +206,16 @@ export function applyDamageToActor(
   }
   system.healthByForm[currentFormId] = newHealthValue;
 
+  // Calculate new armor value for display
+  // When degrading is disabled, armor soaks but doesn't reduce
+  const newArmorValue = degradingArmorEnabled
+    ? totalArmor - armorDamage
+    : totalArmor;
+
   const result = {
     armorDamage,
     healthDamage,
-    newArmorValue: totalArmor - armorDamage,
+    newArmorValue,
     newHealthValue,
     armorDestroyed,
     bodyArmorDestroyed,
