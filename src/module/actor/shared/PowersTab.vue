@@ -810,29 +810,36 @@ async function applyArmorHealingToTarget(
 
     // NOW update the actor
     if (actualRepair > 0) {
-      bodyArmorPower.value = newValue;
-
-      // Update the actor - must clone array for Foundry to detect change
-      await targetActor.update({
-        "system.powers": JSON.parse(JSON.stringify(targetActor.system.powers))
-      });
-
-      ui.notifications?.info(
-        `${powerName} → ${targetActor.name}: Repaired ${actualRepair} Body Armor (now ${newValue}/${maxValue}).`
+      // Find the power index
+      const powerIndex = targetActor.system.powers.findIndex(
+        (p: any) => p.id === bodyArmorPower.id
       );
 
-      // Sync Body Armor power repair with Charman if character is linked
-      const charmanData = targetActor.system.charman;
-      if (charmanData?.username && charmanData?.characterName) {
-        try {
-          const service = getCharmanService();
-          await service.updateBodyArmorPower(
-            charmanData.username,
-            charmanData.characterName,
-            bodyArmorPower.value
-          );
-        } catch (error) {
-          console.warn("Could not sync Body Armor repair to Charman:", error);
+      if (powerIndex !== -1) {
+        // Clone the array, update the specific value, then overwrite
+        const newPowers = [...targetActor.system.powers];
+        newPowers[powerIndex].value = newValue;
+        await targetActor.update({
+          "system.powers": newPowers
+        });
+
+        ui.notifications?.info(
+          `${powerName} → ${targetActor.name}: Repaired ${actualRepair} Body Armor (now ${newValue}/${maxValue}).`
+        );
+
+        // Sync Body Armor power repair with Charman if character is linked
+        const charmanData = targetActor.system.charman;
+        if (charmanData?.username && charmanData?.characterName) {
+          try {
+            const service = getCharmanService();
+            await service.updateBodyArmorPower(
+              charmanData.username,
+              charmanData.characterName,
+              newValue
+            );
+          } catch (error) {
+            console.warn("Could not sync Body Armor repair to Charman:", error);
+          }
         }
       }
     } else {

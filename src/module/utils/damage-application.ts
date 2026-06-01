@@ -15,7 +15,9 @@ export interface DamageApplicationResult {
   bodyArmorDestroyed: boolean;
   resistancePower?: any; // Resistance power that was applied
   resistanceReduction?: number; // Amount of damage reduced by resistance
-  originalDamage?: number; // Original damage before resistance
+  vulnerabilityPower?: any; // Vulnerability power that was applied
+  vulnerabilityIncrease?: number; // Amount of damage increased by vulnerability
+  originalDamage?: number; // Original damage before resistance/vulnerability
 }
 
 export interface DamageApplicationData {
@@ -33,8 +35,13 @@ export interface DamageApplicationData {
 export function applyDamageToActor(
   data: DamageApplicationData
 ): DamageApplicationResult {
-  const { actor, damage, degradingArmorEnabled = true } = data;
+  const { actor, degradingArmorEnabled = true } = data;
   const system = actor.system as any;
+
+  // Check for vulnerability powers (house rule)
+  const vulnerabilityEnabled =
+    game.settings.get("faserip", "vulnerabilityPowers") ?? false;
+  let damage = data.damage;
 
   // Find correct form ID using same fallback logic as prepareDerivedData
   let currentFormId = system.currentFormId;
@@ -71,7 +78,24 @@ export function applyDamageToActor(
   let bodyArmorDestroyed = false;
   let resistancePower: any = undefined;
   let resistanceReduction = 0;
+  let vulnerabilityPower: any = undefined;
+  let vulnerabilityIncrease = 0;
   const originalDamage = damage;
+
+  // Apply vulnerability if enabled and matching power found
+  if (vulnerabilityEnabled && data.damageType && data.damageType !== "none") {
+    vulnerabilityPower = (system.powers || []).find(
+      (p: any) =>
+        p.vulnerabilityType === data.damageType &&
+        (!p.formIds?.length || p.formIds.includes(currentFormId))
+    );
+
+    if (vulnerabilityPower) {
+      // Vulnerability increases damage by 25% (1 CS weaker)
+      vulnerabilityIncrease = Math.floor(damage * 0.25);
+      damage += vulnerabilityIncrease;
+    }
+  }
 
   if (totalArmor > 0) {
     // Armor soaks damage
@@ -187,6 +211,8 @@ export function applyDamageToActor(
     bodyArmorDestroyed,
     resistancePower,
     resistanceReduction,
+    vulnerabilityPower,
+    vulnerabilityIncrease,
     originalDamage
   };
 

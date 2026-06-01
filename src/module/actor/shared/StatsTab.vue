@@ -603,24 +603,28 @@ async function rollPower(power: any) {
             const actualRepair = newValue - oldValue;
 
             if (actualRepair > 0) {
-              // Update the armor (clamp to maxValue to be safe)
+              // Update the armor - Clone array, modify, then update entire array
               if (
                 selectedArmor.isEquippedArmor &&
                 selectedArmor.armorIndex !== undefined
               ) {
                 const clampedValue = Math.min(maxValue, newValue);
+                // Clone the array, update the specific value, then overwrite
+                const newArmors = [...targetActor.system.armors];
+                newArmors[selectedArmor.armorIndex].value = clampedValue;
                 await targetActor.update({
-                  [`system.armors.${selectedArmor.armorIndex}.value`]:
-                    clampedValue
+                  "system.armors": newArmors
                 });
               } else if (
                 !selectedArmor.isEquippedArmor &&
                 selectedArmor.powerIndex !== undefined
               ) {
                 const clampedValue = Math.min(maxValue, newValue);
+                // Clone the array, update the specific value, then overwrite
+                const newPowers = [...targetActor.system.powers];
+                newPowers[selectedArmor.powerIndex].value = clampedValue;
                 await targetActor.update({
-                  [`system.powers.${selectedArmor.powerIndex}.value`]:
-                    clampedValue
+                  "system.powers": newPowers
                 });
               }
 

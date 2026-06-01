@@ -70,6 +70,10 @@
         "name": "Enable Degrading Armor",
         "hint": "When enabled (requires Armor system), armor takes damage when it soaks incoming damage. Armor rating is reduced by the amount soaked. Example: Incredible (40) armor that soaks 30 damage becomes 10 rating. Armor can be repaired from the Armor tab."
       },
+      "vulnerabilityPowers": {
+        "name": "Enable Vulnerability Powers",
+        "hint": "When enabled, powers with a vulnerabilityType set will increase incoming damage of that type by 25% (representing 1 CS weaker defense). Example: A character with 'Vulnerability: Fire' takes 25% more damage from fire attacks."
+      },
       "weaponsEnabled": {
         "name": "Enable Weapons System",
         "hint": "Enable the houserule Weapons system. When enabled, characters can have weapons with damage values, type (ranged/melee), stat bonuses for to-hit rolls, and references to applicable talents. Ranged weapons use Agility, melee weapons use Fighting."

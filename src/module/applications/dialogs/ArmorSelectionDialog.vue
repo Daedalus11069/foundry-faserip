@@ -9,20 +9,18 @@
       <button
         v-for="armor in armorOptions"
         :key="armor.id"
-        class="armor-option p-3 border border-gray-600 rounded hover:border-blue-500 hover:bg-blue-900/20 transition-colors text-left"
+        class="armor-option p-6 border border-gray-600 rounded hover:border-blue-500 hover:bg-blue-900/20 transition-colors flex justify-between"
         @click="selectArmor(armor.id)"
       >
-        <div class="flex justify-between items-center">
-          <div>
-            <div class="font-semibold text-white">{{ armor.name }}</div>
-            <div class="text-sm text-gray-400">{{ armor.type }}</div>
+        <div>
+          <div class="font-semibold text-white">{{ armor.name }}</div>
+          <div class="text-sm text-gray-400">{{ armor.type }}</div>
+        </div>
+        <div class="ml-auto text-right">
+          <div class="text-white font-bold">
+            {{ armor.value }}/{{ armor.maxValue }}
           </div>
-          <div class="text-right">
-            <div class="text-white font-bold">
-              {{ armor.value }}/{{ armor.maxValue }}
-            </div>
-            <div class="text-xs text-gray-400">{{ armor.rank }}</div>
-          </div>
+          <div class="text-xs text-gray-400">{{ armor.rank }}</div>
         </div>
       </button>
     </div>

@@ -243,6 +243,22 @@ const initHandler = () => {
     }
   });
 
+  // House Rules: Vulnerability Powers
+  game.settings.register("faserip", "vulnerabilityPowers", {
+    name: "FASERIP.Settings.vulnerabilityPowers.name",
+    hint: "FASERIP.Settings.vulnerabilityPowers.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    requiresReload: true,
+    onChange: () => {
+      for (const actor of game.actors ?? []) {
+        actor.render();
+      }
+    }
+  });
+
   // House Rules: Weapons System
   game.settings.register("faserip", "weaponsEnabled", {
     name: "FASERIP.Settings.weaponsEnabled.name",
