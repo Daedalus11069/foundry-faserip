@@ -10,6 +10,10 @@ import WeaponsTab from "./WeaponsTab.vue";
 import { calculateHealth, stringToRank } from "../../utils";
 import { Rank } from "../../enums";
 import { getCharmanService } from "../../charman-service";
+import {
+  applyDamageToActor,
+  applyHealingToActor
+} from "../../utils/damage-application";
 import type { ReactiveActorData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 
@@ -235,61 +239,33 @@ const damageAmount = ref(0);
 async function applyDamage() {
   if (damageAmount.value === 0) return;
 
-  let incoming = damageAmount.value;
-  const soakSources: string[] = [];
-  let equipmentArmorDamaged = false;
-  let bodyArmorPowerDamaged = false;
+  const degradingEnabled =
+    game.settings.get("faserip", "degradingArmor") ?? false;
 
-  // Equipped armor soaks first (house rule setting)
-  if (equippedArmor.value) {
-    const armorSoak = Math.min(incoming, equippedArmor.value.value);
-    if (armorSoak > 0) {
-      soakSources.push(`${equippedArmor.value.name} –${armorSoak}`);
-      incoming = Math.max(0, incoming - armorSoak);
+  // Use centralized damage application
+  const result = applyDamageToActor({
+    actor: reactiveActor as any,
+    damage: damageAmount.value,
+    degradingArmorEnabled: degradingEnabled
+  });
 
-      // Degrade armor if the setting is enabled
-      const degradingEnabled =
-        game.settings.get("faserip", "degradingArmor") ?? false;
-      if (degradingEnabled) {
-        equippedArmor.value.value = Math.max(
-          0,
-          equippedArmor.value.value - armorSoak
-        );
-        equipmentArmorDamaged = true;
-        if (equippedArmor.value.value === 0) {
-          ui.notifications?.warn(`${equippedArmor.value.name} is destroyed!`);
-        }
-      }
+  // Show notifications for destroyed armor
+  if (result.armorDestroyed) {
+    const equippedArmor = (reactiveActor.system.armors || []).find(
+      (a: any) => a.equipped
+    );
+    if (equippedArmor) {
+      ui.notifications?.warn(`${equippedArmor.name} is destroyed!`);
     }
   }
-
-  // Body Armor power soaks remainder (always active)
-  if (bodyArmorPower.value && incoming > 0) {
-    const powerSoak = Math.min(incoming, bodyArmorPower.value.value);
-    if (powerSoak > 0) {
-      soakSources.push(`${bodyArmorPower.value.name} –${powerSoak}`);
-      incoming = Math.max(0, incoming - powerSoak);
-
-      // Degrade Body Armor power if the setting is enabled
-      const degradingEnabled =
-        game.settings.get("faserip", "degradingArmor") ?? false;
-      if (degradingEnabled) {
-        bodyArmorPower.value.value = Math.max(
-          0,
-          bodyArmorPower.value.value - powerSoak
-        );
-        bodyArmorPowerDamaged = true;
-        if (bodyArmorPower.value.value === 0) {
-          ui.notifications?.warn(`${bodyArmorPower.value.name} is destroyed!`);
-        }
-      }
+  if (result.bodyArmorDestroyed) {
+    const bodyArmorPower = (reactiveActor.system.powers || []).find(
+      (p: any) => p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor"
+    );
+    if (bodyArmorPower) {
+      ui.notifications?.warn(`${bodyArmorPower.name} is destroyed!`);
     }
   }
-
-  reactiveActor.system.resources.health.value = Math.max(
-    -20,
-    healthValue.value - incoming
-  );
 
   // Sync armor changes with Charman if character is linked
   // @ts-expect-error - charman is a custom property
@@ -298,22 +274,30 @@ async function applyDamage() {
     try {
       const service = getCharmanService();
 
+      // Find damaged armor/power
+      const equippedArmor = (reactiveActor.system.armors || []).find(
+        (a: any) => a.equipped
+      );
+      const bodyArmorPower = (reactiveActor.system.powers || []).find(
+        (p: any) => p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor"
+      );
+
       // Sync equipment armor if damaged
-      if (equipmentArmorDamaged && equippedArmor.value) {
+      if (result.armorDestroyed && equippedArmor) {
         await service.updateEquipmentArmor(
           charmanData.username,
           charmanData.characterName,
-          equippedArmor.value.name,
-          equippedArmor.value.value
+          equippedArmor.name,
+          equippedArmor.value
         );
       }
 
       // Sync Body Armor power if damaged
-      if (bodyArmorPowerDamaged && bodyArmorPower.value) {
+      if (result.bodyArmorDestroyed && bodyArmorPower) {
         await service.updateBodyArmorPower(
           charmanData.username,
           charmanData.characterName,
-          bodyArmorPower.value.value
+          bodyArmorPower.value
         );
       }
     } catch (error) {
@@ -327,13 +311,11 @@ async function applyDamage() {
 async function applyHealing() {
   if (damageAmount.value === 0) return;
 
-  const newValue = Math.min(
-    healthMax.value,
-    healthValue.value + damageAmount.value
+  // Use centralized healing application
+  const newHealthValue = applyHealingToActor(
+    reactiveActor as any,
+    damageAmount.value
   );
-
-  // Update reactive actor (base sheet class handles syncing to Foundry actor)
-  reactiveActor.system.resources.health.value = newValue;
 
   damageAmount.value = 0;
 }

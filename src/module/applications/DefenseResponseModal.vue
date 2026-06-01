@@ -141,8 +141,6 @@ const defenseRankDisplay = computed(() => {
 
 // Action handlers
 async function handleDefend() {
-  console.log("FASERIP Defense | Rolling defense with", props.defenseAttribute);
-
   // CRITICAL: Use toRaw() to unwrap Vue proxy before passing to Foundry API
   // Vue reactive proxies cause issues with Foundry's internal property access
   const rawActor = toRaw(props.targetActor);
@@ -202,14 +200,6 @@ async function handleDefend() {
   const isUltimateBotch = defenseTotal === 1;
   const isBotch = defenseTotal >= 2 && defenseTotal <= 5;
 
-  console.log("FASERIP Defense | Roll result:", {
-    defenseTotal,
-    attackRoll: props.attackRoll,
-    success: defenseSuccess,
-    isUltimateBotch,
-    isBotch
-  });
-
   // Submit the response
   props.dialog.submit({
     defenseType: "defend",
@@ -226,7 +216,6 @@ async function handleDefend() {
 }
 
 function handleTakeHit() {
-  console.log("FASERIP Defense | Taking hit");
   props.dialog.submit({
     defenseType: "takeHit"
   });

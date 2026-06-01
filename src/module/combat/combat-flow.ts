@@ -397,8 +397,12 @@ export async function executeCombatAttack(
   // @ts-expect-error - game.user.targets may not be typed
   const targets = Array.from(game.user?.targets ?? []) as Token[];
 
-  // If no targets, just roll the attack without combat flow
+  // If no targets, show warning and just roll the attack without combat flow
   if (targets.length === 0) {
+    ui.notifications?.warn(
+      `No targets selected! ${powerName || "Attack"} will be rolled but no damage will be applied.`
+    );
+
     const system = attacker.system as any;
     const currentForm =
       system.forms?.find((f: any) => f.id === system.currentFormId) ||
@@ -819,15 +823,25 @@ export async function executeCombatAttack(
         targetActor,
         damageResult.damage,
         attackData.damageType,
-        attackData.powerName
+        attackData.powerName,
+        target.id // Pass token ID for unlinked tokens
       );
 
       // Handle case where damage application failed
       if (!damageApplication) {
         console.error(
           "FASERIP Combat | Damage application failed for:",
-          targetActor.name
+          targetActor.name,
+          "| Damage was:",
+          damageResult.damage
         );
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor: attacker }),
+          content: `<div class="fsr-combat-message" style="background: #fef3c7; border-color: #f59e0b;">
+            <p style="color: #92400e; font-weight: 600;">⚠️ Damage application failed for ${targetActor.name}</p>
+            <p style="font-size: 0.8rem; color: #78350f;">Check console for details.</p>
+          </div>`
+        });
         // Continue with chat message even if application failed
       }
 

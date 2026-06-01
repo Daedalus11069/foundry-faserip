@@ -510,8 +510,6 @@ export async function handleCharacterRollCommand(
       (f: any) => f.name?.toLowerCase() === formName.toLowerCase()
     );
 
-    console.log(forms, formName, targetForm);
-
     if (!targetForm) {
       ui.notifications?.error(`Form not found: ${formName}`);
       return true;

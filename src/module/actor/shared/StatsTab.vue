@@ -17,6 +17,8 @@ import type { Talent } from "../../types";
 import { executeCombatAttack } from "../../combat/combat-flow";
 import type { ReactiveActorData, PowerData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
+import { VueDialog } from "../../applications/vue-dialog";
+import ArmorSelectionDialog from "../../applications/dialogs/ArmorSelectionDialog.vue";
 
 interface Weapon {
   id: string;
@@ -97,6 +99,69 @@ const ripAttributes = [
 ];
 
 const attributes = [...faseAttributes, ...ripAttributes];
+
+/**
+ * Get all available armor options for a target actor (equipped armors + Body Armor power)
+ */
+function getArmorOptions(targetActor: any) {
+  const options: Array<{
+    id: string;
+    name: string;
+    type: string;
+    value: number;
+    maxValue: number;
+    rank: string;
+    isEquippedArmor: boolean;
+    armorIndex?: number;
+    powerIndex?: number;
+  }> = [];
+
+  const targetSystem = targetActor.system;
+
+  // Find equipped armor
+  const equippedArmor = (targetSystem.armors || []).find(
+    (a: any) => a.equipped
+  );
+  if (equippedArmor) {
+    const armorIndex = targetSystem.armors.findIndex(
+      (a: any) => a.id === equippedArmor.id
+    );
+    options.push({
+      id: `equipped-${equippedArmor.id}`,
+      name: equippedArmor.name,
+      type: "Equipped Armor",
+      value: equippedArmor.value,
+      maxValue: equippedArmor.maxValue,
+      rank: formatRankDisplay(equippedArmor.rank),
+      isEquippedArmor: true,
+      armorIndex
+    });
+  }
+
+  // Find Body Armor power
+  const bodyArmorPower = (targetSystem.powers || []).find(
+    (p: any) =>
+      p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+      (!p.formIds?.length || p.formIds.includes(targetSystem.currentFormId))
+  );
+  if (bodyArmorPower) {
+    const powerIndex = targetSystem.powers.findIndex(
+      (p: any) => p.id === bodyArmorPower.id
+    );
+    options.push({
+      id: `power-${bodyArmorPower.id}`,
+      name: "Body Armor",
+      type: "Body Armor Power",
+      value: bodyArmorPower.value,
+      maxValue: bodyArmorPower.maxValue || bodyArmorPower.value,
+      rank: formatRankDisplay(bodyArmorPower.rank),
+      isEquippedArmor: false,
+      powerIndex
+    });
+  }
+
+  return options;
+}
 
 async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
   if (!currentForm.value) return;
@@ -362,6 +427,11 @@ async function rollPower(power: any) {
 
   // Route healing powers - must be rolled first
   if (power.effectType === "heal-health" || power.effectType === "heal-armor") {
+    // Check for targeted tokens
+    // @ts-expect-error - game.user.targets is a Set
+    const targets = Array.from(game.user?.targets || []);
+    const hasTargets = targets.length > 0;
+
     // Roll the power (skipMessage: true so we can combine with healing result)
     const faseripRoll = await FaseripRoll.rollAttribute(
       power.name,
@@ -440,119 +510,319 @@ async function rollPower(power: any) {
         }
       );
 
-    // Build healing result section
-    let healingResultHtml = "";
-    let healthToApply = 0;
-    let armorToApply = 0;
-    let bodyArmorPowerToUpdate: any = null;
-    let actualHealingAmount = 0;
-    let actualRepairAmount = 0;
+    // Apply healing to targets or self
+    if (hasTargets) {
+      // Apply to each targeted token
+      let healingResultsHtml = "";
 
-    // Calculate healing/repair (but don't apply yet)
-    if (power.effectType === "heal-health" && amount > 0) {
-      const healthMax = reactiveActor.system.resources.health.max;
-      const oldValue = reactiveActor.system.resources.health.value;
-      const newValue = Math.min(healthMax, oldValue + amount);
-      const actualHealing = newValue - oldValue;
+      for (const token of targets) {
+        // @ts-expect-error - token.actor can be null
+        const targetActor = token.actor;
+        if (!targetActor) continue;
 
-      if (actualHealing > 0) {
-        healthToApply = newValue;
-        actualHealingAmount = actualHealing;
-        healingResultHtml = `<div style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-          <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Health Restored</h4>
-          <p style="margin: 0.25rem 0;">Healed <strong>${actualHealing}</strong> health.</p>
-          <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
-        </div>`;
-      } else {
-        healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-          <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Already Healthy</h4>
-          <p style="margin: 0.25rem 0;">Already at full health (${healthMax}).</p>
-        </div>`;
+        const targetSystem = (targetActor as any).system;
+        let targetResult = "";
+
+        if (power.effectType === "heal-health" && amount > 0) {
+          const healthMax = targetSystem.resources?.health?.max || 100;
+          const oldValue = targetSystem.resources?.health?.value || 0;
+          const newValue = Math.min(healthMax, oldValue + amount);
+          const actualHealing = newValue - oldValue;
+
+          if (actualHealing > 0) {
+            await targetActor.update({
+              "system.resources.health.value": newValue
+            });
+            targetResult = `<div style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+              <h4 style="color: rgb(34, 197, 94); margin: 0 0 0.25rem 0; font-size: 1em;">${targetActor.name} - Health Restored</h4>
+              <p style="margin: 0.25rem 0;">Healed <strong>${actualHealing}</strong> health.</p>
+              <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
+            </div>`;
+            ui.notifications?.info(
+              `${power.name}: Healed ${targetActor.name} for ${actualHealing} health.`
+            );
+          } else {
+            targetResult = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+              <h4 style="color: rgb(217, 119, 6); margin: 0 0 0.25rem 0; font-size: 1em;">${targetActor.name} - Already Healthy</h4>
+              <p style="margin: 0.25rem 0;">Already at full health (${healthMax}).</p>
+            </div>`;
+          }
+        } else if (power.effectType === "heal-armor" && amount > 0) {
+          // Get all available armor options (equipped armor + Body Armor power)
+          const armorOptions = getArmorOptions(targetActor);
+
+          if (armorOptions.length === 0) {
+            targetResult = `<div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid rgb(239, 68, 68); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+              <h4 style="color: rgb(239, 68, 68); margin: 0 0 0.25rem 0; font-size: 1em;">${targetActor.name} - No Armor Found</h4>
+              <p style="margin: 0.25rem 0;">No equipped armor or Body Armor power found to repair.</p>
+            </div>`;
+          } else {
+            // Select which armor to repair
+            let selectedArmor;
+            if (armorOptions.length === 1) {
+              // Only one option, use it automatically
+              selectedArmor = armorOptions[0];
+            } else {
+              // Multiple options, show selection dialog
+              const result = (await VueDialog.show(
+                ArmorSelectionDialog,
+                {
+                  targetName: targetActor.name,
+                  armorOptions: armorOptions.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    type: a.type,
+                    value: a.value,
+                    maxValue: a.maxValue,
+                    rank: a.rank
+                  }))
+                },
+                {
+                  window: { title: "Select Armor to Repair" },
+                  position: { width: 500 }
+                }
+              )) as { armorId: string } | null;
+
+              if (!result) {
+                // User cancelled
+                targetResult = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+                  <h4 style="color: rgb(217, 119, 6); margin: 0 0 0.25rem 0; font-size: 1em;">${targetActor.name} - Repair Cancelled</h4>
+                  <p style="margin: 0.25rem 0;">Armor repair cancelled.</p>
+                </div>`;
+                continue;
+              }
+
+              selectedArmor = armorOptions.find(a => a.id === result.armorId);
+              if (!selectedArmor) continue;
+            }
+
+            // Apply repair to selected armor
+            const maxValue = selectedArmor.maxValue;
+            const oldValue = selectedArmor.value;
+            const newValue = Math.min(maxValue, oldValue + amount);
+            const actualRepair = newValue - oldValue;
+
+            if (actualRepair > 0) {
+              // Update the armor (clamp to maxValue to be safe)
+              if (
+                selectedArmor.isEquippedArmor &&
+                selectedArmor.armorIndex !== undefined
+              ) {
+                const clampedValue = Math.min(maxValue, newValue);
+                await targetActor.update({
+                  [`system.armors.${selectedArmor.armorIndex}.value`]:
+                    clampedValue
+                });
+              } else if (
+                !selectedArmor.isEquippedArmor &&
+                selectedArmor.powerIndex !== undefined
+              ) {
+                const clampedValue = Math.min(maxValue, newValue);
+                await targetActor.update({
+                  [`system.powers.${selectedArmor.powerIndex}.value`]:
+                    clampedValue
+                });
+              }
+
+              targetResult = `<div style="background: rgba(59, 130, 246, 0.15); border-left: 3px solid rgb(59, 130, 246); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+                <h4 style="color: rgb(59, 130, 246); margin: 0 0 0.25rem 0; font-size: 1em;">${targetActor.name} - ${selectedArmor.name} Repaired</h4>
+                <p style="margin: 0.25rem 0;">Repaired <strong>${actualRepair}</strong> armor.</p>
+                <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">${selectedArmor.name}: ${oldValue} → ${newValue} / ${maxValue}</p>
+              </div>`;
+              ui.notifications?.info(
+                `${power.name}: Repaired ${targetActor.name}'s ${selectedArmor.name} by ${actualRepair}.`
+              );
+            } else {
+              targetResult = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+                <h4 style="color: rgb(217, 119, 6); margin: 0 0 0.25rem 0; font-size: 1em;">${targetActor.name} - Armor Already Full</h4>
+                <p style="margin: 0.25rem 0;">${selectedArmor.name} already at maximum (${maxValue}).</p>
+              </div>`;
+            }
+          }
+        }
+
+        healingResultsHtml += targetResult;
       }
-    } else if (power.effectType === "heal-armor" && amount > 0) {
-      const bodyArmorPower = (reactiveActor.system.powers || []).find(
-        (p: any) =>
-          p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
-          (!p.formIds?.length ||
-            p.formIds.includes(reactiveActor.system.currentFormId))
-      );
 
-      if (bodyArmorPower) {
-        const maxValue = bodyArmorPower.maxValue || bodyArmorPower.value;
-        const oldValue = bodyArmorPower.value;
-        const newValue = Math.min(maxValue, oldValue + amount);
-        const actualRepair = newValue - oldValue;
+      // Create combined chat message
+      const combinedContent = `<div>${rollCardContent}${healingResultsHtml}</div>`;
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor }),
+        content: combinedContent,
+        rolls: [faseripRoll.roll]
+      });
+    } else {
+      // Apply to self (original behavior)
+      let healingResultHtml = "";
+      let healthToApply = 0;
+      let armorToApply = 0;
+      let bodyArmorPowerToUpdate: any = null;
+      let actualHealingAmount = 0;
+      let actualRepairAmount = 0;
 
-        if (actualRepair > 0) {
-          armorToApply = newValue;
-          actualRepairAmount = actualRepair;
-          bodyArmorPowerToUpdate = bodyArmorPower;
-          healingResultHtml = `<div style="background: rgba(59, 130, 246, 0.15); border-left: 3px solid rgb(59, 130, 246); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-            <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Body Armor Repaired</h4>
-            <p style="margin: 0.25rem 0;">Repaired <strong>${actualRepair}</strong> armor.</p>
-            <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Body Armor: ${oldValue} → ${newValue} / ${maxValue}</p>
+      // Calculate healing/repair (but don't apply yet)
+      if (power.effectType === "heal-health" && amount > 0) {
+        const healthMax = reactiveActor.system.resources.health.max;
+        const oldValue = reactiveActor.system.resources.health.value;
+        const newValue = Math.min(healthMax, oldValue + amount);
+        const actualHealing = newValue - oldValue;
+
+        if (actualHealing > 0) {
+          healthToApply = newValue;
+          actualHealingAmount = actualHealing;
+          healingResultHtml = `<div style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+            <h4 style="color: rgb(34, 197, 94); margin: 0 0 0.25rem 0; font-size: 1em;">Health Restored</h4>
+            <p style="margin: 0.25rem 0;">Healed <strong>${actualHealing}</strong> health.</p>
+            <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">Health: ${oldValue} → ${newValue} / ${healthMax}</p>
           </div>`;
         } else {
           healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-            <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">Armor Already Full</h4>
-            <p style="margin: 0.25rem 0;">Body Armor already at maximum (${maxValue}).</p>
+            <h4 style="color: rgb(217, 119, 6); margin: 0 0 0.25rem 0; font-size: 1em;">Already Healthy</h4>
+            <p style="margin: 0.25rem 0;">Already at full health (${healthMax}).</p>
           </div>`;
         }
-      } else {
-        healingResultHtml = `<div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid rgb(239, 68, 68); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
-          <h4 style="color: white; margin: 0 0 0.25rem 0; font-size: 1em;">No Body Armor Found</h4>
-          <p style="margin: 0.25rem 0;">No Body Armor power found to heal.</p>
-        </div>`;
-      }
-    }
+      } else if (power.effectType === "heal-armor" && amount > 0) {
+        // Get all available armor options (equipped armor + Body Armor power)
+        const armorOptions = getArmorOptions(actor);
 
-    // Create combined chat message with roll + healing result
-    const combinedContent = `<div>${rollCardContent}${healingResultHtml}</div>`;
+        if (armorOptions.length === 0) {
+          healingResultHtml = `<div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid rgb(239, 68, 68); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+            <h4 style="color: rgb(239, 68, 68); margin: 0 0 0.25rem 0; font-size: 1em;">No Armor Found</h4>
+            <p style="margin: 0.25rem 0;">No equipped armor or Body Armor power found to repair.</p>
+          </div>`;
+        } else {
+          // Select which armor to repair
+          let selectedArmor;
+          if (armorOptions.length === 1) {
+            // Only one option, use it automatically
+            selectedArmor = armorOptions[0];
+          } else {
+            // Multiple options, show selection dialog
+            const result = (await VueDialog.show(
+              ArmorSelectionDialog,
+              {
+                targetName: actor.name,
+                armorOptions: armorOptions.map(a => ({
+                  id: a.id,
+                  name: a.name,
+                  type: a.type,
+                  value: a.value,
+                  maxValue: a.maxValue,
+                  rank: a.rank
+                }))
+              },
+              {
+                window: { title: "Select Armor to Repair" },
+                position: { width: 500 }
+              }
+            )) as { armorId: string } | null;
 
-    await ChatMessage.create({
-      speaker: ChatMessage.getSpeaker({ actor }),
-      content: combinedContent,
-      rolls: [faseripRoll.roll]
-    });
+            if (!result) {
+              // User cancelled
+              healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+                <h4 style="color: rgb(217, 119, 6); margin: 0 0 0.25rem 0; font-size: 1em;">Repair Cancelled</h4>
+                <p style="margin: 0.25rem 0;">Armor repair cancelled.</p>
+              </div>`;
+            } else {
+              selectedArmor = armorOptions.find(a => a.id === result.armorId);
+            }
+          }
 
-    // NOW apply the healing/repair after chat message is posted
-    if (healthToApply > 0) {
-      reactiveActor.system.resources.health.value = healthToApply;
-      ui.notifications?.info(
-        `${power.name}: Healed ${actualHealingAmount} health.`
-      );
-    } else if (armorToApply > 0 && bodyArmorPowerToUpdate) {
-      bodyArmorPowerToUpdate.value = armorToApply;
-      ui.notifications?.info(
-        `${power.name}: Repaired ${actualRepairAmount} Body Armor.`
-      );
+          if (selectedArmor) {
+            // Calculate repair (but don't apply yet)
+            const maxValue = selectedArmor.maxValue;
+            const oldValue = selectedArmor.value;
+            const newValue = Math.min(maxValue, oldValue + amount);
+            const actualRepair = newValue - oldValue;
 
-      // Sync with Charman if character is linked
-      // @ts-expect-error - charman property exists on system
-      const charmanData = actor.system.charman;
-      if (charmanData?.username && charmanData?.characterName) {
-        try {
-          const service = getCharmanService();
-          await service.updateBodyArmorPower(
-            charmanData.username,
-            charmanData.characterName,
-            bodyArmorPowerToUpdate.value
-          );
-        } catch (error) {
-          // Service not initialized or sync failed - ignore silently
+            if (actualRepair > 0) {
+              armorToApply = newValue;
+              actualRepairAmount = actualRepair;
+              bodyArmorPowerToUpdate = selectedArmor; // Store selected armor info
+              healingResultHtml = `<div style="background: rgba(59, 130, 246, 0.15); border-left: 3px solid rgb(59, 130, 246); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+                <h4 style="color: rgb(59, 130, 246); margin: 0 0 0.25rem 0; font-size: 1em;">${selectedArmor.name} Repaired</h4>
+                <p style="margin: 0.25rem 0;">Repaired <strong>${actualRepair}</strong> armor.</p>
+                <p style="margin: 0.25rem 0; font-size: 0.9em; opacity: 0.8;">${selectedArmor.name}: ${oldValue} → ${newValue} / ${maxValue}</p>
+              </div>`;
+            } else {
+              healingResultHtml = `<div style="background: rgba(251, 191, 36, 0.15); border-left: 3px solid rgb(251, 191, 36); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+                <h4 style="color: rgb(217, 119, 6); margin: 0 0 0.25rem 0; font-size: 1em;">Armor Already Full</h4>
+                <p style="margin: 0.25rem 0;">${selectedArmor.name} already at maximum (${maxValue}).</p>
+              </div>`;
+            }
+          }
         }
       }
-    } else if (
-      power.effectType === "heal-health" ||
-      power.effectType === "heal-armor"
-    ) {
-      // Show appropriate warning for failed healing
-      if (power.effectType === "heal-health") {
-        ui.notifications?.warn(`${power.name}: Already at full health.`);
-      } else {
-        ui.notifications?.warn(
-          `${power.name}: Body Armor already at full or not found.`
+
+      // Create combined chat message with roll + healing result
+      const combinedContent = `<div>${rollCardContent}${healingResultHtml}</div>`;
+
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor }),
+        content: combinedContent,
+        rolls: [faseripRoll.roll]
+      });
+
+      // NOW apply the healing/repair after chat message is posted
+      if (healthToApply > 0) {
+        reactiveActor.system.resources.health.value = healthToApply;
+        ui.notifications?.info(
+          `${power.name}: Healed ${actualHealingAmount} health.`
         );
+      } else if (armorToApply > 0 && bodyArmorPowerToUpdate) {
+        // Apply repair to either equipped armor or Body Armor power
+        if (
+          bodyArmorPowerToUpdate.isEquippedArmor &&
+          bodyArmorPowerToUpdate.armorIndex !== undefined
+        ) {
+          // Update equipped armor through reactive actor (clamp to maxValue)
+          const targetArmor =
+            reactiveActor.system.armors[bodyArmorPowerToUpdate.armorIndex];
+          targetArmor.value = Math.min(targetArmor.maxValue, armorToApply);
+          ui.notifications?.info(
+            `${power.name}: Repaired ${actualRepairAmount} ${bodyArmorPowerToUpdate.name}.`
+          );
+        } else if (
+          !bodyArmorPowerToUpdate.isEquippedArmor &&
+          bodyArmorPowerToUpdate.powerIndex !== undefined
+        ) {
+          // Update Body Armor power through reactive actor (clamp to maxValue)
+          const targetPower =
+            reactiveActor.system.powers[bodyArmorPowerToUpdate.powerIndex];
+          const powerMaxValue = targetPower.maxValue || targetPower.value;
+          targetPower.value = Math.min(powerMaxValue, armorToApply);
+          ui.notifications?.info(
+            `${power.name}: Repaired ${actualRepairAmount} Body Armor.`
+          );
+
+          // Sync with Charman if character is linked (Body Armor power only)
+          // @ts-expect-error - charman property exists on system
+          const charmanData = actor.system.charman;
+          if (charmanData?.username && charmanData?.characterName) {
+            try {
+              const service = getCharmanService();
+              await service.updateBodyArmorPower(
+                charmanData.username,
+                charmanData.characterName,
+                armorToApply
+              );
+            } catch (error) {
+              // Service not initialized or sync failed - ignore silently
+            }
+          }
+        }
+      } else if (
+        power.effectType === "heal-health" ||
+        power.effectType === "heal-armor"
+      ) {
+        // Show appropriate warning for failed healing
+        if (power.effectType === "heal-health") {
+          ui.notifications?.warn(`${power.name}: Already at full health.`);
+        } else {
+          ui.notifications?.warn(
+            `${power.name}: Body Armor already at full or not found.`
+          );
+        }
       }
     }
 

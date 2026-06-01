@@ -155,7 +155,8 @@ export class FaseripActor<
       }
 
       // Load health from healthByForm for the current form
-      system.resources.health.value = system.healthByForm[system.currentFormId];
+      const healthFromForm = system.healthByForm[system.currentFormId];
+      system.resources.health.value = healthFromForm;
 
       // Clamp health (can go negative to -20)
       system.resources.health.value = Math.max(

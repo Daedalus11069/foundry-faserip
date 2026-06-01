@@ -32,6 +32,14 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
         _userId: string
       ) => void)
     | null = null;
+  #updateTokenCallback:
+    | ((
+        token: TokenDocument,
+        _changed: unknown,
+        _options: unknown,
+        _userId: string
+      ) => void)
+    | null = null;
 
   /** Expose the reactive actor for components that need the sheet ref. */
   get reactiveActor() {
@@ -46,6 +54,7 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
   ): Promise<Record<string, HTMLElement>> {
     // Create the reactive actor clone once.
     if (!this.#reactiveActor) {
+      // For unlinked token sheets, this.actor is already the synthetic actor (base + delta)
       // @ts-expect-error - actor property exists on ActorSheetV2
       this.#reactiveActor = reactive(JSON.parse(JSON.stringify(this.actor)));
     }
@@ -114,22 +123,75 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           // Flatten to dot notation for reliable nested updates
           const updateData = foundry.utils.flattenObject(cleanDiff);
 
+          // CRITICAL: Filter out derived data paths that are calculated by prepareDerivedData
+          // These should NEVER be stored in actor/token data
+          const derivedPaths = [
+            /^system\.resources\.health\./,
+            /^system\.resources\.armor\./,
+            /^system\.resources\.mp\.max$/
+          ];
+
+          const filteredUpdateData: Record<string, any> = {};
+          for (const [key, value] of Object.entries(updateData)) {
+            const isDerived = derivedPaths.some(pattern => pattern.test(key));
+            if (!isDerived) {
+              filteredUpdateData[key] = value;
+            }
+          }
+
+          // Skip if no real changes after filtering
+          if (Object.keys(filteredUpdateData).length === 0) {
+            return;
+          }
+
           // Set flag to prevent redundant watcher firing during update
           this.#isUpdating = true;
 
           try {
-            // Update the real actor
-            // @ts-expect-error - actor property exists on ActorSheetV2
+            // Update the real actor or token
+            // @ts-expect-error - actor and token properties exist on ActorSheetV2
             const actor = this.actor;
-
-            // For unlinked tokens (synthetic actors), update the token's delta instead
             // @ts-expect-error - token property exists on ActorSheetV2
-            if (actor.isToken && this.token) {
-              // @ts-expect-error - token property exists on ActorSheetV2
-              await this.token.update(updateData);
+            const token = this.token;
+
+            // Check if this is an unlinked token by checking actor.isToken
+            const isUnlinkedToken = actor.isToken && token && !token.actorLink;
+
+            if (isUnlinkedToken) {
+              // Prefix all keys with "delta." for token delta updates
+              const tokenUpdates: Record<string, any> = {};
+              for (const [key, value] of Object.entries(filteredUpdateData)) {
+                tokenUpdates[`delta.${key}`] = value;
+              }
+
+              await token.update(tokenUpdates);
+
+              // CRITICAL: After delta update, explicitly refresh bar values AND max
+              // The token bars cache values and need to be told to recalculate from actor resources
+              const updatedActor = token.actor; // Get fresh synthetic actor (base + delta)
+              if (updatedActor && token.object) {
+                const healthResource = (updatedActor.system as any).resources
+                  ?.health;
+                const armorResource = (updatedActor.system as any).resources
+                  ?.armor;
+
+                // Update bar value and max cache directly
+                if (healthResource !== undefined) {
+                  token.bar1.value = healthResource.value;
+                  token.bar1.max = healthResource.max;
+                }
+                if (armorResource !== undefined) {
+                  token.bar2.value = armorResource.value;
+                  token.bar2.max = armorResource.max;
+                }
+
+                // Trigger visual refresh
+                token.object.drawBars();
+              }
+            } else {
+              // For linked actors or base actors, update normally
+              await actor.update(filteredUpdateData);
             }
-            // For linked actors or base actors, update normally
-            await actor.update(updateData);
           } finally {
             // Clear flag after update completes
             this.#isUpdating = false;
@@ -154,6 +216,24 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       };
 
       Hooks.on("updateActor", this.#updateActorCallback);
+
+      // For unlinked token sheets, also listen to token updates
+      // @ts-expect-error - token property exists on ActorSheetV2
+      if (this.token && !this.token.actorLink) {
+        this.#updateTokenCallback = (
+          token: TokenDocument,
+          _changed: unknown,
+          _options: unknown,
+          _userId: string
+        ) => {
+          // @ts-expect-error - token property exists on ActorSheetV2
+          if (token.id === this.token?.id) {
+            this.#syncReactiveActor();
+          }
+        };
+
+        Hooks.on("updateToken", this.#updateTokenCallback);
+      }
     }
 
     return { main: container };
@@ -198,6 +278,12 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       this.#updateActorCallback = null;
     }
 
+    // Unregister token hook if registered
+    if (this.#updateTokenCallback) {
+      Hooks.off("updateToken", this.#updateTokenCallback);
+      this.#updateTokenCallback = null;
+    }
+
     return super.close(options) as Promise<this>;
   }
 
@@ -210,20 +296,78 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
     }
 
     const doSync = () => {
-      // Update top-level properties
-      // @ts-expect-error - actor property exists on ActorSheetV2
-      this.#reactiveActor!.name = this.actor.name;
-      // @ts-expect-error - actor property exists on ActorSheetV2
-      this.#reactiveActor!.img = this.actor.img;
+      // CRITICAL: For unlinked token sheets, get data from token's synthetic actor, not base actor
+      // For unlinked tokens, this.actor is actually the synthetic actor (base + delta)
+      // We should check if this.actor.isToken is true
+      // @ts-expect-error - isToken property exists on synthetic actors
+      const isUnlinkedToken =
+        // @ts-expect-error - token and actor properties exist on ActorSheetV2
+        (this.actor as any).isToken && this.token && !this.token.actorLink;
+      // @ts-expect-error - token and actor properties exist on ActorSheetV2
+      const sourceActor = this.actor; // Always use this.actor (it's already the synthetic actor for token sheets)
 
-      // Deep update system data
+      // Update top-level properties
+      this.#reactiveActor!.name = sourceActor.name;
+      this.#reactiveActor!.img = sourceActor.img;
+
+      // Deep update system data - but preserve derived resources
       const freshSystem = JSON.parse(
-        // @ts-expect-error - actor property exists on ActorSheetV2
-        JSON.stringify(this.actor.system)
+        JSON.stringify(sourceActor.system)
       ) as Record<string, unknown>;
+
+      // CRITICAL: Don't overwrite derived resources - these are calculated by prepareDerivedData
+      // Store current derived values
+      const currentResources = (this.#reactiveActor!.system as any).resources;
+
       for (const key of Object.keys(freshSystem)) {
+        if (key === "resources") {
+          // Skip resources - keep current derived values
+          continue;
+        }
         (this.#reactiveActor!.system as Record<string, unknown>)[key] =
           freshSystem[key];
+      }
+
+      // Manually update resources from freshSystem but preserve derived fields
+      if (freshSystem.resources) {
+        const freshResources = freshSystem.resources as any;
+        const reactiveResources = (this.#reactiveActor!.system as any)
+          .resources;
+
+        // Copy non-derived resource fields (karma, mentalPoints, etc.)
+        for (const resourceKey of Object.keys(freshResources)) {
+          if (resourceKey !== "health" && resourceKey !== "armor") {
+            reactiveResources[resourceKey] = freshResources[resourceKey];
+          }
+        }
+
+        // For health and armor, keep their max values but recalculate value from source data
+        // Health value should be recalculated from healthByForm
+        const systemData = this.#reactiveActor!.system as any;
+        let currentFormId = systemData.currentFormId;
+        if (!currentFormId && systemData.forms?.length > 0) {
+          const primaryForm = systemData.forms.find((f: any) => f.isPrimary);
+          currentFormId = primaryForm ? primaryForm.id : systemData.forms[0].id;
+        }
+
+        if (
+          currentFormId &&
+          systemData.healthByForm?.[currentFormId] !== undefined
+        ) {
+          reactiveResources.health = {
+            value: systemData.healthByForm[currentFormId],
+            max:
+              freshResources.health?.max ?? reactiveResources.health?.max ?? 0
+          };
+        } else {
+          reactiveResources.health = freshResources.health;
+        }
+
+        // Armor value is derived from armors + body armor power
+        // For now, use the freshSystem value but this will be recalculated on next access
+        if (freshResources.armor) {
+          reactiveResources.armor = freshResources.armor;
+        }
       }
 
       // Ensure armor values match their ranks

@@ -92,7 +92,8 @@ async function repairArmor(armor: ArmorItem) {
       label: "Repair",
       callback: (event: any, button: any, dialog: any) => {
         const form = button.form;
-        return new FormDataExtended(form).object;
+        // @ts-expect-error - FormDataExtended exists on foundry.applications.ux
+        return new foundry.applications.ux.FormDataExtended(form).object;
       }
     }
   });
