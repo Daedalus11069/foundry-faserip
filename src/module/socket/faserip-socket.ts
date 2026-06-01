@@ -91,12 +91,14 @@ const activeCounterPrompts = new Map<
  * Initialize the socket system
  */
 export function initializeSocket(): void {
+  // @ts-expect-error - Foundry game global
   if (!game.ready) {
     console.warn("FASERIP Socket | Game not ready, deferring initialization");
     Hooks.once("ready", initializeSocket);
     return;
   }
 
+  // @ts-expect-error - Foundry game.modules global
   if (!game.modules.get("socketlib")?.active) {
     console.warn(
       "FASERIP Socket | socketlib module is not active. Defense prompts may not work correctly in multiplayer."
@@ -128,9 +130,10 @@ export async function requestDefenseResponse(
     const token = canvas?.tokens?.get(data.targetTokenId);
     targetActor = token?.actor as FaseripActor | undefined;
   } else {
-    targetActor = game.actors?.get(data.targetActorId) as
-      | FaseripActor
-      | undefined;
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.targetActorId
+    ) as FaseripActor | undefined;
   }
 
   if (!targetActor) {
@@ -143,6 +146,7 @@ export async function requestDefenseResponse(
       "FASERIP Socket | Socket not initialized - falling back to local"
     );
     // Fallback: handle locally if user is GM or owns the target
+    // @ts-expect-error - Foundry game.user global
     if (game.user?.isGM || targetActor.isOwner) {
       return await handleDefensePrompt(data);
     }
@@ -214,7 +218,11 @@ export async function requestDefenseResponse(
 
   // Reconstruct target actor on this client
   if (response._targetActorId) {
-    (response as any)._targetActor = game.actors?.get(response._targetActorId);
+    (
+      response as DefenseResponse & { _targetActor?: FaseripActor }
+    )._targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === response._targetActorId
+    ) as FaseripActor | undefined;
   }
 
   // Reconstruct roll object from JSON
@@ -228,14 +236,14 @@ export async function requestDefenseResponse(
 /**
  * Find users who can control this token (owner or GM)
  */
-function findTokenControllers(actor: FaseripActor): any[] {
-  const controllers: any[] = [];
-
+function findTokenControllers(actor: FaseripActor): User[] {
   // First, find all non-GM users who own the actor
-  const playerOwners = (game.users as any).contents.filter(
-    (user: any) =>
-      user.active && !user.isGM && actor.testUserPermission(user, "OWNER")
-  );
+  const playerOwners: User[] =
+    // @ts-expect-error - Foundry game.users collection
+    game.users?.filter(
+      (user: User) =>
+        user.active && !user.isGM && actor.testUserPermission(user, "OWNER")
+    ) || [];
 
   // If there are player owners, only return them (exclude GMs)
   if (playerOwners.length > 0) {
@@ -243,10 +251,12 @@ function findTokenControllers(actor: FaseripActor): any[] {
   }
 
   // If no players own the actor, return GMs (for unowned NPCs)
-  const gmOwners = (game.users as any).contents.filter(
-    (user: any) =>
-      user.active && user.isGM && actor.testUserPermission(user, "OWNER")
-  );
+  const gmOwners: User[] =
+    // @ts-expect-error - Foundry game.users collection
+    game.users?.filter(
+      (user: User) =>
+        user.active && user.isGM && actor.testUserPermission(user, "OWNER")
+    ) || [];
 
   return gmOwners;
 }
@@ -265,9 +275,10 @@ async function handleDefensePrompt(
     const token = canvas?.tokens?.get(data.targetTokenId);
     targetActor = token?.actor as FaseripActor | undefined;
   } else {
-    targetActor = game.actors?.get(data.targetActorId) as
-      | FaseripActor
-      | undefined;
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.targetActorId
+    ) as FaseripActor | undefined;
   }
 
   if (!targetActor) {
@@ -276,6 +287,7 @@ async function handleDefensePrompt(
   }
 
   // Security check - verify this user owns the target
+  // @ts-expect-error - Foundry game.user global
   if (!game.user?.isGM && !targetActor.isOwner) {
     console.warn(
       "FASERIP Socket | User doesn't own target - returning takeHit"
@@ -423,6 +435,7 @@ async function handleDefensePrompt(
     _resultText: result._resultText,
     _resultClass: result._resultClass,
     _targetActorId: targetActor.id!,
+    // @ts-expect-error - Foundry game.user global
     _respondingUserId: game.user?.id,
     _isUltimateBotch: result._isUltimateBotch,
     _isBotch: result._isBotch
@@ -457,9 +470,10 @@ export async function requestCounterAttackResponse(
     const token = canvas?.tokens?.get(data.defenderTokenId);
     defenderActor = token?.actor as FaseripActor | undefined;
   } else {
-    defenderActor = game.actors?.get(data.defenderActorId) as
-      | FaseripActor
-      | undefined;
+    // @ts-expect-error - Foundry game.actors collection
+    defenderActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.defenderActorId
+    ) as FaseripActor | undefined;
   }
 
   if (!defenderActor) {
@@ -472,6 +486,7 @@ export async function requestCounterAttackResponse(
       "FASERIP Socket | Socket not initialized - falling back to local"
     );
     // Fallback: handle locally if user is GM or owns the defender
+    // @ts-expect-error - Foundry game.user global
     if (game.user?.isGM || defenderActor.isOwner) {
       return await handleCounterAttackPrompt(data);
     }
@@ -555,8 +570,8 @@ async function handleCounterAttackPrompt(
       }
     );
 
-    // Create and show the dialog using VueDialog
-    const dialog = await VueDialog.show(
+    // Create the dialog (but don't await show() - we need to track it first)
+    const dialog = new VueDialog(
       CounterAttackModal,
       {
         defenderName: data.defenderName,
@@ -568,17 +583,19 @@ async function handleCounterAttackPrompt(
       {
         window: { title: "Counter-Attack?" },
         position: { width: 500 }
-      },
-      false // Don't auto-wait, we need to store the dialog first
+      }
     );
 
-    // Store dialog reference BEFORE waiting (for cancellation)
+    // Store dialog reference BEFORE showing it (for cancellation)
     if (externalResolve) {
       activeCounterPrompts.set(promptId, {
         dialog: dialog,
         resolve: externalResolve
       });
     }
+
+    // Render the dialog
+    await dialog.render(true);
 
     // Race between user response and external cancellation
     const result = (await Promise.race([
@@ -590,6 +607,7 @@ async function handleCounterAttackPrompt(
     activeCounterPrompts.delete(promptId);
 
     if (result) {
+      // @ts-expect-error - Foundry game.user global
       result._respondingUserId = game.user?.id;
     }
 
@@ -650,6 +668,7 @@ export async function requestDamageApplication(
       "FASERIP Socket | Socket not initialized - applying damage locally"
     );
     // Fallback: apply locally if user is GM or owns the target
+    // @ts-expect-error - Foundry game.user global
     if (game.user?.isGM || targetActor.isOwner) {
       return await handleApplyDamage({
         targetActorId: targetActor.id!,
@@ -697,9 +716,10 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   newHealthValue: number;
 } | null> {
   // Get the target actor
-  const targetActor = game.actors?.get(data.targetActorId) as
-    | FaseripActor
-    | undefined;
+  // @ts-expect-error - Foundry game.actors collection
+  const targetActor = game.actors?.find(
+    (a: FaseripActor) => a.id === data.targetActorId
+  ) as FaseripActor | undefined;
 
   if (!targetActor) {
     console.error("FASERIP Socket | Target actor not found");
@@ -707,6 +727,7 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   }
 
   // Security check - verify this user owns the target
+  // @ts-expect-error - Foundry game.user global
   if (!game.user?.isGM && !targetActor.isOwner) {
     console.warn(
       "FASERIP Socket | User doesn't own target - cannot apply damage"
@@ -728,9 +749,6 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
 
   // Show resistance chat messages if applicable
   if (result.resistancePower && result.resistanceReduction) {
-    const system = targetActor.system as any;
-    const currentFormId = system.currentFormId;
-
     if (result.armorDamage > 0) {
       // Resistance applied to overflow
       if (
@@ -809,7 +827,7 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     // CRITICAL: Get the specific token if token ID provided (for unlinked multi-target attacks)
     // Otherwise fall back to first active token
     const targetToken = data.targetTokenId
-      ? canvas.tokens?.get(data.targetTokenId)?.document
+      ? canvas?.tokens?.get(data.targetTokenId)?.document
       : targetActor.getActiveTokens()[0]?.document || null;
 
     // Update the token document if it exists and is unlinked, otherwise update the actor
@@ -840,12 +858,16 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
             ?.armor;
 
           // Update bar value and max cache directly
-          if (healthResource !== undefined) {
+          if (healthResource !== undefined && targetToken.bar1) {
+            // @ts-expect-error - Token bar property assignment
             targetToken.bar1.value = healthResource.value;
+            // @ts-expect-error - Token bar property assignment
             targetToken.bar1.max = healthResource.max;
           }
-          if (armorResource !== undefined) {
+          if (armorResource !== undefined && targetToken.bar2) {
+            // @ts-expect-error - Token bar property assignment
             targetToken.bar2.value = armorResource.value;
+            // @ts-expect-error - Token bar property assignment
             targetToken.bar2.max = armorResource.max;
           }
 
@@ -868,7 +890,8 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
       }
 
       // Force token bars to refresh
-      for (const token of tokens) {
+      const activeTokens = targetActor.getActiveTokens();
+      for (const token of activeTokens) {
         await token.drawBars();
       }
     }
