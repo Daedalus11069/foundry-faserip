@@ -39,6 +39,7 @@ export interface Power {
   attackType?: "none" | "melee" | "ranged"; // Attack type for dodge mechanics
   damageType?: string; // Damage type (fire, cold, energy, etc.) - defaults to "none"
   resistanceType?: string; // If this is a resistance power, what type it resists
+  vulnerabilityType?: string; // If this is a vulnerability/weakness power, what type increases damage
 }
 
 /**

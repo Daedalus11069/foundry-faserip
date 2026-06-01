@@ -726,18 +726,6 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     degradingArmorEnabled: degradingEnabled
   });
 
-  // Show vulnerability chat messages if applicable
-  if (result.vulnerabilityPower && result.vulnerabilityIncrease) {
-    await ChatMessage.create({
-      content: `<div class="fsr-chat-card fsr-danger">
-        <h3>⚠️ Vulnerability: Weakness Exploited!</h3>
-        <p><strong>${targetActor.name}</strong>'s ${result.vulnerabilityPower.name} increases ${data.damageType} damage by ${result.vulnerabilityIncrease} (50%)${data.powerName ? ` from <strong>${data.powerName}</strong>` : ""}!</p>
-        <p class="fsr-rank-change">${result.originalDamage} → ${result.originalDamage! + result.vulnerabilityIncrease} total damage</p>
-      </div>`,
-      speaker: ChatMessage.getSpeaker({ actor: targetActor })
-    });
-  }
-
   // Show resistance chat messages if applicable
   if (result.resistancePower && result.resistanceReduction) {
     const system = targetActor.system as any;

@@ -78,7 +78,8 @@ function addPower() {
     effectType: "none",
     attackType: "none",
     damageType: "none",
-    resistanceType: undefined
+    resistanceType: undefined,
+    vulnerabilityType: undefined
   };
   reactiveActor.system.powers.push(newPower);
 }
@@ -1049,11 +1050,13 @@ async function applyArmorHealingToTarget(
           </div>
         </div>
 
-        <!-- Damage Type and Resistance Type -->
+        <!-- Damage Type, Resistance Type, and Vulnerability Type -->
         <div
           class="grid gap-2 mb-2"
           :class="
-            power.effectType === 'damage' || power.resistanceType
+            power.effectType === 'damage' ||
+            power.resistanceType ||
+            power.vulnerabilityType
               ? 'grid-cols-2'
               : 'grid-cols-1'
           "
@@ -1075,7 +1078,7 @@ async function applyArmorHealingToTarget(
               <option value="force">Force</option>
             </select>
           </div>
-          <div v-if="power.effectType !== 'damage'">
+          <div v-if="power.effectType !== 'damage' && !power.vulnerabilityType">
             <label class="fsr-label">Resistance Type</label>
             <select v-model="power.resistanceType" class="fsr-select text-sm">
               <option :value="undefined">Not a Resistance</option>
@@ -1090,6 +1093,26 @@ async function applyArmorHealingToTarget(
               <option value="mental">Mental Resistance</option>
               <option value="magic">Magic Resistance</option>
               <option value="force">Force Resistance</option>
+            </select>
+          </div>
+          <div v-if="power.effectType !== 'damage' && !power.resistanceType">
+            <label class="fsr-label">Vulnerability Type</label>
+            <select
+              v-model="power.vulnerabilityType"
+              class="fsr-select text-sm"
+            >
+              <option :value="undefined">Not a Vulnerability</option>
+              <option value="fire">Fire Vulnerability</option>
+              <option value="cold">Cold Vulnerability</option>
+              <option value="electricity">Electricity Vulnerability</option>
+              <option value="energy">Energy Vulnerability</option>
+              <option value="radiation">Radiation Vulnerability</option>
+              <option value="sonic">Sonic Vulnerability</option>
+              <option value="acid">Acid Vulnerability</option>
+              <option value="poison">Poison Vulnerability</option>
+              <option value="mental">Mental Vulnerability</option>
+              <option value="magic">Magic Vulnerability</option>
+              <option value="force">Force Vulnerability</option>
             </select>
           </div>
         </div>

@@ -76,6 +76,7 @@ export interface CharmanPower {
   attackType?: "none" | "melee" | "ranged"; // Attack type for dodge mechanics
   damageType?: string; // Type of damage dealt (fire, cold, etc.)
   resistanceType?: string; // Type of damage this power resists (for resistance powers)
+  vulnerabilityType?: string; // Type of damage this power is weak to (for vulnerability/weakness powers)
 }
 
 export interface CharmanTalent {
@@ -545,6 +546,7 @@ export class CharmanService {
         attackType: power.attackType || "none",
         damageType: power.damageType || "none",
         resistanceType: power.resistanceType,
+        vulnerabilityType: power.vulnerabilityType,
         value: power.value || getRankValue(rankName),
         maxValue: power.maxValue || getRankValue(rankName)
       };

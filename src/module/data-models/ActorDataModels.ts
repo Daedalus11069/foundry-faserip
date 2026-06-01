@@ -206,7 +206,8 @@ export function definePowerRefSchema() {
       choices: ["none", "melee", "ranged"]
     }),
     damageType: new StringField({ required: false, initial: "none" }),
-    resistanceType: new StringField({ required: false, nullable: true })
+    resistanceType: new StringField({ required: false, nullable: true }),
+    vulnerabilityType: new StringField({ required: false, nullable: true })
   });
 }
 

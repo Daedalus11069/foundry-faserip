@@ -73,6 +73,7 @@ export interface PowerData {
   description?: string;
   mpCost?: number;
   resistanceType?: string; // For resistance powers
+  vulnerabilityType?: string; // For vulnerability/weakness powers
   effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // For damage/healing powers
   attackType?: "none" | "melee" | "ranged"; // Attack type for dodge mechanics
   damageType?: string; // Damage type (fire, cold, energy, etc.)

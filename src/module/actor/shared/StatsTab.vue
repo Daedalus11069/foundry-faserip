@@ -67,13 +67,19 @@ const allPowers = computed(() =>
   )
 );
 
-// Separate resistance powers from regular powers
+// Separate resistance and vulnerability powers from regular powers
 const resistancePowers = computed(() =>
   allPowers.value.filter((p: PowerData) => p.resistanceType)
 );
 
+const vulnerabilityPowers = computed(() =>
+  allPowers.value.filter((p: PowerData) => p.vulnerabilityType)
+);
+
 const powers = computed(() =>
-  allPowers.value.filter((p: PowerData) => !p.resistanceType)
+  allPowers.value.filter(
+    (p: PowerData) => !p.resistanceType && !p.vulnerabilityType
+  )
 );
 
 const weaponsEnabled = computed(
@@ -1091,32 +1097,77 @@ async function rollPower(power: any) {
           </div>
         </div>
 
-        <!-- RESISTANCES Group -->
-        <div v-if="resistancePowers.length > 0" class="mb-3">
-          <h3
-            class="text-sm font-bold text-green-400 mb-2 uppercase tracking-wider"
-          >
-            RESISTANCES
-          </h3>
-          <div class="flex flex-col gap-1">
-            <div
-              v-for="power in resistancePowers"
-              :key="power.id"
-              class="p-2 bg-gray-800 rounded border border-gray-700"
-            >
-              <div class="flex items-center gap-2">
-                <span class="text-green-400">🛡️</span>
-                <div class="flex-1">
-                  <div class="text-sm font-semibold text-gray-200">
-                    {{ power.name }}
-                  </div>
-                  <div class="text-xs text-gray-400">
-                    {{ formatRankDisplay(power.rank) }}: {{ power.value }}
-                    <span class="text-green-400 ml-1">
-                      vs {{ power.resistanceType }}
-                    </span>
+        <!-- RESISTANCES & VULNERABILITIES Group -->
+        <div
+          v-if="resistancePowers.length > 0 || vulnerabilityPowers.length > 0"
+          class="mb-3"
+        >
+          <div class="flex gap-2">
+            <!-- Resistances Column -->
+            <div class="basis-1/2 flex flex-col gap-1">
+              <h3
+                class="text-sm font-bold text-purple-400 mb-2 uppercase tracking-wider"
+              >
+                RESISTANCES
+              </h3>
+              <div
+                v-for="power in resistancePowers"
+                :key="power.id"
+                class="p-2 bg-gray-800 rounded border border-gray-700"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="text-green-400">🛡️</span>
+                  <div class="flex-1">
+                    <div class="text-sm font-semibold text-gray-200">
+                      {{ power.name }}
+                    </div>
+                    <div class="text-xs text-gray-400">
+                      {{ formatRankDisplay(power.rank) }}: {{ power.value }}
+                      <span class="text-green-400 ml-1">
+                        vs {{ power.resistanceType }}
+                      </span>
+                    </div>
                   </div>
                 </div>
+              </div>
+              <div
+                v-if="resistancePowers.length === 0"
+                class="text-xs text-gray-500 italic p-2"
+              >
+                None
+              </div>
+            </div>
+            <!-- Vulnerabilities Column -->
+            <div class="basis-1/2 flex flex-col gap-1">
+              <h3
+                class="text-sm font-bold text-purple-400 mb-2 uppercase tracking-wider"
+              >
+                WEAKNESSES
+              </h3>
+              <div
+                v-for="power in vulnerabilityPowers"
+                :key="power.id"
+                class="p-2 bg-gray-800 rounded border border-red-700"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="text-red-400">⚠️</span>
+                  <div class="flex-1">
+                    <div class="text-sm font-semibold text-gray-200">
+                      {{ power.name }}
+                    </div>
+                    <div class="text-xs text-gray-400">
+                      <span class="text-red-400">
+                        +25% damage from {{ power.vulnerabilityType }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-if="vulnerabilityPowers.length === 0"
+                class="text-xs text-gray-500 italic p-2"
+              >
+                None
               </div>
             </div>
           </div>
