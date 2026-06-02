@@ -565,8 +565,11 @@ export async function executeCombatAttack(
     manualChartShift = attackOptions.manualChartShift ?? 0;
   }
 
-  // Calculate total chart shift (manual + talent bonuses - karma shifts handled by rollAttribute)
-  const totalChartShift = manualChartShift + (talentCS || 0);
+  // Calculate combo penalty if this is part of a combo attack
+  const comboPenalty = comboTotal && comboTotal > 1 ? -(comboIndex ?? 1) : 0;
+
+  // Calculate total chart shift (manual + talent bonuses + combo penalty)
+  const totalChartShift = manualChartShift + (talentCS || 0) + comboPenalty;
 
   // Step 1: Roll attack with applied chart shifts
   // Pass karma shifts to rollAttribute - it will handle deduction and application
@@ -621,10 +624,10 @@ export async function executeCombatAttack(
     await (game as any).dice3d.waitFor3DAnimationByMessageID(attackMessage.id);
   }
 
-  // Calculate effective attack rank after all modifiers
+  // Calculate effective attack rank after all modifiers (including combo penalty)
   const effectiveAttackRank = applyChartShift(
     attackRank,
-    karmaColumnShifts + manualChartShift + (talentCS || 0)
+    karmaColumnShifts + manualChartShift + (talentCS || 0) + comboPenalty
   );
 
   // Step 2: Request defense responses from all targets
