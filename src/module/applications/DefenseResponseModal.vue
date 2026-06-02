@@ -194,7 +194,9 @@ async function handleDefend() {
     undefined, // No talents
     {
       defenseRoll: true,
-      attackerName: props.attackerName
+      attackerName: props.attackerName,
+      comboIndex: props.comboIndex,
+      comboTotal: props.comboTotal
     },
     defenseOptions.karmaColumnShifts, // Let rollAttribute handle column shifts
     defenseOptions.karmaResultShift // Let rollAttribute handle result shift

@@ -592,10 +592,14 @@ export async function executeCombatAttack(
   // Show the attack roll to chat BEFORE defense dialogs
   // ChatMessage.create will handle the dice animation automatically
   const attackMetadata = (attackRoll as any).metadata || {};
+
+  // Build attack name (combo info will be added by toMessage if present in flags)
+  const attackName = powerName
+    ? `${powerName} Attack`
+    : `${attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1)} Attack`;
+
   const attackMessage = await attackRoll.toMessage(
-    powerName
-      ? `${powerName} Attack`
-      : `${attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1)} Attack`,
+    attackName,
     attacker,
     attackMetadata.talentNames,
     attackMetadata.preRollKarma || 0,
@@ -606,6 +610,8 @@ export async function executeCombatAttack(
       attackType,
       powerName,
       targetCount: targets.length,
+      comboIndex,
+      comboTotal,
       ...(attackMetadata.additionalFlags || {})
     }
   );

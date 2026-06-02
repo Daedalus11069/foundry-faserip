@@ -709,6 +709,16 @@ export class FaseripRoll {
     const resultText = this.getResultText();
     const resultClass = this.getResultClass();
 
+    // Add combo info to checkName if present
+    let displayName = checkName;
+    if (
+      additionalFlags?.comboIndex &&
+      additionalFlags?.comboTotal &&
+      additionalFlags.comboTotal > 1
+    ) {
+      displayName = `${checkName} (${additionalFlags.comboIndex} of ${additionalFlags.comboTotal})`;
+    }
+
     let karmaSpentText = "";
     const totalKarmaSpent = preRollKarma + postRollKarma;
     if (totalKarmaSpent > 0) {
@@ -728,7 +738,7 @@ export class FaseripRoll {
     const content = await foundry.applications.handlebars.renderTemplate(
       "/systems/faserip/templates/chat/roll-card.hbs",
       {
-        checkName,
+        checkName: displayName,
         resultText,
         resultClass,
         rankDisplay: formatRankDisplay(this.rank),

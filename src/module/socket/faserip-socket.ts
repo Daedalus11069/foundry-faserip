@@ -9,6 +9,7 @@ import CounterAttackModal from "../applications/CounterAttackModal.vue";
 import { VueDialog } from "../applications/vue-dialog";
 import { formatRankDisplay } from "../enums";
 import { applyDamageToActor } from "../utils/damage-application";
+import { toRaw } from "vue";
 
 /**
  * Socket module instance
@@ -742,7 +743,15 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   const degradingEnabled =
     game.settings.get("faserip", "degradingArmor") ?? false;
 
-  // Use centralized damage application
+  // @todo fix me later; don't cast to any.
+  const system = targetActor.system as any;
+
+  // CRITICAL: Clone arrays BEFORE damage application to avoid mutating source
+  // This follows Foundry's recommended pattern for array updates
+  const clonedArmors = system.armors ? [...system.armors] : [];
+  const clonedPowers = system.powers ? [...system.powers] : [];
+
+  // Use centralized damage application (will mutate the clones)
   const result = applyDamageToActor({
     actor: targetActor,
     damage: data.damage,
@@ -804,28 +813,26 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     }
   }
 
-  const system = targetActor.system as any;
   const currentFormId = system.currentFormId || "";
 
-  // Build updates object
+  // Build updates object using the cloned arrays (which now have mutations applied)
   const updates: Record<string, any> = {};
 
-  // Add armor updates if armors were damaged
-  // CRITICAL: Serialize arrays to avoid reactive proxy issues with unlinked tokens
-  if (system.armors) {
-    updates["system.armors"] = JSON.parse(JSON.stringify(system.armors));
+  // Add armor updates - use cloned arrays (always update if actor has armors property)
+  if (system.armors !== undefined) {
+    updates["system.armors"] = clonedArmors;
   }
 
-  // Add power updates if powers were damaged
-  // CRITICAL: Serialize arrays to avoid reactive proxy issues with unlinked tokens
-  if (system.powers) {
-    updates["system.powers"] = JSON.parse(JSON.stringify(system.powers));
+  // Add power updates - use cloned arrays (always update if actor has powers property)
+  if (system.powers !== undefined) {
+    updates["system.powers"] = clonedPowers;
   }
 
-  // Add health updates
-  if (system.healthByForm) {
-    updates["system.healthByForm"] = system.healthByForm;
+  // CRITICAL: Always add health updates (damage application modifies healthByForm)
+  if (!system.healthByForm) {
+    system.healthByForm = {};
   }
+  updates["system.healthByForm"] = system.healthByForm;
 
   // Update actor with new values
   try {
@@ -889,15 +896,10 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
       // Linked actor or no token - update the base actor
       await targetActor.update(updates);
 
-      // Force sheet refresh if open
-      if (targetActor.sheet && targetActor.sheet.rendered) {
-        targetActor.sheet.render(false);
-      }
-
       // Force token bars to refresh
       const activeTokens = targetActor.getActiveTokens();
       for (const token of activeTokens) {
-        await token.drawBars();
+        token.drawBars();
       }
     }
   } catch (error) {
