@@ -1,7 +1,13 @@
 <template>
   <div class="defense-modal">
     <div class="attack-info">
-      <h3>{{ attackerName }} Attacks!</h3>
+      <h3>
+        {{ attackerName }} Attacks!{{
+          comboTotal && comboTotal > 1
+            ? ` (${comboIndex} of ${comboTotal})`
+            : ""
+        }}
+      </h3>
       <div class="attack-details">
         <div class="detail-row">
           <span class="label">Attack Type:</span>
@@ -89,6 +95,8 @@ interface Props {
   defenseValue: number;
   talentNames?: string[];
   talentCS?: number;
+  comboIndex?: number;
+  comboTotal?: number;
 }
 
 const props = defineProps<Props>();

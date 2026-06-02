@@ -255,7 +255,9 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             talentCS: talentCS > 0 ? talentCS : undefined,
             karmaColumnShifts: attackKarma?.columnShifts ?? 0,
             karmaResultShift: attackKarma?.resultShift ?? 0,
-            manualChartShift: comboResult.manualChartShift ?? 0
+            manualChartShift: comboResult.manualChartShift ?? 0,
+            comboIndex: i + 1,
+            comboTotal: comboResult.comboCount
           });
         }
       } else {
@@ -457,7 +459,9 @@ async function rollWeapon(weapon: Weapon) {
         talentCS: talentCS > 0 ? talentCS : undefined,
         karmaColumnShifts: attackKarma?.columnShifts ?? 0,
         karmaResultShift: attackKarma?.resultShift ?? 0,
-        manualChartShift: comboResult.manualChartShift ?? 0
+        manualChartShift: comboResult.manualChartShift ?? 0,
+        comboIndex: i + 1,
+        comboTotal: comboResult.comboCount
       });
     }
   } else {
@@ -995,7 +999,9 @@ async function rollPower(power: any) {
           // Pass karma settings from combo dialog
           karmaColumnShifts: attackKarma?.columnShifts ?? 0,
           karmaResultShift: attackKarma?.resultShift ?? 0,
-          manualChartShift: comboResult.manualChartShift ?? 0
+          manualChartShift: comboResult.manualChartShift ?? 0,
+          comboIndex: i + 1,
+          comboTotal: comboResult.comboCount
         });
       }
     } else {

@@ -37,6 +37,8 @@ interface AttackData {
   karmaColumnShifts?: number; // Optional: Pre-determined karma column shifts (from combo dialog)
   karmaResultShift?: number; // Optional: Pre-determined karma result shifts (from combo dialog)
   manualChartShift?: number; // Optional: Manual chart shift modifier (from combo dialog)
+  comboIndex?: number; // Optional: Current attack number in combo (1-based)
+  comboTotal?: number; // Optional: Total number of attacks in combo
 }
 
 /**
@@ -412,7 +414,9 @@ export async function executeCombatAttack(
     talentCS,
     karmaColumnShifts: presetKarmaColumnShifts,
     karmaResultShift: presetKarmaResultShift,
-    manualChartShift: presetManualChartShift
+    manualChartShift: presetManualChartShift,
+    comboIndex,
+    comboTotal
   } = attackData;
 
   // Get targeted tokens
@@ -639,7 +643,9 @@ export async function executeCombatAttack(
         attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
       attackResult: attackRoll.getResultText(),
       attackRank: effectiveAttackRank,
-      powerName
+      powerName,
+      comboIndex,
+      comboTotal
     });
 
     defenseResponses.push(defenseResponse);
@@ -967,7 +973,7 @@ export async function executeCombatAttack(
 
       // Build comparison note if needed
       let comparisonNote = "";
-      if (combatComparison.defenseTier > 0) {
+      if (defendedWithRoll) {
         if (combatComparison.attackTier !== combatComparison.defenseTier) {
           comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">${combatComparison.attackTier > combatComparison.defenseTier ? "Attack" : "Defense"} wins (higher tier)</div>`;
         } else if (
@@ -995,10 +1001,7 @@ export async function executeCombatAttack(
         defenseTier: damageResult.defenseTier,
         rankReduction: damageResult.rankReduction,
         attackRoll: combatComparison.attackTotal,
-        defenseRoll:
-          combatComparison.defenseTier > 0
-            ? combatComparison.defenseTotal
-            : null,
+        defenseRoll: defendedWithRoll ? combatComparison.defenseTotal : null,
         resultText,
         resultClass,
         powerName,
@@ -1008,10 +1011,10 @@ export async function executeCombatAttack(
       await ChatMessage.create({
         speaker: ChatMessage.getSpeaker({ actor: attacker }),
         content: `<div class="fsr-combat-message result-${resultClass}">
-          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">${powerName || "Attack"} → ${targetActor.name}</h3>
+          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">${powerName || "Attack"}${comboTotal && comboTotal > 1 ? ` (${comboIndex} of ${comboTotal})` : ""} → ${targetActor.name}</h3>
           
           ${
-            combatComparison.defenseTier > 0
+            defendedWithRoll
               ? `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; margin: 0 0 0.35rem 0; font-size: 0.8rem;">
             <div style="text-align: center;">
               <div style="font-weight: 600; background: ${attackColors.background}; color: ${attackColors.color}; padding: 0.15rem 0.4rem; border-radius: 3px;">Attack: ${combatComparison.attackTotal}</div>

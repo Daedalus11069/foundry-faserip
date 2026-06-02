@@ -29,6 +29,8 @@ interface DefensePromptData {
   attackRank?: string; // Attacker's rank
   powerName?: string; // If attacking with a power
   promptId?: string; // Unique ID for tracking race conditions in multi-GM scenarios
+  comboIndex?: number; // Current attack number in combo (1-based)
+  comboTotal?: number; // Total number of attacks in combo
 }
 
 /**
@@ -206,10 +208,10 @@ export async function requestDefenseResponse(
   );
 
   // Wait for first response or all timeouts
-  const response = await Promise.race([
+  const response = (await Promise.race([
     winnerPromise,
     Promise.all(gmPromises).then(() => winningResponse)
-  ]);
+  ])) as DefenseResponse & { _targetActor?: FaseripActor };
 
   if (!response) {
     console.warn("FASERIP Socket | No response - defaulting to takeHit");
@@ -218,9 +220,8 @@ export async function requestDefenseResponse(
 
   // Reconstruct target actor on this client
   if (response._targetActorId) {
-    (
-      response as DefenseResponse & { _targetActor?: FaseripActor }
-    )._targetActor = game.actors?.find(
+    // @ts-expect-error - Foundry game.actors collection
+    response._targetActor = game.actors?.find(
       (a: FaseripActor) => a.id === response._targetActorId
     ) as FaseripActor | undefined;
   }
@@ -384,7 +385,9 @@ async function handleDefensePrompt(
       defenseRank: defenseAttr.rank,
       defenseValue: defenseAttr.value,
       talentNames: talentNames.length > 0 ? talentNames : undefined,
-      talentCS: talentCS > 0 ? talentCS : undefined
+      talentCS: talentCS > 0 ? talentCS : undefined,
+      comboIndex: data.comboIndex,
+      comboTotal: data.comboTotal
     },
     {
       window: {
@@ -808,13 +811,15 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   const updates: Record<string, any> = {};
 
   // Add armor updates if armors were damaged
+  // CRITICAL: Serialize arrays to avoid reactive proxy issues with unlinked tokens
   if (system.armors) {
-    updates["system.armors"] = system.armors;
+    updates["system.armors"] = JSON.parse(JSON.stringify(system.armors));
   }
 
   // Add power updates if powers were damaged
+  // CRITICAL: Serialize arrays to avoid reactive proxy issues with unlinked tokens
   if (system.powers) {
-    updates["system.powers"] = system.powers;
+    updates["system.powers"] = JSON.parse(JSON.stringify(system.powers));
   }
 
   // Add health updates
