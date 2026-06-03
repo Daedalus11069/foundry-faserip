@@ -24,7 +24,7 @@ export interface DamageApplicationData {
   actor: FaseripActor;
   damage: number;
   damageType?: string;
-  degradingArmorEnabled?: boolean;
+  degradingArmorMode?: string; // "none", "full", "per-hit"
 }
 
 /**
@@ -35,7 +35,7 @@ export interface DamageApplicationData {
 export function applyDamageToActor(
   data: DamageApplicationData
 ): DamageApplicationResult {
-  const { actor, degradingArmorEnabled = true } = data;
+  const { actor, degradingArmorMode = "none" } = data;
   const system = actor.system as any;
 
   // Check for vulnerability powers (house rule)
@@ -109,38 +109,57 @@ export function applyDamageToActor(
     // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
     let remainingArmorDamage = armorDamage;
 
-    // Equipped armor soaks first
-    if (equippedArmor && remainingArmorDamage > 0 && degradingArmorEnabled) {
-      const equippedArmorReduction = Math.min(
-        remainingArmorDamage,
-        equippedArmor.value
-      );
-      equippedArmor.value = Math.max(
-        0,
-        equippedArmor.value - equippedArmorReduction
-      );
-      remainingArmorDamage -= equippedArmorReduction;
+    // Apply armor degradation based on mode
+    if (degradingArmorMode === "full") {
+      // Full degradation: Reduce armor by damage soaked
+      // Equipped armor soaks first
+      if (equippedArmor && remainingArmorDamage > 0) {
+        const equippedArmorReduction = Math.min(
+          remainingArmorDamage,
+          equippedArmor.value
+        );
+        equippedArmor.value = Math.max(
+          0,
+          equippedArmor.value - equippedArmorReduction
+        );
+        remainingArmorDamage -= equippedArmorReduction;
 
-      if (equippedArmor.value === 0) {
-        armorDestroyed = true;
+        if (equippedArmor.value === 0) {
+          armorDestroyed = true;
+        }
+      }
+
+      // Body Armor power soaks remainder
+      if (bodyArmorPower && remainingArmorDamage > 0) {
+        const bodyArmorReduction = Math.min(
+          remainingArmorDamage,
+          bodyArmorPower.value
+        );
+        bodyArmorPower.value = Math.max(
+          0,
+          bodyArmorPower.value - bodyArmorReduction
+        );
+
+        if (bodyArmorPower.value === 0) {
+          bodyArmorDestroyed = true;
+        }
+      }
+    } else if (degradingArmorMode === "per-hit" && overflow > 0) {
+      // Per-hit degradation: Reduce armor by 1 only if damage penetrated
+      // Prioritize equipped armor degradation first
+      if (equippedArmor && equippedArmor.value > 0) {
+        equippedArmor.value = Math.max(0, equippedArmor.value - 1);
+        if (equippedArmor.value === 0) {
+          armorDestroyed = true;
+        }
+      } else if (bodyArmorPower && bodyArmorPower.value > 0) {
+        bodyArmorPower.value = Math.max(0, bodyArmorPower.value - 1);
+        if (bodyArmorPower.value === 0) {
+          bodyArmorDestroyed = true;
+        }
       }
     }
-
-    // Body Armor power soaks remainder
-    if (bodyArmorPower && remainingArmorDamage > 0 && degradingArmorEnabled) {
-      const bodyArmorReduction = Math.min(
-        remainingArmorDamage,
-        bodyArmorPower.value
-      );
-      bodyArmorPower.value = Math.max(
-        0,
-        bodyArmorPower.value - bodyArmorReduction
-      );
-
-      if (bodyArmorPower.value === 0) {
-        bodyArmorDestroyed = true;
-      }
-    }
+    // "none" mode: No degradation, armor soaks but keeps full value
 
     // Check resistance for overflow damage
     if (overflow > 0 && data.damageType && data.damageType !== "none") {
@@ -207,10 +226,12 @@ export function applyDamageToActor(
   system.healthByForm[currentFormId] = newHealthValue;
 
   // Calculate new armor value for display
-  // When degrading is disabled, armor soaks but doesn't reduce
-  const newArmorValue = degradingArmorEnabled
-    ? totalArmor - armorDamage
-    : totalArmor;
+  const newArmorValue =
+    degradingArmorMode === "full"
+      ? totalArmor - armorDamage
+      : degradingArmorMode === "per-hit" && overflow > 0
+        ? totalArmor - 1
+        : totalArmor;
 
   const result = {
     armorDamage,

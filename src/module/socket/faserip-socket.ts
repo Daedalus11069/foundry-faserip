@@ -740,8 +740,8 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   }
 
   // Get degrading armor setting
-  const degradingEnabled =
-    game.settings.get("faserip", "degradingArmor") ?? false;
+  const degradingMode =
+    (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
 
   // @todo fix me later; don't cast to any.
   const system = targetActor.system as any;
@@ -756,7 +756,7 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     actor: targetActor,
     damage: data.damage,
     damageType: data.damageType,
-    degradingArmorEnabled: degradingEnabled
+    degradingArmorMode: degradingMode
   });
 
   // Show resistance chat messages if applicable

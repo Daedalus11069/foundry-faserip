@@ -233,8 +233,13 @@ const initHandler = () => {
     hint: "FASERIP.Settings.degradingArmor.hint",
     scope: "world",
     config: true,
-    type: Boolean,
-    default: false,
+    type: String,
+    choices: {
+      none: "None (No Degradation)",
+      full: "Full (Reduced by Damage Soaked)",
+      "per-hit": "Per-Hit (Reduced by 1 per Penetrating Hit)"
+    },
+    default: "none",
     requiresReload: true,
     onChange: () => {
       for (const actor of game.actors ?? []) {

@@ -239,14 +239,14 @@ const damageAmount = ref(0);
 async function applyDamage() {
   if (damageAmount.value === 0) return;
 
-  const degradingEnabled =
-    game.settings.get("faserip", "degradingArmor") ?? false;
+  const degradingMode =
+    (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
 
   // Use centralized damage application
   const result = applyDamageToActor({
     actor: reactiveActor as any,
     damage: damageAmount.value,
-    degradingArmorEnabled: degradingEnabled
+    degradingArmorMode: degradingMode
   });
 
   // Show notifications for destroyed armor

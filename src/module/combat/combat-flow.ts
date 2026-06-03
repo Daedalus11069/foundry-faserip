@@ -953,23 +953,35 @@ export async function executeCombatAttack(
       let damageApplicationText = "";
       if (damageApplication) {
         // Check degrading armor setting for display
-        const degradingArmorEnabled =
-          game.settings.get("faserip", "degradingArmor") ?? false;
+        const degradingMode =
+          (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
 
         if (
           damageApplication.armorDamage > 0 &&
           damageApplication.healthDamage > 0
         ) {
-          // Show "remaining" for armor only if degrading is enabled
-          const armorText = degradingArmorEnabled
-            ? `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`
-            : `${damageApplication.armorDamage} absorbed by armor`;
+          // Show "remaining" for armor based on degradation mode
+          let armorText = "";
+          if (degradingMode === "none") {
+            armorText = `${damageApplication.armorDamage} absorbed by armor`;
+          } else if (degradingMode === "per-hit") {
+            armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining, -1 per hit)`;
+          } else {
+            // "full" mode
+            armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
+          }
           damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
         } else if (damageApplication.armorDamage > 0) {
-          // Show "remaining" only if degrading is enabled
-          const armorText = degradingArmorEnabled
-            ? `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`
-            : `${damageApplication.armorDamage} absorbed by armor`;
+          // Show "remaining" based on degradation mode
+          let armorText = "";
+          if (degradingMode === "none") {
+            armorText = `${damageApplication.armorDamage} absorbed by armor`;
+          } else if (degradingMode === "per-hit") {
+            armorText = `${damageApplication.armorDamage} absorbed by armor (no penetration)`;
+          } else {
+            // "full" mode
+            armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
+          }
           damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}</div>`;
         } else if (damageApplication.healthDamage > 0) {
           damageApplicationText = `<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;

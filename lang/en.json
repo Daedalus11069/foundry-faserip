@@ -67,8 +67,8 @@
         "hint": "Enable the houserule Armor system. When enabled, an Armor tab appears on each character sheet where armor of a given rank can be equipped. Equipped armor reduces incoming physical damage."
       },
       "degradingArmor": {
-        "name": "Enable Degrading Armor",
-        "hint": "When enabled (requires Armor system), armor takes damage when it soaks incoming damage. Armor rating is reduced by the amount soaked. Example: Incredible (40) armor that soaks 30 damage becomes 10 rating. Armor can be repaired from the Armor tab."
+        "name": "Armor Degradation Mode",
+        "hint": "How armor degrades when taking damage (requires Armor system). None: Armor soaks but never degrades. Full: Armor reduced by damage soaked (40 armor soaks 30 = 10 remaining). Per-Hit: Armor reduced by 1 per hit that penetrates (30 armor, 35 damage = 5 through, armor becomes 29)."
       },
       "vulnerabilityPowers": {
         "name": "Enable Vulnerability Powers",
