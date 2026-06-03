@@ -26,6 +26,7 @@ import {
 interface AttackData {
   attacker: FaseripActor;
   attackerToken?: Token;
+  targets?: Token[]; // Optional: Explicit targets (for counter attacks, auto-targeting)
   attackAttribute: "fighting" | "agility" | "psyche";
   attackType: "melee" | "ranged" | "psyche";
   powerName?: string;
@@ -419,9 +420,11 @@ export async function executeCombatAttack(
     comboTotal
   } = attackData;
 
-  // Get targeted tokens
-  // @ts-expect-error - game.user.targets may not be typed
-  const targets = Array.from(game.user?.targets ?? []) as Token[];
+  // Get targeted tokens - use explicit targets if provided, otherwise use selected targets
+  const targets = attackData.targets
+    ? attackData.targets
+    : // @ts-expect-error - game.user.targets may not be typed
+      (Array.from(game.user?.targets ?? []) as Token[]);
 
   // If no targets, show warning and just roll the attack without combat flow
   if (targets.length === 0) {
@@ -754,8 +757,14 @@ export async function executeCombatAttack(
 
             await new Promise(resolve => setTimeout(resolve, 500));
 
+            // Find attacker's token to target for counter attack
+            const attackerToken = canvas?.tokens?.placeables.find(
+              (t: Token) => t.actor?.id === attacker.id
+            );
+
             await executeCombatAttack({
               attacker: targetActor,
+              targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",
               attackType: "melee",
               powerName: "Ultimate Counter-Attack"
@@ -794,8 +803,14 @@ export async function executeCombatAttack(
 
             await new Promise(resolve => setTimeout(resolve, 500));
 
+            // Find attacker's token to target for counter attack
+            const attackerToken = canvas?.tokens?.placeables.find(
+              (t: Token) => t.actor?.id === attacker.id
+            );
+
             await executeCombatAttack({
               attacker: targetActor,
+              targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",
               attackType: "melee",
               powerName: "Ultimate Counter-Attack"
@@ -831,8 +846,14 @@ export async function executeCombatAttack(
 
             await new Promise(resolve => setTimeout(resolve, 500));
 
+            // Find attacker's token to target for counter attack
+            const attackerToken = canvas?.tokens?.placeables.find(
+              (t: Token) => t.actor?.id === attacker.id
+            );
+
             await executeCombatAttack({
               attacker: targetActor,
+              targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",
               attackType: "melee",
               powerName: "Counter-Attack"
