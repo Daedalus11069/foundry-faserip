@@ -9,7 +9,6 @@ import CounterAttackModal from "../applications/CounterAttackModal.vue";
 import { VueDialog } from "../applications/vue-dialog";
 import { formatRankDisplay } from "../enums";
 import { applyDamageToActor } from "../utils/damage-application";
-import { toRaw } from "vue";
 
 /**
  * Socket module instance
