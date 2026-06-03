@@ -110,6 +110,7 @@ async function attackWithWeapon(weapon: Weapon) {
     attacker: actor as any,
     attackAttribute,
     attackType,
+    effectType: "damage",
     powerName: weapon.name,
     powerRank: damageRank,
     damageType: undefined

@@ -29,6 +29,7 @@ interface AttackData {
   targets?: Token[]; // Optional: Explicit targets (for counter attacks, auto-targeting)
   attackAttribute: "fighting" | "agility" | "psyche";
   attackType: "melee" | "ranged" | "psyche";
+  effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // What effect this power has
   powerName?: string;
   powerRank?: Rank; // Base rank of the attacking power
   damageRoll?: string; // Optional: For house rules only - FASERIP uses result colors, not damage rolls
@@ -767,6 +768,7 @@ export async function executeCombatAttack(
               targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",
               attackType: "melee",
+              effectType: "damage",
               powerName: "Ultimate Counter-Attack"
             });
 
@@ -813,6 +815,7 @@ export async function executeCombatAttack(
               targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",
               attackType: "melee",
+              effectType: "damage",
               powerName: "Ultimate Counter-Attack"
             });
 
@@ -856,6 +859,7 @@ export async function executeCombatAttack(
               targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",
               attackType: "melee",
+              effectType: "damage",
               powerName: "Counter-Attack"
             });
 
@@ -899,8 +903,8 @@ export async function executeCombatAttack(
     // Brief delay before next target
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    // Step 5: Calculate and apply damage using hybrid system
-    if (attackHit) {
+    // Step 5: Calculate and apply damage using hybrid system (skip if power doesn't deal damage)
+    if (attackHit && attackData.effectType === "damage") {
       // Get power rank (from attackData or default to attack attribute rank)
       const powerRank = attackData.powerRank || attackRank;
 
@@ -1082,6 +1086,63 @@ export async function executeCombatAttack(
           flavor: `<strong>Bonus Damage Roll</strong> (${damageResult.attackTier === 4 ? "Ultimate +5d10" : "Critical +3d6"})`
         });
       }
+    } else if (attackHit && attackData.effectType !== "damage") {
+      // Non-damaging attack hit - show result message without damage
+      const resultText = attackRoll.getResultText();
+      const resultClass = attackRoll.getResultClass();
+
+      // Build compact defense info
+      const defendedWithRoll =
+        defenseResponse && defenseResponse.defenseType === "defend";
+
+      // Get colors for attack and defense result badges
+      const attackColors = getResultColors(combatComparison.attackResultClass);
+      const defenseColors = getResultColors(
+        combatComparison.defenseResultClass
+      );
+
+      // Build comparison note if needed
+      let comparisonNote = "";
+      if (defendedWithRoll) {
+        if (combatComparison.attackTier !== combatComparison.defenseTier) {
+          comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">${combatComparison.attackTier > combatComparison.defenseTier ? "Attack" : "Defense"} wins (higher tier)</div>`;
+        } else if (
+          combatComparison.attackTotal === combatComparison.defenseTotal
+        ) {
+          comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">Tied - Defense succeeds</div>`;
+        }
+      }
+
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor: attacker }),
+        content: `<div class="fsr-combat-message result-${resultClass}">
+          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">${powerName || "Attack"}${comboTotal && comboTotal > 1 ? ` (${comboIndex} of ${comboTotal})` : ""} → ${targetActor.name}</h3>
+          
+          ${
+            defendedWithRoll
+              ? `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; margin: 0 0 0.35rem 0; font-size: 0.8rem;">
+            <div style="text-align: center;">
+              <div style="font-weight: 600; background: ${attackColors.background}; color: ${attackColors.color}; padding: 0.15rem 0.4rem; border-radius: 3px;">Attack: ${combatComparison.attackTotal}</div>
+              <div class="result-badge ${combatComparison.attackResultClass}" style="padding: 0.15rem 0.4rem; font-size: 0.75rem;">${combatComparison.attackResultText} (T${combatComparison.attackTier})</div>
+            </div>
+            <div style="text-align: center;">
+              <div style="font-weight: 600; background: ${defenseColors.background}; color: ${defenseColors.color}; padding: 0.15rem 0.4rem; border-radius: 3px;">Defense: ${combatComparison.defenseTotal}</div>
+              <div class="result-badge ${combatComparison.defenseResultClass}" style="padding: 0.15rem 0.4rem; font-size: 0.75rem;">${combatComparison.defenseResultText} (T${combatComparison.defenseTier})</div>
+            </div>
+          </div>
+          ${comparisonNote}`
+              : `<div style="font-size: 0.8rem; background: #f3f4f6; color: #374151; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0 0 0.35rem 0; font-style: italic;">${targetActor.name} chose not to defend</div>`
+          }
+          
+          <div style="background: rgba(0,0,0,0.05); padding: 0.35rem; border-radius: 3px; margin: 0.35rem 0;">
+            <div style="font-size: 1rem; background: #dcfce7; color: #166534; font-weight: bold; padding: 0.25rem 0.5rem; border-radius: 3px; text-align: center;">
+              ✅ <strong>${resultText} Success!</strong>
+            </div>
+          </div>
+          
+          <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">Contested roll - no damage dealt</div>
+        </div>`
+      });
     }
   }
 }
@@ -1162,6 +1223,7 @@ export async function quickAttack(
   await executeCombatAttack({
     attacker: actor,
     attackAttribute: attributeName,
-    attackType
+    attackType,
+    effectType: "damage"
   });
 }

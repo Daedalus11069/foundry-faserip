@@ -75,7 +75,7 @@ export interface PowerData {
   resistanceType?: string; // For resistance powers
   vulnerabilityType?: string; // For vulnerability/weakness powers
   effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // For damage/healing powers
-  attackType?: "none" | "melee" | "ranged"; // Attack type for dodge mechanics
+  attackType?: "none" | "melee" | "ranged" | "psyche"; // Attack type for defense attribute selection
   damageType?: string; // Damage type (fire, cold, energy, etc.)
   formIds?: string[]; // Form IDs this power is active in
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs

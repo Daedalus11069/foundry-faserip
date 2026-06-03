@@ -174,26 +174,31 @@ async function _rollPower(power: PowerData) {
     }
   }
 
-  // Route ALL damage powers through combat flow
-  if (power.effectType === "damage") {
-    // Determine attack attribute and type based on power settings
-    let attackAttribute: "fighting" | "agility";
-    let attackType: "melee" | "ranged";
+  // Route ALL attack powers (damage or contested) through combat flow
+  // Only powers with attackType "none" skip combat flow
+  if (power.attackType && power.attackType !== "none") {
+    // Determine attack attribute based on power settings
+    let attackAttribute: "fighting" | "agility" | "psyche";
+    let attackType: "melee" | "ranged" | "psyche";
 
     if (power.attackType === "melee") {
       attackAttribute = "fighting";
       attackType = "melee";
+    } else if (power.attackType === "psyche") {
+      attackAttribute = "psyche";
+      attackType = "psyche";
     } else {
-      // Default to ranged for all other damage types (blast, area, etc.)
+      // Default to ranged for all other attack types (blast, area, etc.)
       attackAttribute = "agility";
       attackType = "ranged";
     }
 
-    // Use combat flow system - handles all critical/ultimate bonus rolls
+    // Use combat flow system - handles attack/defense and damage if applicable
     await executeCombatAttack({
       attacker: actor,
       attackAttribute,
       attackType,
+      effectType: power.effectType || "none",
       powerName: power.name,
       powerRank: rank, // Pass the power's rank for damage calculation
       damageRoll: `1d${value}`, // Simple damage based on power rank value
@@ -1027,10 +1032,7 @@ async function applyArmorHealingToTarget(
         </div>
 
         <!-- Effect Type and Attack Type -->
-        <div
-          class="grid gap-2 mb-2"
-          :class="power.effectType === 'damage' ? 'grid-cols-2' : 'grid-cols-1'"
-        >
+        <div class="grid grid-cols-2 gap-2 mb-2">
           <div>
             <label class="fsr-label">Effect Type</label>
             <select v-model="power.effectType" class="fsr-select text-sm">
@@ -1040,12 +1042,16 @@ async function applyArmorHealingToTarget(
               <option value="heal-armor">Heals Body Armor</option>
             </select>
           </div>
-          <div v-if="power.effectType === 'damage'">
-            <label class="fsr-label">Attack Type</label>
+          <div>
+            <label class="fsr-label"
+              >Requires Defense Roll
+              <span class="fsr-help-text">(contested)</span></label
+            >
             <select v-model="power.attackType" class="fsr-select text-sm">
-              <option value="none">None</option>
-              <option value="melee">Melee</option>
-              <option value="ranged">Ranged</option>
+              <option value="none">No / Automatic</option>
+              <option value="melee">vs Fighting</option>
+              <option value="ranged">vs Agility</option>
+              <option value="psyche">vs Psyche</option>
             </select>
           </div>
         </div>

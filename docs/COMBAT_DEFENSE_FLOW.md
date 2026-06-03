@@ -8,16 +8,17 @@ The FASERIP system now includes a complete combat defense flow where defenders a
 
 ### Attack Flow
 
-1. Attacker uses a power with `effectType: damage` and `attackType: melee/ranged`
+1. Attacker uses a power with `attackType: melee/ranged/psyche` (contested attack)
 2. System rolls attack (hidden from chat initially)
 3. System sends defense prompt to target's owner
 4. Defender sees modal and chooses response
 5. Attack roll shown to chat
 6. Defense roll shown (if defended)
 7. Results compared and hit/miss determined
-8. Attack result (Red/Yellow/Green/White) shown - this determines the effect intensity
+8. If `effectType: damage`, damage is calculated and applied
+9. If `effectType: none`, success/failure message shown (no damage)
 
-**Note:** FASERIP does not use separate damage rolls. The attack result color (Red/Yellow/Green/White) combined with the power's rank determines the effect. A Red result means maximum effect, Yellow is normal, Green is reduced, and White is failure.
+**Note:** FASERIP uses the attack result color (Red/Yellow/Green/White) combined with the power's rank to determine damage. A Red result means maximum effect, Yellow is normal, Green is reduced, and White is failure.
 
 ### Defense Mechanics
 
@@ -33,15 +34,26 @@ The FASERIP system now includes a complete combat defense flow where defenders a
 
 ### Power Configuration
 
-For a power to use the combat flow, set:
+For a power to use the combat flow (contested attack), set `attackType` to `"melee"`, `"ranged"`, or `"psyche"`:
+
+**Damaging Attack:**
 
 ```yaml
 effectType: damage
-attackType: melee # or ranged
+attackType: melee # or ranged or psyche
 damageType: fire # optional - fire, cold, electricity, etc.
 ```
 
-### Example Power
+**Non-Damaging Contested Attack:**
+
+```yaml
+effectType: none
+attackType: psyche # requires defense roll but doesn't deal damage
+```
+
+### Example Powers
+
+**Fire Blast (Damaging Ranged Attack):**
 
 ```json
 {
@@ -55,6 +67,19 @@ damageType: fire # optional - fire, cold, electricity, etc.
 }
 ```
 
+**Mind Control (Non-Damaging Psyche Attack):**
+
+```json
+{
+  "name": "Mind Control",
+  "rank": "remarkable",
+  "value": 30,
+  "effectType": "none",
+  "attackType": "psyche",
+  "mpCost": 8
+}
+```
+
 ## Using Powers in Combat
 
 1. **Target Selection:** Use Foundry's targeting system (T key) to select target tokens
@@ -63,7 +88,9 @@ damageType: fire # optional - fire, cold, electricity, etc.
    - **Defend (Roll {Attribute})** - Roll defense to try to avoid the attack
    - **Take Hit** - Accept the hit without defending
 4. **Resolution:** System shows attack, defense rolls, and determines outcome
-5. **Damage:** If hit, damage is rolled and displayed
+5. **Effect:**
+   - **Damaging attacks** (`effectType: "damage"`): Damage is calculated and applied to health
+   - **Non-damaging attacks** (`effectType: "none"`): Success/failure message shown, no damage
 
 ## Multiplayer Support
 
@@ -122,16 +149,29 @@ Orchestrates the full attack/defend/damage sequence.
 Modified `rollPower()` function to detect attack-type powers and route through combat flow:
 
 ```typescript
-if (
-  power.effectType === "damage" &&
-  (power.attackType === "melee" || power.attackType === "ranged")
-) {
+// Route ALL attack powers (damage or contested) through combat flow
+if (power.attackType && power.attackType !== "none") {
+  let attackAttribute: "fighting" | "agility" | "psyche";
+  let attackType: "melee" | "ranged" | "psyche";
+
+  if (power.attackType === "melee") {
+    attackAttribute = "fighting";
+    attackType = "melee";
+  } else if (power.attackType === "psyche") {
+    attackAttribute = "psyche";
+    attackType = "psyche";
+  } else {
+    attackAttribute = "agility";
+    attackType = "ranged";
+  }
+
   await executeCombatAttack({
     attacker: actor,
-    attackAttribute: power.attackType === "melee" ? "fighting" : "agility",
-    attackType: power.attackType,
+    attackAttribute,
+    attackType,
+    effectType: power.effectType || "none",
     powerName: power.name,
-    damageRoll: `1d${value}`,
+    powerRank: rank,
     damageType: power.damageType !== "none" ? power.damageType : undefined
   });
   return;
@@ -162,9 +202,10 @@ interface AttackData {
   attackerToken?: Token;
   attackAttribute: "fighting" | "agility" | "psyche";
   attackType: "melee" | "ranged" | "psyche";
+  effectType?: "none" | "damage" | "heal-health" | "heal-armor";
   powerName?: string;
-  damageRoll?: string; // e.g., "2d10", "1d100"
-  damageType?: string; // e.g., "fire", "cold"
+  powerRank?: Rank;
+  damageType?: string;
 }
 
 await executeCombatAttack(attackData);
@@ -200,9 +241,9 @@ const response = await requestDefenseResponse(data);
 
 ### Attack doesn't route through combat flow
 
-- Verify power has `effectType: "damage"`
-- Confirm `attackType` is "melee" or "ranged" (not "none")
+- Verify power has `attackType` set to "melee", "ranged", or "psyche" (not "none")
 - Check that targets are selected before activating power
+- Confirm power is not set to skip combat flow
 
 ### Damage not rolling
 
@@ -225,6 +266,8 @@ Potential improvements to consider:
 
 ### Quick Test Scenario
 
+**Damaging Attack Test:**
+
 1. Create two PCs in Foundry
 2. Give PC1 a power: Fire Blast (effectType: damage, attackType: ranged)
 3. Place both tokens on scene
@@ -232,7 +275,18 @@ Potential improvements to consider:
 5. Open PC1's sheet, click "Use Power" on Fire Blast
 6. PC2's owner sees defense modal
 7. Choose "Defend" or "Take Hit"
-8. Observe chat messages showing attack, defense, result
+8. Observe chat messages showing attack, defense, damage result
+
+**Non-Damaging Contested Attack Test:**
+
+1. Create two PCs in Foundry
+2. Give PC1 a power: Mind Control (effectType: none, attackType: psyche)
+3. Place both tokens on scene
+4. Target PC2 with PC1
+5. Open PC1's sheet, click "Use Power" on Mind Control
+6. PC2's owner sees defense modal (prompts Psyche defense)
+7. Choose "Defend" or "Take Hit"
+8. Observe chat messages showing attack, defense, success/failure (no damage)
 
 ### Console Debugging
 

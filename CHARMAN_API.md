@@ -116,16 +116,27 @@ When a character has **no forms** (stats at root level), use the root-level toke
 
 ### CharmanPower
 
-| Field         | Type                                      | Required | Notes                                                                                                                           |
-| ------------- | ----------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `name`        | `string`                                  | ✅       | Power name; referenced in `/cr` as a kebab-case slug                                                                            |
-| `rank`        | `string \| number \| Record<string, any>` | ✅       | Rank key, display name, abbreviation, numeric value, or object with form-specific ranks (e.g. `{"Dragon": "50", "Human": "0"}`) |
-| `category`    | `string`                                  | —        | Descriptive category (e.g. `"Movement"`) — defaults to `"general"`                                                              |
-| `description` | `string`                                  | —        | Flavour text                                                                                                                    |
-| `mpCost`      | `string \| number`                        | —        | Mental Points cost (if MP houserule is enabled)                                                                                 |
+| Field               | Type                                      | Required | Notes                                                                                                                           |
+| ------------------- | ----------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `name`              | `string`                                  | ✅       | Power name; referenced in `/cr` as a kebab-case slug                                                                            |
+| `rank`              | `string \| number \| Record<string, any>` | ✅       | Rank key, display name, abbreviation, numeric value, or object with form-specific ranks (e.g. `{"Dragon": "50", "Human": "0"}`) |
+| `category`          | `string`                                  | —        | Descriptive category (e.g. `"Movement"`) — defaults to `"general"`                                                              |
+| `description`       | `string`                                  | —        | Flavour text                                                                                                                    |
+| `mpCost`            | `string \| number`                        | —        | Mental Points cost (if MP houserule is enabled)                                                                                 |
+| `effectType`        | `string`                                  | —        | Effect type: `"none"`, `"damage"`, `"heal-health"`, or `"heal-armor"` — defaults to `"none"`                                    |
+| `attackType`        | `string`                                  | —        | Defense attribute: `"none"`, `"melee"` (vs Fighting), `"ranged"` (vs Agility), or `"psyche"` (vs Psyche) — defaults to `"none"` |
+| `damageType`        | `string`                                  | —        | Damage type for resistance/vulnerability: `"fire"`, `"cold"`, `"energy"`, etc. — defaults to `"none"`                           |
+| `resistanceType`    | `string`                                  | —        | If set, this power grants resistance to the specified damage type                                                               |
+| `vulnerabilityType` | `string`                                  | —        | If set, this power represents a vulnerability/weakness to the specified damage type                                             |
 
 **Form-Specific Ranks:**  
 When `rank` is an object like `{"Dragon": "50"}`, the power will only be available in the specified forms. The system uses the highest rank value for display and automatically associates the power with the matching forms.
+
+**Combat Integration:**
+
+- Powers with `effectType: "damage"` deal damage using the power's rank
+- Powers with `attackType` set to `"melee"`, `"ranged"`, or `"psyche"` trigger defense prompts where the defender rolls the appropriate attribute (Fighting, Agility, or Psyche)
+- Non-damaging contested powers (`effectType: "none"`, `attackType: "psyche"`) are supported for Mind Control, Telepathy, and similar effects that require a contested roll but don't deal health damage
 
 ---
 

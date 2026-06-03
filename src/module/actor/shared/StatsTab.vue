@@ -248,6 +248,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             attacker: actor as any,
             attackAttribute: "fighting",
             attackType: "melee",
+            effectType: "damage",
             powerName: "Unarmed Strike",
             powerRank: strengthRank,
             damageType: undefined,
@@ -268,6 +269,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           attacker: actor as any,
           attackAttribute: "fighting",
           attackType: "melee",
+          effectType: "damage",
           powerName: "Unarmed Strike",
           powerRank: strengthRank,
           damageType: undefined,
@@ -452,6 +454,7 @@ async function rollWeapon(weapon: Weapon) {
         attacker: actor as any,
         attackAttribute,
         attackType,
+        effectType: "damage",
         powerName: weapon.name,
         powerRank: damageRank,
         damageType: undefined,
@@ -472,6 +475,7 @@ async function rollWeapon(weapon: Weapon) {
       attacker: actor as any,
       attackAttribute,
       attackType,
+      effectType: "damage",
       powerName: weapon.name,
       powerRank: damageRank,
       damageType: undefined,
@@ -951,12 +955,15 @@ async function rollPower(power: any) {
   // Route ALL damage powers through combat flow
   if (power.effectType === "damage") {
     // Determine attack attribute and type based on power settings
-    let attackAttribute: "fighting" | "agility";
-    let attackType: "melee" | "ranged";
+    let attackAttribute: "fighting" | "agility" | "psyche";
+    let attackType: "melee" | "ranged" | "psyche";
 
     if (power.attackType === "melee") {
       attackAttribute = "fighting";
       attackType = "melee";
+    } else if (power.attackType === "psyche") {
+      attackAttribute = "psyche";
+      attackType = "psyche";
     } else {
       // Default to ranged for all other damage types (blast, area, etc.)
       attackAttribute = "agility";
@@ -989,6 +996,7 @@ async function rollPower(power: any) {
           attacker: actor as any,
           attackAttribute,
           attackType,
+          effectType: power.effectType || "none",
           powerName: power.name,
           powerRank: rank,
           damageRoll: `1d${rankValue}`,
@@ -1012,6 +1020,7 @@ async function rollPower(power: any) {
         attacker: actor as any,
         attackAttribute,
         attackType,
+        effectType: power.effectType || "none",
         powerName: power.name,
         powerRank: rank,
         damageRoll: `1d${rankValue}`,

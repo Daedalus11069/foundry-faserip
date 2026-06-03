@@ -73,7 +73,7 @@ export interface CharmanPower {
   value?: number; // Current armor value (for Body Armor power when degrading enabled)
   maxValue?: number; // Maximum armor value (for Body Armor power when degrading enabled)
   effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // What effect this power has (uses power's rank)
-  attackType?: "none" | "melee" | "ranged"; // Attack type for dodge mechanics
+  attackType?: "none" | "melee" | "ranged" | "psyche"; // Attack type for defense attribute selection
   damageType?: string; // Type of damage dealt (fire, cold, etc.)
   resistanceType?: string; // Type of damage this power resists (for resistance powers)
   vulnerabilityType?: string; // Type of damage this power is weak to (for vulnerability/weakness powers)
