@@ -833,6 +833,13 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     system.healthByForm = {};
   }
   updates["system.healthByForm"] = system.healthByForm;
+  // CRITICAL: Also update resources directly (health and armor)
+  // prepareDerivedData() will recalculate from healthByForm/armors/powers, but we need immediate update
+  // This is especially important for unlinked tokens where the delta must contain complete resource data
+  updates["system.resources.health.value"] = result.newHealthValue;
+  updates["system.resources.health.max"] = system.resources.health.max;
+  updates["system.resources.armor.value"] = result.newArmorValue;
+  updates["system.resources.armor.max"] = system.resources.armor.max;
 
   // Update actor with new values
   try {
