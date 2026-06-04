@@ -1077,7 +1077,7 @@ async function applyArmorHealingToTarget(
           </label>
         </div>
 
-        <!-- Damage Type, Resistance Type, and Vulnerability Type -->
+        <!-- Damage Type, Armor Piercing, Resistance Type, and Vulnerability Type -->
         <div
           class="grid gap-2 mb-2"
           :class="
@@ -1103,6 +1103,15 @@ async function applyArmorHealingToTarget(
               <option value="mental">Mental/Psychic</option>
               <option value="magic">Magic</option>
               <option value="force">Force</option>
+            </select>
+          </div>
+          <div v-if="power.effectType === 'damage'">
+            <label class="fsr-label">Armor Piercing</label>
+            <select v-model="power.armorPiercing" class="fsr-select text-sm">
+              <option value="">None</option>
+              <option v-for="r in RANK_ORDER" :key="r" :value="r">
+                {{ formatRankDisplay(r) }}
+              </option>
             </select>
           </div>
           <div v-if="power.effectType !== 'damage' && !power.vulnerabilityType">

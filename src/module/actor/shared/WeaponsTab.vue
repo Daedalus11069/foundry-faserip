@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { inject, computed, ref, onMounted, onUnmounted } from "vue";
-import { Rank, ItemType, RANK_VALUES } from "../../enums";
+import {
+  Rank,
+  ItemType,
+  RANK_VALUES,
+  RANK_ORDER,
+  formatRankDisplay
+} from "../../enums";
 import { stringToRank } from "../../utils";
 import type { FaseripActor } from "../../documents";
 import type { WeaponItem } from "../../types/items";
@@ -16,6 +22,7 @@ interface DisplayWeapon {
   equipped: boolean;
   description?: string;
   talent?: string;
+  armorPiercing?: string;
   isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
   itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
   systemIndex?: number; // Array index in system.weapons for synced weapons
@@ -45,6 +52,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       equipped: item.system.equipped,
       description: item.system.description,
       talent: item.system.talent,
+      armorPiercing: item.system.armorPiercing,
       isItem: true,
       itemRef: item
     });
@@ -81,6 +89,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       equipped: weapon.equipped || false,
       description: weapon.description,
       talent: weapon.applicableTalent,
+      armorPiercing: weapon.armorPiercing,
       isItem: false,
       systemIndex: index
     });
@@ -414,6 +423,39 @@ async function updateWeaponTalent(
     });
   }
 }
+
+async function updateWeaponArmorPiercing(
+  weaponId: string,
+  newArmorPiercing: string,
+  isItem: boolean,
+  systemIndex?: number
+) {
+  if (isItem) {
+    const item = actor.items.get(weaponId);
+    if (item) {
+      await item.update({ "system.armorPiercing": newArmorPiercing } as Record<
+        string,
+        unknown
+      >);
+    }
+  } else {
+    // Update synced weapon armor piercing using array index
+    if (systemIndex === undefined) return;
+
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
+
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
+      armorPiercing: newArmorPiercing || null
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
+  }
+}
 </script>
 
 <template>
@@ -522,78 +564,109 @@ async function updateWeaponTalent(
           </button>
         </div>
 
-        <!-- Row 2: damage inputs -->
-        <div class="flex items-center gap-2 mt-2">
-          <!-- Damage input (varies by weapon type) -->
-          <template
-            v-if="
-              weapon.weaponType === 'melee' || weapon.weaponType === 'thrown'
-            "
-          >
-            <label class="text-xs text-gray-400">Damage:</label>
-            <span class="text-xs text-gray-400">Strength</span>
+        <!-- Row 2: damage, talent, and armor piercing -->
+        <div class="grid grid-cols-3 gap-2 mt-2">
+          <!-- Damage (varies by weapon type) -->
+          <div>
+            <template
+              v-if="
+                weapon.weaponType === 'melee' || weapon.weaponType === 'thrown'
+              "
+            >
+              <label class="text-xs text-gray-400 block mb-1">Damage</label>
+              <div class="flex items-center gap-1">
+                <span class="text-xs text-gray-400">STR</span>
+                <input
+                  type="number"
+                  :value="weapon.damage"
+                  @blur="
+                    e =>
+                      updateWeaponDamage(
+                        weapon.id,
+                        Number((e.target as HTMLInputElement).value),
+                        weapon.isItem,
+                        weapon.systemIndex
+                      )
+                  "
+                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                  class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                />
+                <span class="text-xs text-gray-400">CS</span>
+              </div>
+            </template>
+            <template v-else>
+              <label class="text-xs text-gray-400 block mb-1"
+                >Damage Rank</label
+              >
+              <select
+                :value="weapon.damageRank"
+                @change="
+                  e =>
+                    updateWeaponDamageRank(
+                      weapon.id,
+                      (e.target as HTMLSelectElement).value,
+                      weapon.isItem,
+                      weapon.systemIndex
+                    )
+                "
+                class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              >
+                <option
+                  v-for="(label, value) in rankChoicesWithValues"
+                  :key="value"
+                  :value="value"
+                >
+                  {{ label }}
+                </option>
+              </select>
+            </template>
+          </div>
+
+          <!-- Talent -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Talent</label>
             <input
-              type="number"
-              :value="weapon.damage"
+              type="text"
+              :value="weapon.talent || ''"
               @blur="
                 e =>
-                  updateWeaponDamage(
+                  updateWeaponTalent(
                     weapon.id,
-                    Number((e.target as HTMLInputElement).value),
+                    (e.target as HTMLInputElement).value,
                     weapon.isItem,
                     weapon.systemIndex
                   )
               "
               @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-              class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              placeholder="Martial Arts, etc."
             />
-            <span class="text-xs text-gray-400">CS</span>
-          </template>
-          <template v-else>
-            <label class="text-xs text-gray-400">Damage:</label>
+          </div>
+
+          <!-- Armor Piercing -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1"
+              >Armor Piercing</label
+            >
             <select
-              :value="weapon.damageRank"
+              :value="weapon.armorPiercing || ''"
               @change="
                 e =>
-                  updateWeaponDamageRank(
+                  updateWeaponArmorPiercing(
                     weapon.id,
                     (e.target as HTMLSelectElement).value,
                     weapon.isItem,
                     weapon.systemIndex
                   )
               "
-              class="bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
             >
-              <option
-                v-for="(label, value) in rankChoicesWithValues"
-                :key="value"
-                :value="value"
-              >
-                {{ label }}
+              <option value="">None</option>
+              <option v-for="r in RANK_ORDER" :key="r" :value="r">
+                {{ formatRankDisplay(r) }}
               </option>
             </select>
-          </template>
-        </div>
-
-        <!-- Row 3: talent input -->
-        <div class="flex items-center gap-2 mt-2">
-          <label class="text-xs text-gray-400">Talent:</label>
-          <input
-            type="text"
-            :value="weapon.talent || ''"
-            @blur="
-              e =>
-                updateWeaponTalent(
-                  weapon.id,
-                  (e.target as HTMLInputElement).value,
-                  weapon.isItem,
-                  weapon.systemIndex
-                )
-            "
-            @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-            class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-            placeholder="e.g., Martial Arts Supreme, Weapons Master"
-          />
+          </div>
         </div>
 
         <!-- Description -->

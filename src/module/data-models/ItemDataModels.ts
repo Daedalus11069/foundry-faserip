@@ -36,6 +36,7 @@ export class PowerDataModel extends ItemDataModel {
       category: new StringField({ required: false, initial: "" }),
       armorPiercing: new StringField({
         required: false,
+        blank: true,
         initial: "",
         choices: ["", ...Object.values(Rank)]
       })
@@ -152,6 +153,7 @@ export class WeaponDataModel extends ItemDataModel {
       talent: new StringField({ required: false, initial: "" }),
       armorPiercing: new StringField({
         required: false,
+        blank: true,
         initial: "",
         choices: ["", ...Object.values(Rank)]
       })
