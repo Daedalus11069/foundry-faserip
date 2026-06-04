@@ -326,7 +326,18 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           });
 
           // Check for botch (1-5) - break combo immediately
+          console.log("[StatsTab Combo] Attack roll result:", {
+            attackRollTotal,
+            attackIndex: i + 1,
+            totalAttacks: comboResult.comboCount,
+            isBotch: attackRollTotal !== null && attackRollTotal <= 5
+          });
+
           if (attackRollTotal !== null && attackRollTotal <= 5) {
+            console.log(
+              "[StatsTab Combo] Breaking combo - botch detected:",
+              attackRollTotal
+            );
             // Show message about combo break
             await ChatMessage.create({
               speaker: ChatMessage.getSpeaker({ actor }),

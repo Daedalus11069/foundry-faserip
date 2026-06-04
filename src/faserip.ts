@@ -349,6 +349,16 @@ const initHandler = () => {
     }
   });
 
+  // Manual Roll Entry (per-player setting)
+  game.settings.register("faserip", "manualRollEntry", {
+    name: "Manual Roll Entry",
+    hint: "When enabled, clicking roll buttons will prompt you to enter the result of your physical dice roll instead of rolling automatically in Foundry. Perfect for players who prefer rolling real dice!",
+    scope: "client",
+    config: true,
+    type: Boolean,
+    default: false
+  });
+
   // Movement mapping by rank (numeric values, edited via menu dialog)
   game.settings.register("faserip", "movementSquaresByRank", {
     name: "Movement By Rank (Squares)",

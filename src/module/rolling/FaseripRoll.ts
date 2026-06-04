@@ -10,6 +10,7 @@ import {
 import { showKarmaSpendDialog } from "../applications/dialog-utils";
 import { getCharmanService } from "../charman-service";
 import type { FaseripActor } from "../documents";
+import { createRoll } from "../utils/manual-roll-handler";
 
 /**
  * FASERIP roll evaluation
@@ -21,19 +22,22 @@ export class FaseripRoll {
   baseRank: Rank;
   chartShift: number;
   result: RollResult;
+  modifiedTotal?: number; // Karma-modified roll total (for botch detection in combos)
 
   constructor(
     roll: Roll,
     targetValue: number,
     rank: Rank,
     baseRank?: Rank,
-    chartShift: number = 0
+    chartShift: number = 0,
+    modifiedTotal?: number
   ) {
     this.roll = roll;
     this.targetValue = targetValue;
     this.rank = rank;
     this.baseRank = baseRank || rank;
     this.chartShift = chartShift;
+    this.modifiedTotal = modifiedTotal;
     this.result = this.evaluateResult();
   }
 
@@ -41,7 +45,8 @@ export class FaseripRoll {
    * Evaluate the roll result based on FASERIP Universal Table
    */
   private evaluateResult(): RollResult {
-    const rollValue = this.roll.total || 0;
+    // Use karma-modified total if available, otherwise use raw roll total
+    const rollValue = (this.modifiedTotal ?? this.roll.total) || 0;
     const shortRank = RANK_SHORTS[this.rank];
     const ranges = UNIVERSAL_TABLE[shortRank];
 
@@ -204,9 +209,14 @@ export class FaseripRoll {
       }
     }
 
-    // Roll the dice
-    const roll = await Roll.create("1d100");
-    await roll.evaluate();
+    // Roll the dice (with optional manual entry)
+    const roll = await createRoll("1d100", `${attributeName} Roll`, "d100");
+
+    if (!roll) {
+      // User cancelled manual roll entry
+      throw new Error("Roll cancelled");
+    }
+
     rollTotal = roll.total || 0;
 
     // Dice animation will be handled by:
@@ -304,7 +314,8 @@ export class FaseripRoll {
       attributeValue,
       shiftedRank,
       attributeRank,
-      totalChartShift
+      totalChartShift,
+      rollTotal // Pass the karma-modified total for botch detection
     );
 
     // Store metadata on the roll for later use (e.g., combo attacks)

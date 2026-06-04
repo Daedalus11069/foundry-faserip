@@ -20,6 +20,7 @@ import {
   RANK_VALUES
 } from "../enums";
 import { type ArmorItem, isArmorItem } from "../types/items";
+import { createRoll } from "../utils/manual-roll-handler";
 
 /**
  * Data for an attack attempt
@@ -195,15 +196,19 @@ async function calculateDamage(
   let damage = 0;
   let formula = "";
   let description = "";
-  let bonusRoll: Roll | undefined = undefined;
+  let bonusRoll: Roll | undefined | null = undefined;
 
   // Apply tier-specific damage formula to reduced base
   const rollValue = attackRoll.roll.total || 0;
 
   if (rollValue === 100) {
     // Ultimate: reduced base + 5d10
-    bonusRoll = await Roll.create("5d10");
-    await bonusRoll.evaluate();
+    bonusRoll = await createRoll("5d10", "Ultimate Damage Bonus", "d10");
+    if (!bonusRoll) {
+      // User cancelled, use 0 bonus
+      bonusRoll = await Roll.create("0");
+      await bonusRoll.evaluate();
+    }
     const bonus = bonusRoll.total || 0;
     damage = reducedValue + bonus;
     formula = `${reducedValue} + 5d10`;
@@ -212,8 +217,12 @@ async function calculateDamage(
     switch (attackRoll.result) {
       case RollResult.Red:
         // Red: reduced base + 3d6
-        bonusRoll = await Roll.create("3d6");
-        await bonusRoll.evaluate();
+        bonusRoll = await createRoll("3d6", "Critical Damage Bonus", "d6");
+        if (!bonusRoll) {
+          // User cancelled, use 0 bonus
+          bonusRoll = await Roll.create("0");
+          await bonusRoll.evaluate();
+        }
         const redBonus = bonusRoll.total || 0;
         damage = reducedValue + redBonus;
         formula = `${reducedValue} + 3d6`;
@@ -442,8 +451,25 @@ export async function executeCombatAttack(
         comboTotal: targets.length // Total number of targets
       });
 
+      // Check for cancellation (null) - break combo immediately
+      console.log("[Combo Multi-Target] Attack roll result:", {
+        attackRollTotal,
+        targetIndex: i + 1,
+        totalTargets: targets.length
+      });
+
+      if (attackRollTotal === null) {
+        console.log("[Combo Multi-Target] Breaking combo - roll cancelled");
+        // Cancellation message already shown by executeCombatAttack
+        break;
+      }
+
       // Check for botch (1-5) - break combo immediately
-      if (attackRollTotal !== null && attackRollTotal <= 5) {
+      if (attackRollTotal <= 5) {
+        console.log(
+          "[Combo Multi-Target] Breaking combo - botch detected:",
+          attackRollTotal
+        );
         // Show message about combo break
         await ChatMessage.create({
           speaker: ChatMessage.getSpeaker({ actor: attacker }),
@@ -521,7 +547,7 @@ export async function executeCombatAttack(
     }
 
     // Roll and show attack (no combat flow) - include talent bonus in chart shift
-    await FaseripRoll.rollAttribute(
+    const noTargetRoll = await FaseripRoll.rollAttribute(
       powerName ||
         attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
       attackRank,
@@ -539,7 +565,17 @@ export async function executeCombatAttack(
       false // Show message
     );
 
-    return null;
+    // Return attack total for combo botch detection
+    const noTargetTotal =
+      (noTargetRoll.modifiedTotal ?? noTargetRoll.roll.total) || 0;
+    console.log("[Combat Flow - No Targets] Returning attack total:", {
+      modifiedTotal: noTargetRoll.modifiedTotal,
+      rollTotal: noTargetRoll.roll.total,
+      finalTotal: noTargetTotal,
+      comboIndex,
+      comboTotal
+    });
+    return noTargetTotal;
   }
 
   // Step 1: Roll attack (but don't show yet)
@@ -613,24 +649,52 @@ export async function executeCombatAttack(
 
   // Step 1: Roll attack with applied chart shifts
   // Pass karma shifts to rollAttribute - it will handle deduction and application
-  const attackRoll = await FaseripRoll.rollAttribute(
-    attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
-    attackRank,
-    attackValue,
-    totalChartShift, // Manual chart shift only
-    attacker,
-    talentNames, // Pass talent names from attack data
-    {
-      attackRoll: true,
-      attackType,
-      powerName
-    },
-    karmaColumnShifts, // Let rollAttribute handle column shifts
-    karmaResultShift, // Let rollAttribute handle result shift
-    true // Skip message - we'll show it after defenses are chosen
-  );
+  let attackRoll;
+  try {
+    attackRoll = await FaseripRoll.rollAttribute(
+      attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
+      attackRank,
+      attackValue,
+      totalChartShift, // Manual chart shift only
+      attacker,
+      talentNames, // Pass talent names from attack data
+      {
+        attackRoll: true,
+        attackType,
+        powerName
+      },
+      karmaColumnShifts, // Let rollAttribute handle column shifts
+      karmaResultShift, // Let rollAttribute handle result shift
+      true // Skip message - we'll show it after defenses are chosen
+    );
+  } catch (error: any) {
+    // Handle manual roll cancellation
+    if (error?.message === "Roll cancelled") {
+      // User cancelled the manual roll entry - treat as combo break
+      if (comboIndex && comboTotal && comboTotal > 1) {
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor: attacker }),
+          content: `<div class="fsr-combat-message" style="background: #6b7280; color: #e5e7eb; padding: 0.5rem; border-radius: 4px;">
+            <strong>Roll Cancelled - Combo Broken!</strong>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${attacker.name} cancelled the roll on attack ${comboIndex} of ${comboTotal}. Remaining attacks cancelled.</p>
+          </div>`
+        });
+      }
+      return null;
+    }
+    // Re-throw other errors
+    throw error;
+  }
 
-  const attackTotal = attackRoll.roll.total || 0;
+  // Use karma-modified total if available (for botch detection), otherwise use raw roll total
+  const attackTotal = (attackRoll.modifiedTotal ?? attackRoll.roll.total) || 0;
+  console.log("[Combat Flow] attackTotal calculated:", {
+    modifiedTotal: attackRoll.modifiedTotal,
+    rollTotal: attackRoll.roll.total,
+    finalAttackTotal: attackTotal,
+    comboIndex,
+    comboTotal
+  });
 
   // Show the attack roll to chat BEFORE defense dialogs
   // ChatMessage.create will handle the dice animation automatically
