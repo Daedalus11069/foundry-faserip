@@ -6,6 +6,12 @@
 import type { FaseripActor } from "../documents";
 import { calculateHealth } from "../utils";
 import { type ArmorItem, isArmorItem } from "../types/items";
+import {
+  calculateArmorPiercing,
+  type ArmorPiercingResult
+} from "./armor-piercing";
+import { rollResistance, type ResistanceRollResult } from "./resistance-roll";
+import { Rank } from "../enums";
 
 export interface DamageApplicationResult {
   armorDamage: number;
@@ -14,11 +20,16 @@ export interface DamageApplicationResult {
   newHealthValue: number;
   armorDestroyed: boolean;
   bodyArmorDestroyed: boolean;
-  resistancePower?: any; // Resistance power that was applied
-  resistanceReduction?: number; // Amount of damage reduced by resistance
+  resistanceRollResult?: ResistanceRollResult; // Resistance roll result (if resistance was triggered)
   vulnerabilityPower?: any; // Vulnerability power that was applied
   vulnerabilityIncrease?: number; // Amount of damage increased by vulnerability
   originalDamage?: number; // Original damage before resistance/vulnerability
+  piercingResult?: ArmorPiercingResult; // Armor piercing breakdown
+
+  /** @deprecated Use resistanceRollResult instead */
+  resistancePower?: any;
+  /** @deprecated Use resistanceRollResult.damageResisted instead */
+  resistanceReduction?: number;
 }
 
 export interface DamageApplicationData {
@@ -26,6 +37,8 @@ export interface DamageApplicationData {
   damage: number;
   damageType?: string;
   degradingArmorMode?: string; // "none", "full", "per-hit"
+  armorPiercing?: string; // Armor-piercing rank (optional)
+  armorRank?: string; // Target's armor rank (optional)
 }
 
 /**
@@ -85,11 +98,22 @@ export async function applyDamageToActor(
   let overflow = 0;
   let armorDestroyed = false;
   let bodyArmorDestroyed = false;
-  let resistancePower: any = undefined;
-  let resistanceReduction = 0;
+  let resistanceRollResult: ResistanceRollResult | undefined;
   let vulnerabilityPower: any = undefined;
   let vulnerabilityIncrease = 0;
   const originalDamage = damage;
+  let piercingResult: ArmorPiercingResult | undefined;
+
+  // Calculate effective armor with piercing
+  let effectiveArmor = totalArmor;
+  if (data.armorPiercing && data.armorRank && totalArmor > 0) {
+    piercingResult = calculateArmorPiercing(
+      totalArmor,
+      data.armorRank as Rank,
+      data.armorPiercing as Rank
+    );
+    effectiveArmor = piercingResult.effectiveArmor;
+  }
 
   // Apply vulnerability if enabled and matching power found
   if (vulnerabilityEnabled && data.damageType && data.damageType !== "none") {
@@ -110,9 +134,9 @@ export async function applyDamageToActor(
     }
   }
 
-  if (totalArmor > 0) {
-    // Armor soaks damage
-    armorDamage = Math.min(damage, totalArmor);
+  if (effectiveArmor > 0) {
+    // Armor soaks damage (using effective armor after piercing)
+    armorDamage = Math.min(damage, effectiveArmor);
     overflow = damage - armorDamage;
 
     // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
@@ -182,25 +206,18 @@ export async function applyDamageToActor(
     }
     // "none" mode: No degradation, armor soaks but keeps full value
 
-    // Check resistance for overflow damage
+    // Check resistance for overflow damage (roll-based system)
     if (overflow > 0 && data.damageType && data.damageType !== "none") {
-      resistancePower = (system.powers || []).find(
-        (p: any) =>
-          p.resistanceType === data.damageType &&
-          (!p.formIds?.length || p.formIds.includes(currentFormId))
+      resistanceRollResult = await rollResistance(
+        actor,
+        data.damageType,
+        overflow,
+        currentFormId
       );
 
-      if (resistancePower) {
-        const resistanceValue = resistancePower.value;
-        if (resistanceValue >= overflow) {
-          // Complete resistance to overflow
-          resistanceReduction = overflow;
-          overflow = 0;
-        } else {
-          // Partial resistance to overflow
-          resistanceReduction = resistanceValue;
-          overflow -= resistanceValue;
-        }
+      if (resistanceRollResult) {
+        // Apply resistance roll result
+        overflow = resistanceRollResult.finalDamage;
       }
     }
 
@@ -209,27 +226,19 @@ export async function applyDamageToActor(
       healthDamage = overflow;
     }
   } else {
-    // No armor - check resistance for all damage
+    // No armor - check resistance for all damage (roll-based system)
     let actualDamage = damage;
 
     if (data.damageType && data.damageType !== "none") {
-      resistancePower = (system.powers || []).find(
-        (p: any) =>
-          p.resistanceType === data.damageType &&
-          (!p.formIds?.length || p.formIds.includes(currentFormId))
+      resistanceRollResult = await rollResistance(
+        actor,
+        data.damageType,
+        actualDamage,
+        currentFormId
       );
 
-      if (resistancePower) {
-        const resistanceValue = resistancePower.value;
-        if (resistanceValue >= actualDamage) {
-          // Complete resistance - no damage
-          resistanceReduction = actualDamage;
-          actualDamage = 0;
-        } else {
-          // Partial resistance - reduce damage
-          resistanceReduction = resistanceValue;
-          actualDamage -= resistanceValue;
-        }
+      if (resistanceRollResult) {
+        actualDamage = resistanceRollResult.finalDamage;
       }
     }
 
@@ -261,11 +270,14 @@ export async function applyDamageToActor(
     newHealthValue,
     armorDestroyed,
     bodyArmorDestroyed,
-    resistancePower,
-    resistanceReduction,
+    resistanceRollResult,
     vulnerabilityPower,
     vulnerabilityIncrease,
-    originalDamage
+    originalDamage,
+    piercingResult,
+    // Deprecated fields for backward compatibility
+    resistancePower: resistanceRollResult?.resistancePower,
+    resistanceReduction: resistanceRollResult?.totalDamageResisted
   };
 
   return result;

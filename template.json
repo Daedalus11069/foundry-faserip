@@ -57,7 +57,8 @@
     "power": {
       "templates": ["base"],
       "rank": "",
-      "category": ""
+      "category": "",
+      "armorPiercing": ""
     },
     "talent": {
       "templates": ["base"],
@@ -83,7 +84,8 @@
       "weaponType": "melee",
       "damage": 0,
       "damageRank": "typical",
-      "equipped": false
+      "equipped": false,
+      "armorPiercing": ""
     }
   }
 }

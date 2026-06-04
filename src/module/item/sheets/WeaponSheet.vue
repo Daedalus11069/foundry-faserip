@@ -62,6 +62,31 @@
         </select>
       </div>
 
+      <!-- Armor Piercing -->
+      <div class="fsr-form-group">
+        <label class="fsr-form-label">
+          Armor Piercing
+          <i
+            class="fas fa-shield-slash text-xs text-red-400 ml-1"
+            :title="'Reduces target armor effectiveness'"
+          ></i>
+        </label>
+        <select v-model="reactiveItem.system.armorPiercing" class="fsr-select">
+          <option value="">None</option>
+          <option
+            v-for="[key, label] in rankChoicesWithValues"
+            :key="key"
+            :value="key"
+          >
+            {{ label }}
+          </option>
+        </select>
+        <div class="text-xs text-gray-400 mt-1">
+          Higher ranks reduce armor more effectively (flat reduction +
+          percentage bypass)
+        </div>
+      </div>
+
       <!-- Equipped Checkbox -->
       <div class="fsr-form-group">
         <label

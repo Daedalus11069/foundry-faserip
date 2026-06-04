@@ -35,6 +35,7 @@ interface AttackData {
   powerRank?: Rank; // Base rank of the attacking power
   damageRoll?: string; // Optional: For house rules only - FASERIP uses result colors, not damage rolls
   damageType?: string; // Type of damage (fire, cold, etc.)
+  armorPiercing?: string; // Armor-piercing rank (optional)
   talentNames?: string[]; // Optional: Talent names that apply to this attack
   talentCS?: number; // Optional: Column shift bonus from talents
   karmaColumnShifts?: number; // Optional: Pre-determined karma column shifts (from combo dialog)
@@ -945,13 +946,38 @@ export async function executeCombatAttack(
         isUltimateBotch
       );
 
+      // Get target's armor rank for armor piercing calculation
+      const targetSystem = targetActor.system as any;
+      let targetArmorRank: string | undefined;
+
+      // Check for equipped armor items first
+      const equippedArmorItems = targetActor.items.filter(
+        (item): item is ArmorItem => isArmorItem(item) && item.system.equipped
+      );
+
+      if (equippedArmorItems.length > 0) {
+        // Use first equipped armor's rank
+        targetArmorRank = equippedArmorItems[0].system.rank;
+      } else {
+        // Fall back to Body Armor power rank
+        const bodyArmorPower = (targetSystem.powers || []).find(
+          (p: any) =>
+            p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor"
+        );
+        if (bodyArmorPower) {
+          targetArmorRank = bodyArmorPower.rank;
+        }
+      }
+
       // Apply damage to target actor via socket (executes on target owner's client)
       const damageApplication = await requestDamageApplication(
         targetActor,
         damageResult.damage,
         attackData.damageType,
         attackData.powerName,
-        target.id // Pass token ID for unlinked tokens
+        target.id, // Pass token ID for unlinked tokens
+        attackData.armorPiercing, // Pass armor piercing rank
+        targetArmorRank // Pass target's armor rank
       );
 
       // Handle case where damage application failed

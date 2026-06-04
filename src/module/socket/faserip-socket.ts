@@ -646,7 +646,9 @@ interface ApplyDamageData {
   damage: number;
   damageType?: string; // Type of damage (fire, cold, etc.) for resistance checking
   powerName?: string; // Name of attacking power for resistance messages
-  armorUpdates?: any[];
+  armorPiercing?: string; // Armor-piercing rank (optional)
+  armorRank?: string; // Target's armor rank (optional)
+  armorUpdates?: any[]; // Legacy: Deprecated - armor is now Item documents
   powerUpdates?: any[];
 }
 
@@ -659,7 +661,9 @@ export async function requestDamageApplication(
   damage: number,
   damageType?: string,
   powerName?: string,
-  targetTokenId?: string
+  targetTokenId?: string,
+  armorPiercing?: string,
+  armorRank?: string
 ): Promise<{
   armorDamage: number;
   healthDamage: number;
@@ -677,7 +681,9 @@ export async function requestDamageApplication(
         targetActorId: targetActor.id!,
         damage,
         damageType,
-        powerName
+        powerName,
+        armorPiercing,
+        armorRank
       });
     }
     console.error("FASERIP Socket | Cannot apply damage locally");
@@ -692,7 +698,9 @@ export async function requestDamageApplication(
       targetTokenId,
       damage,
       damageType,
-      powerName
+      powerName,
+      armorPiercing,
+      armorRank
     });
   }
 
@@ -702,7 +710,9 @@ export async function requestDamageApplication(
     targetTokenId,
     damage,
     damageType,
-    powerName
+    powerName,
+    armorPiercing,
+    armorRank
   });
 
   return result;
@@ -754,11 +764,67 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     actor: targetActor,
     damage: data.damage,
     damageType: data.damageType,
-    degradingArmorMode: degradingMode
+    degradingArmorMode: degradingMode,
+    armorPiercing: data.armorPiercing,
+    armorRank: data.armorRank
   });
 
   // Show resistance chat messages if applicable
-  if (result.resistancePower && result.resistanceReduction) {
+  if (result.resistanceRollResult) {
+    const rr = result.resistanceRollResult;
+
+    if (rr.completelyBlocked) {
+      // Flat resistance completely blocked damage - no roll needed
+      await ChatMessage.create({
+        content: `<div class="fsr-chat-card fsr-success">
+          <h3>Resistance: Complete Protection</h3>
+          <p><strong>${targetActor.name}</strong>'s ${rr.resistancePower.name} (${formatRankDisplay(rr.resistanceRank)}: ${rr.resistanceValue}) completely blocks ${rr.incomingDamage} ${data.damageType} damage${data.powerName ? ` from <strong>${data.powerName}</strong>` : ""}!</p>
+          <p class="fsr-rank-change">No roll needed - damage did not exceed resistance value</p>
+        </div>`,
+        speaker: ChatMessage.getSpeaker({ actor: targetActor })
+      });
+    } else {
+      // Damage exceeded flat resistance - roll was made
+      const colorClass =
+        rr.colorResult === "red"
+          ? "fsr-roll-red"
+          : rr.colorResult === "yellow"
+            ? "fsr-roll-yellow"
+            : rr.colorResult === "green"
+              ? "fsr-roll-green"
+              : "fsr-roll-white";
+
+      if (result.armorDamage > 0) {
+        // Resistance applied to overflow after armor
+        await ChatMessage.create({
+          content: `<div class="fsr-chat-card">
+            <h3>Resistance: Two-Stage Protection</h3>
+            <p><strong>${targetActor.name}</strong>'s armor absorbed ${result.armorDamage} damage</p>
+            <p><strong>${rr.resistancePower.name}</strong> (${formatRankDisplay(rr.resistanceRank)}): ${rr.resistanceValue} flat reduction</p>
+            <p class="fsr-rank-change">${rr.incomingDamage} overflow - ${rr.resistanceValue} resistance = ${rr.overflowDamage} remaining</p>
+            <p>Resistance Roll: <span class="${colorClass}">${rr.rollValue}</span> - <strong class="${colorClass}">${rr.colorResult?.toUpperCase()}</strong> result (${rr.resistancePercent}% reduction of overflow)</p>
+            <p class="fsr-rank-change">${rr.overflowDamage} overflow → ${rr.finalDamage} final damage</p>
+            <p><strong>Total resisted: ${rr.totalDamageResisted}</strong> (${rr.resistanceValue} flat + ${rr.damageResistedByRoll} roll)</p>
+          </div>`,
+          speaker: ChatMessage.getSpeaker({ actor: targetActor })
+        });
+      } else {
+        // Resistance applied to all damage (no armor)
+        await ChatMessage.create({
+          content: `<div class="fsr-chat-card">
+            <h3>Resistance: Two-Stage Protection</h3>
+            <p><strong>${targetActor.name}</strong>'s ${rr.resistancePower.name} (${formatRankDisplay(rr.resistanceRank)}): ${rr.resistanceValue} flat reduction</p>
+            <p class="fsr-rank-change">${rr.incomingDamage} damage - ${rr.resistanceValue} resistance = ${rr.overflowDamage} remaining</p>
+            <p>Resistance Roll: <span class="${colorClass}">${rr.rollValue}</span> - <strong class="${colorClass}">${rr.colorResult?.toUpperCase()}</strong> result (${rr.resistancePercent}% reduction of overflow)</p>
+            <p class="fsr-rank-change">${rr.overflowDamage} overflow → ${rr.finalDamage} final damage</p>
+            <p><strong>Total resisted: ${rr.totalDamageResisted}</strong> (${rr.resistanceValue} flat + ${rr.damageResistedByRoll} roll)</p>
+          </div>`,
+          speaker: ChatMessage.getSpeaker({ actor: targetActor })
+        });
+      }
+    }
+  } else if (result.resistancePower && result.resistanceReduction) {
+    // Legacy fallback for old resistance system (deprecated - kept for backward compatibility)
     if (result.armorDamage > 0) {
       // Resistance applied to overflow
       if (

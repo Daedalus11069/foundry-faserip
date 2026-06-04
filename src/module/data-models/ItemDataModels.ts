@@ -27,12 +27,18 @@ export class ItemDataModel extends TypeDataModel<
 export class PowerDataModel extends ItemDataModel {
   declare rank: string;
   declare category: string;
+  declare armorPiercing?: string;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
       ...super.defineSchema(),
       rank: new StringField({ required: false, initial: "" }),
-      category: new StringField({ required: false, initial: "" })
+      category: new StringField({ required: false, initial: "" }),
+      armorPiercing: new StringField({
+        required: false,
+        initial: "",
+        choices: ["", ...Object.values(Rank)]
+      })
     };
   }
 }
@@ -122,6 +128,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare damageRank: string;
   declare equipped: boolean;
   declare talent?: string;
+  declare armorPiercing?: string;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -142,7 +149,12 @@ export class WeaponDataModel extends ItemDataModel {
         choices: Object.values(Rank)
       }),
       equipped: new BooleanField({ required: true, initial: false }),
-      talent: new StringField({ required: false, initial: "" })
+      talent: new StringField({ required: false, initial: "" }),
+      armorPiercing: new StringField({
+        required: false,
+        initial: "",
+        choices: ["", ...Object.values(Rank)]
+      })
     };
   }
 }

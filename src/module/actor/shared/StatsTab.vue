@@ -30,6 +30,7 @@ interface Weapon {
   applicableTalent?: string;
   description?: string;
   equipped?: boolean;
+  armorPiercing?: string; // Armor-piercing rank (optional)
 }
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -85,7 +86,8 @@ const weapons = computed<Weapon[]>(() => {
     stat: item.system.weaponType === "melee" ? "fighting" : "agility",
     description: item.system.description || "",
     equipped: item.system.equipped,
-    applicableTalent: item.system.talent
+    applicableTalent: item.system.talent,
+    armorPiercing: item.system.armorPiercing || "" // Add armor piercing
   }));
 
   // Merge both sources
@@ -520,6 +522,7 @@ async function rollWeapon(weapon: Weapon) {
         powerName: weapon.name,
         powerRank: damageRank,
         damageType: undefined,
+        armorPiercing: weapon.armorPiercing, // Add armor piercing
         talentNames: talentNames.length > 0 ? talentNames : undefined,
         talentCS: talentCS > 0 ? talentCS : undefined,
         karmaColumnShifts: attackKarma?.columnShifts ?? 0,
@@ -541,6 +544,7 @@ async function rollWeapon(weapon: Weapon) {
       powerName: weapon.name,
       powerRank: damageRank,
       damageType: undefined,
+      armorPiercing: weapon.armorPiercing, // Add armor piercing
       talentNames: talentNames.length > 0 ? talentNames : undefined,
       talentCS: talentCS > 0 ? talentCS : undefined,
       karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
@@ -1462,6 +1466,10 @@ async function rollPower(power: any) {
                         weapon.applicableTalent
                           ? ` + ${weapon.applicableTalent}`
                           : ''
+                      }${
+                        weapon.armorPiercing
+                          ? ` | AP: ${formatRankDisplay(weapon.armorPiercing)}`
+                          : ''
                       }`
                     : 'Weapon must be equipped to attack'
                 "
@@ -1470,6 +1478,13 @@ async function rollPower(power: any) {
                 <span class="ml-1 fsr-rank-badge text-xs">{{
                   formatWeaponDamage(weapon)
                 }}</span>
+                <span
+                  v-if="weapon.armorPiercing"
+                  class="ml-1 text-red-400"
+                  :title="`Armor Piercing: ${formatRankDisplay(weapon.armorPiercing)}`"
+                >
+                  <i class="fas fa-shield-slash"></i>
+                </span>
               </button>
               <button
                 @click="toggleEquip(weapon)"
