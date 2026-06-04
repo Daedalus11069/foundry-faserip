@@ -435,7 +435,7 @@ async function updateWeaponDamageRank(
             class="text-xs px-2 py-0.5 rounded bg-blue-900/60 text-blue-300"
             title="This weapon was synced from Charman (editable here, will be overwritten on next sync)"
           >
-            📡 Synced
+            Synced
           </span>
 
           <!-- Equipped badge -->
