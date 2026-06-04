@@ -646,7 +646,7 @@ interface ApplyDamageData {
   damage: number;
   damageType?: string; // Type of damage (fire, cold, etc.) for resistance checking
   powerName?: string; // Name of attacking power for resistance messages
-  armorPiercing?: string; // Armor-piercing rank (optional)
+  armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
   armorUpdates?: any[]; // Legacy: Deprecated - armor is now Item documents
   powerUpdates?: any[];
@@ -662,7 +662,7 @@ export async function requestDamageApplication(
   damageType?: string,
   powerName?: string,
   targetTokenId?: string,
-  armorPiercing?: string,
+  armorPiercing?: string | null,
   armorRank?: string
 ): Promise<{
   armorDamage: number;

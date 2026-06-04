@@ -30,7 +30,7 @@ interface Weapon {
   applicableTalent?: string;
   description?: string;
   equipped?: boolean;
-  armorPiercing?: string; // Armor-piercing rank (optional)
+  armorPiercing?: string | null; // Armor-piercing rank (optional)
 }
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;

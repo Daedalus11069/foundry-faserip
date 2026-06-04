@@ -1,15 +1,8 @@
 <script setup lang="ts">
 import { inject, computed, ref } from "vue";
-import { formatRankDisplay, RANK_ORDER, RollResult } from "../../enums";
-import { FaseripRoll } from "../../rolling/FaseripRoll";
-import { executeCombatAttack } from "../../combat/combat-flow";
-import { stringToRank, getRankValue } from "../../utils";
+import { formatRankDisplay, RANK_VALUES } from "../../enums";
+import { getRankValue, stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
-import {
-  showTalentSelectionDialog,
-  showComboDialog
-} from "../../applications/dialog-utils";
-import type { Talent } from "../../types";
 import type { ReactiveActorData, PowerData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 
@@ -18,13 +11,33 @@ const actor = inject("actor") as FaseripActor;
 
 const powers = computed(() => reactiveActor.system.powers || []);
 const forms = computed(() => reactiveActor.system.forms || []);
-const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
 
 // Form filter: '' = show all forms, otherwise show only matching
 const filterFormId = ref("");
 
+const rankChoices = computed(() => {
+  // @ts-expect-error - CONFIG.FASERIP added by system
+  return CONFIG.FASERIP?.ranks || {};
+});
+
+const rankChoicesWithValues = computed(() => {
+  const choices: Record<string, string> = {};
+  Object.entries(rankChoices.value).forEach(([key, label]) => {
+    const rank = stringToRank(key);
+    const value = RANK_VALUES[rank];
+    choices[key] = `${label} (${value})`;
+  });
+  return choices;
+});
+
 const filteredPowers = computed(() => {
-  const all = powers.value;
+  const all = powers.value.map(power => {
+    // Ensure powers without armor piercing have it set to null for consistency
+    if (!power.armorPiercing) {
+      power.armorPiercing = null;
+    }
+    return power;
+  });
   if (!filterFormId.value) return all;
   return all.filter(
     p =>
@@ -79,7 +92,8 @@ function addPower() {
     attackType: "none",
     damageType: "none",
     resistanceType: undefined,
-    vulnerabilityType: undefined
+    vulnerabilityType: undefined,
+    armorPiercing: null
   };
   reactiveActor.system.powers.push(newPower);
 }
@@ -1006,8 +1020,12 @@ async function applyArmorHealingToTarget(
               @change="(e: any) => onPowerRankChange(power, e.target.value)"
               class="fsr-select text-sm w-40"
             >
-              <option v-for="r in RANK_ORDER" :key="r" :value="r">
-                {{ formatRankDisplay(r) }}
+              <option
+                v-for="(label, value) in rankChoicesWithValues"
+                :key="value"
+                :value="value"
+              >
+                {{ label }}
               </option>
             </select>
           </div>
@@ -1108,9 +1126,13 @@ async function applyArmorHealingToTarget(
           <div v-if="power.effectType === 'damage'">
             <label class="fsr-label">Armor Piercing</label>
             <select v-model="power.armorPiercing" class="fsr-select text-sm">
-              <option value="">None</option>
-              <option v-for="r in RANK_ORDER" :key="r" :value="r">
-                {{ formatRankDisplay(r) }}
+              <option :value="null">None</option>
+              <option
+                v-for="(label, value) in rankChoicesWithValues"
+                :key="value"
+                :value="value"
+              >
+                {{ label }}
               </option>
             </select>
           </div>

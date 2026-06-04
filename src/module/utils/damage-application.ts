@@ -37,7 +37,7 @@ export interface DamageApplicationData {
   damage: number;
   damageType?: string;
   degradingArmorMode?: string; // "none", "full", "per-hit"
-  armorPiercing?: string; // Armor-piercing rank (optional)
+  armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
 }
 

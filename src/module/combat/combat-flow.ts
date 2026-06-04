@@ -35,7 +35,7 @@ interface AttackData {
   powerRank?: Rank; // Base rank of the attacking power
   damageRoll?: string; // Optional: For house rules only - FASERIP uses result colors, not damage rolls
   damageType?: string; // Type of damage (fire, cold, etc.)
-  armorPiercing?: string; // Armor-piercing rank (optional)
+  armorPiercing?: string | null; // Armor-piercing rank (optional)
   talentNames?: string[]; // Optional: Talent names that apply to this attack
   talentCS?: number; // Optional: Column shift bonus from talents
   karmaColumnShifts?: number; // Optional: Pre-determined karma column shifts (from combo dialog)

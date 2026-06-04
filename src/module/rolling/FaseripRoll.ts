@@ -400,6 +400,12 @@ export class FaseripRoll {
       (roll as any).index = i;
 
       rolls.push(roll as any);
+
+      // Check for botch (1-5) - break combo immediately
+      const rollTotal = roll.roll.total || 0;
+      if (rollTotal <= 5) {
+        break;
+      }
     }
 
     // Send one combined message for all attacks
@@ -508,8 +514,18 @@ export class FaseripRoll {
       </div>`;
     }
 
+    // Check if combo was broken early by a botch
+    const lastRoll = rolls[rolls.length - 1];
+    const lastRollTotal = lastRoll.roll.total || 0;
+    const comboBroken = lastRollTotal <= 5;
+    const originalComboTotal = (lastRoll as any).comboTotal || rolls.length;
+
     const comboLabel =
-      rolls.length > 1 ? `(Combo - ${rolls.length} Attacks)` : "";
+      rolls.length > 1
+        ? comboBroken
+          ? `(Combo - ${rolls.length} of ${originalComboTotal} Attacks - Botch broke combo!)`
+          : `(Combo - ${rolls.length} Attacks)`
+        : "";
 
     const content = `<div class="fsr-roll-card-combo">
       <h3>${attributeName} ${comboLabel}</h3>

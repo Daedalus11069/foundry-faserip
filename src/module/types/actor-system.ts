@@ -80,7 +80,7 @@ export interface PowerData {
   formIds?: string[]; // Form IDs this power is active in
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
-  armorPiercing?: string; // Armor-piercing rank (for damage powers that pierce armor)
+  armorPiercing?: string | null; // Armor-piercing rank (for damage powers that pierce armor)
 }
 
 export interface TalentData {
@@ -109,7 +109,7 @@ export interface WeaponData {
   applicableTalent?: string; // Name of talent that applies to this weapon
   description?: string;
   equipped?: boolean; // Whether weapon is equipped
-  armorPiercing: string | null; // Armor-piercing rank (for damage calculation)
+  armorPiercing?: string | null; // Armor-piercing rank (for damage calculation)
 }
 
 /**

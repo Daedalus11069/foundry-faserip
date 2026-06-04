@@ -662,8 +662,12 @@ async function updateWeaponArmorPiercing(
               class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
             >
               <option value="">None</option>
-              <option v-for="r in RANK_ORDER" :key="r" :value="r">
-                {{ formatRankDisplay(r) }}
+              <option
+                v-for="(label, value) in rankChoicesWithValues"
+                :key="value"
+                :value="value"
+              >
+                {{ label }}
               </option>
             </select>
           </div>
