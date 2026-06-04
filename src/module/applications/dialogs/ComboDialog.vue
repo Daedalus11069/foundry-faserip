@@ -4,6 +4,7 @@ import type { VueDialog } from "../vue-dialog";
 import {
   Rank,
   RANK_VALUES,
+  RANK_ORDER,
   applyChartShift,
   formatRankDisplay
 } from "../../enums";
@@ -30,8 +31,43 @@ const attackKarmaSettings = ref<AttackKarma[]>([
   { columnShifts: 0, resultShift: 0 }
 ]);
 
+// Calculate maximum allowed combo count (cannot go below Feeble)
+const maxComboCount = computed(() => {
+  const baseRankIndex = RANK_ORDER.indexOf(props.attributeRank);
+  if (baseRankIndex === -1) return 1;
+
+  // Calculate effective rank with all non-combo modifiers
+  const bonuses = (props.talentCS || 0) + manualChartShift.value;
+  const effectiveRankIndex = Math.max(
+    0,
+    Math.min(RANK_ORDER.length - 1, baseRankIndex + bonuses)
+  );
+
+  // Feeble is index 1, so max penalty is (effectiveRankIndex - 1)
+  return Math.max(1, effectiveRankIndex - 1);
+});
+
+// Check if any attacks in the combo reach exhaustion threshold (Poor or below)
+const hasExhaustionWarning = computed(() => {
+  if (comboCount.value === 1) return false;
+
+  for (let i = 0; i < comboCount.value; i++) {
+    const rank = getEffectiveRank(i, 0);
+    const rankIndex = RANK_ORDER.indexOf(rank);
+    if (rankIndex <= 2) return true; // Poor or below
+  }
+  return false;
+});
+
 // Watch combo count and adjust karma settings array
 watch(comboCount, (newCount, oldCount) => {
+  // Clamp to maximum allowed
+  const max = maxComboCount.value;
+  if (newCount > max) {
+    comboCount.value = max;
+    return;
+  }
+
   if (newCount > oldCount) {
     // Add new entries
     for (let i = oldCount; i < newCount; i++) {
@@ -40,6 +76,14 @@ watch(comboCount, (newCount, oldCount) => {
   } else if (newCount < oldCount) {
     // Remove excess entries
     attackKarmaSettings.value = attackKarmaSettings.value.slice(0, newCount);
+  }
+});
+
+// Also watch manual chart shift to re-validate max combo
+watch(manualChartShift, () => {
+  const max = maxComboCount.value;
+  if (comboCount.value > max) {
+    comboCount.value = max;
   }
 });
 
@@ -68,12 +112,13 @@ const totalKarmaCost = computed(() => {
   attackKarmaSettings.value.forEach((attack, index) => {
     // Pre-roll cost (column shifts)
     if (attack.columnShifts > 0) {
-      const currentValue = RANK_VALUES[props.attributeRank] || 6;
-      const comboPenalty = -(index + 1);
-      const effectiveRank = applyChartShift(props.attributeRank, comboPenalty);
-      // Include talent CS in shift calculations
-      const totalShifts = attack.columnShifts + (props.talentCS || 0);
-      const shiftedRank = applyChartShift(effectiveRank, totalShifts);
+      const comboPenalty = getAttackPenalty(index);
+      // Combine penalty + talent shifts to avoid hitting intermediate floors
+      const effectiveRank = applyChartShift(
+        props.attributeRank,
+        comboPenalty + (props.talentCS || 0)
+      );
+      const shiftedRank = applyChartShift(effectiveRank, attack.columnShifts);
       const shiftedValue = RANK_VALUES[shiftedRank] || 6;
       const effectiveValue = RANK_VALUES[effectiveRank] || 6;
       const scoreDiff = Math.abs(shiftedValue - effectiveValue);
@@ -99,11 +144,13 @@ function getAttackPenalty(attackIndex: number): number {
 
 function getEffectiveRank(attackIndex: number, columnShifts: number = 0): Rank {
   const comboPenalty = getAttackPenalty(attackIndex);
-  const baseRank = applyChartShift(props.attributeRank, comboPenalty);
-  // Include talent CS and manual chart shift in the effective rank calculation
+  // Combine ALL shifts into one operation to avoid hitting intermediate floors
   const totalShifts =
-    columnShifts + (props.talentCS || 0) + manualChartShift.value;
-  return applyChartShift(baseRank, totalShifts);
+    comboPenalty +
+    columnShifts +
+    (props.talentCS || 0) +
+    manualChartShift.value;
+  return applyChartShift(props.attributeRank, totalShifts);
 }
 
 function getPreRollCost(attackIndex: number, columnShifts: number): number {
@@ -111,8 +158,12 @@ function getPreRollCost(attackIndex: number, columnShifts: number): number {
   if (totalShifts === 0) return 0;
 
   const comboPenalty = getAttackPenalty(attackIndex);
-  const effectiveRank = applyChartShift(props.attributeRank, comboPenalty);
-  const shiftedRank = applyChartShift(effectiveRank, totalShifts);
+  // Combine penalty + talent shifts into one operation to avoid hitting intermediate floors
+  const effectiveRank = applyChartShift(
+    props.attributeRank,
+    comboPenalty + (props.talentCS || 0)
+  );
+  const shiftedRank = applyChartShift(effectiveRank, columnShifts);
 
   const effectiveValue = RANK_VALUES[effectiveRank] || 6;
   const shiftedValue = RANK_VALUES[shiftedRank] || 6;
@@ -134,7 +185,8 @@ function handleSubmit() {
   props.dialog.submit({
     comboCount: comboCount.value,
     attackKarmaSettings: attackKarmaSettings.value,
-    manualChartShift: manualChartShift.value
+    manualChartShift: manualChartShift.value,
+    hasExhaustion: hasExhaustionWarning.value
   });
 }
 
@@ -179,10 +231,24 @@ function handleCancel() {
         type="number"
         v-model.number="comboCount"
         :min="1"
-        :max="10"
+        :max="maxComboCount"
         class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded"
         placeholder="Enter number of attacks"
       />
+      <div class="text-xs text-gray-400 mt-1">
+        Maximum {{ maxComboCount }} attacks (Feeble rank limit)
+      </div>
+    </div>
+
+    <!-- Exhaustion Warning -->
+    <div
+      v-if="hasExhaustionWarning"
+      class="mb-4 p-3 bg-red-900/30 rounded border border-red-700"
+    >
+      <div class="text-sm text-red-300">
+        <strong>⚠️ Exhaustion Warning:</strong> This combo reaches Poor rank or
+        below. Character cannot dodge for the rest of this round!
+      </div>
     </div>
 
     <div class="f-group mb-4">

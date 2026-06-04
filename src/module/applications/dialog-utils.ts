@@ -97,6 +97,7 @@ export async function showComboDialog(
   comboCount: number;
   attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
   manualChartShift?: number;
+  hasExhaustion?: boolean;
 } | null> {
   const result = await VueDialog.show(
     ComboDialog,
@@ -124,6 +125,7 @@ export async function showComboDialog(
     comboCount: number;
     attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
     manualChartShift?: number;
+    hasExhaustion?: boolean;
   } | null;
 }
 
@@ -141,6 +143,7 @@ export async function showAttackOptionsDialog(
   comboCount: number;
   attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
   manualChartShift: number;
+  hasExhaustion?: boolean;
 } | null> {
   const result = await VueDialog.show(
     AttackOptionsDialog,
@@ -169,6 +172,7 @@ export async function showAttackOptionsDialog(
     comboCount: number;
     attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
     manualChartShift: number;
+    hasExhaustion?: boolean;
   } | null;
 }
 

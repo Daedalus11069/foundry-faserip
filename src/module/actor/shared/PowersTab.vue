@@ -308,6 +308,17 @@ async function _rollPower(power: PowerData) {
       comboResult.attackKarmaSettings,
       comboResult.manualChartShift ?? 0
     );
+
+    // Show exhaustion warning if combo reached Poor or below
+    if (comboResult.hasExhaustion) {
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor }),
+        content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+          <strong>⚠️ Exhausted!</strong>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
+        </div>`
+      });
+    }
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
     faseripRoll = await FaseripRoll.rollAttribute(

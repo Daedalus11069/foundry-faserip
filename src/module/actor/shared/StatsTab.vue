@@ -308,7 +308,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         for (let i = 0; i < comboResult.comboCount; i++) {
           const attackKarma = comboResult.attackKarmaSettings[i];
 
-          await executeCombatAttack({
+          const attackRollTotal = await executeCombatAttack({
             attacker: actor as any,
             attackAttribute: "fighting",
             attackType: "melee",
@@ -323,6 +323,35 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             manualChartShift: comboResult.manualChartShift ?? 0,
             comboIndex: i + 1,
             comboTotal: comboResult.comboCount
+          });
+
+          // Check for botch (1-5) - break combo immediately
+          if (attackRollTotal !== null && attackRollTotal <= 5) {
+            // Show message about combo break
+            await ChatMessage.create({
+              speaker: ChatMessage.getSpeaker({ actor }),
+              content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+                <strong>Botch! Combo Broken!</strong>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s attack botched on attack ${i + 1} of ${comboResult.comboCount}. Remaining attacks cancelled.</p>
+              </div>`
+            });
+            break;
+          }
+
+          // Brief delay between attacks for readability
+          if (i < comboResult.comboCount - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+
+        // Show exhaustion warning if combo reached Poor or below
+        if (comboResult.hasExhaustion) {
+          await ChatMessage.create({
+            speaker: ChatMessage.getSpeaker({ actor }),
+            content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+              <strong>⚠️ Exhausted!</strong>
+              <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
+            </div>`
           });
         }
       } else {
@@ -402,6 +431,17 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       comboResult.attackKarmaSettings,
       comboResult.manualChartShift ?? 0
     );
+
+    // Show exhaustion warning if combo reached Poor or below
+    if (comboResult.hasExhaustion) {
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor }),
+        content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+          <strong>⚠️ Exhausted!</strong>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
+        </div>`
+      });
+    }
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
     await FaseripRoll.rollAttribute(
@@ -514,7 +554,7 @@ async function rollWeapon(weapon: Weapon) {
     for (let i = 0; i < comboResult.comboCount; i++) {
       const attackKarma = comboResult.attackKarmaSettings[i];
 
-      await executeCombatAttack({
+      const attackRollTotal = await executeCombatAttack({
         attacker: actor as any,
         attackAttribute,
         attackType,
@@ -530,6 +570,35 @@ async function rollWeapon(weapon: Weapon) {
         manualChartShift: comboResult.manualChartShift ?? 0,
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount
+      });
+
+      // Check for botch (1-5) - break combo immediately
+      if (attackRollTotal !== null && attackRollTotal <= 5) {
+        // Show message about combo break
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor }),
+          content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+            <strong>Botch! Combo Broken!</strong>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s attack botched on attack ${i + 1} of ${comboResult.comboCount}. Remaining attacks cancelled.</p>
+          </div>`
+        });
+        break;
+      }
+
+      // Brief delay between attacks for readability
+      if (i < comboResult.comboCount - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    // Show exhaustion warning if combo reached Poor or below
+    if (comboResult.hasExhaustion) {
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor }),
+        content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+          <strong>⚠️ Exhausted!</strong>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
+        </div>`
       });
     }
   } else {
@@ -1087,7 +1156,7 @@ async function rollPower(power: any) {
       for (let i = 0; i < comboResult.comboCount; i++) {
         const attackKarma = comboResult.attackKarmaSettings[i];
 
-        await executeCombatAttack({
+        const attackRollTotal = await executeCombatAttack({
           attacker: actor as any,
           attackAttribute,
           attackType,
@@ -1107,6 +1176,24 @@ async function rollPower(power: any) {
           comboTotal: comboResult.comboCount,
           multiHit: power.multiHit || false
         });
+
+        // Check for botch (1-5) - break combo immediately
+        if (attackRollTotal !== null && attackRollTotal <= 5) {
+          // Show message about combo break
+          await ChatMessage.create({
+            speaker: ChatMessage.getSpeaker({ actor }),
+            content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+              <strong>Botch! Combo Broken!</strong>
+              <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s attack botched on attack ${i + 1} of ${comboResult.comboCount}. Remaining attacks cancelled.</p>
+            </div>`
+          });
+          break;
+        }
+
+        // Brief delay between attacks for readability
+        if (i < comboResult.comboCount - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
     } else {
       // Single attack with karma from combo dialog

@@ -404,10 +404,11 @@ async function applyDamageToActor(
 
 /**
  * Execute a full combat flow: attack → defense prompt → resolution → damage
+ * Returns the attack roll total (for detecting botches in combo attacks)
  */
 export async function executeCombatAttack(
   attackData: AttackData
-): Promise<void> {
+): Promise<number | null> {
   const {
     attacker,
     attackAttribute,
@@ -430,29 +431,40 @@ export async function executeCombatAttack(
 
   // MULTI-TARGET HANDLING:
   // If NOT multi-hit and multiple targets, process each target individually with separate rolls
-  if (!attackData.multiHit && targets.length > 1) {
+  // IMPORTANT: If comboIndex/comboTotal are already set (from combo dialog), preserve them
+  // Only use multi-target indexing if NOT part of a combo attack
+  if (!attackData.multiHit && targets.length > 1 && !attackData.comboIndex) {
     for (let i = 0; i < targets.length; i++) {
-      await executeCombatAttack({
+      const attackRollTotal = await executeCombatAttack({
         ...attackData,
         targets: [targets[i]], // Single target
         comboIndex: i + 1, // 1-based index for combo penalty
         comboTotal: targets.length // Total number of targets
       });
 
+      // Check for botch (1-5) - break combo immediately
+      if (attackRollTotal !== null && attackRollTotal <= 5) {
+        // Show message about combo break
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor: attacker }),
+          content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+            <strong>Botch! Combo Broken!</strong>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${attacker.name}'s attack botched on target ${i + 1} of ${targets.length}. Remaining attacks cancelled.</p>
+          </div>`
+        });
+        break;
+      }
+
       // Brief delay between attacks for readability
       if (i < targets.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
-    return;
+    return null;
   }
 
   // If no targets, show warning and just roll the attack without combat flow
   if (targets.length === 0) {
-    ui.notifications?.warn(
-      `No targets selected! ${powerName || "Attack"} will be rolled but no damage will be applied.`
-    );
-
     const system = attacker.system as any;
     const currentForm =
       system.forms?.find((f: any) => f.id === system.currentFormId) ||
@@ -460,13 +472,13 @@ export async function executeCombatAttack(
 
     if (!currentForm) {
       ui.notifications?.error("No form found for attacker!");
-      return;
+      return null;
     }
 
     const attackAttr = currentForm.attributes?.[attackAttribute];
     if (!attackAttr) {
       ui.notifications?.error(`${attackAttribute} attribute not found!`);
-      return;
+      return null;
     }
 
     const attackRank = stringToRank(attackAttr.rank) as Rank;
@@ -498,7 +510,7 @@ export async function executeCombatAttack(
       );
 
       if (!attackOptions) {
-        return;
+        return null;
       }
 
       // Extract first attack's karma settings from combo result
@@ -527,7 +539,7 @@ export async function executeCombatAttack(
       false // Show message
     );
 
-    return;
+    return null;
   }
 
   // Step 1: Roll attack (but don't show yet)
@@ -538,13 +550,13 @@ export async function executeCombatAttack(
 
   if (!currentForm) {
     ui.notifications?.error("No form found for attacker!");
-    return;
+    return null;
   }
 
   const attackAttr = currentForm.attributes?.[attackAttribute];
   if (!attackAttr) {
     ui.notifications?.error(`${attackAttribute} attribute not found!`);
-    return;
+    return null;
   }
 
   const attackRank = stringToRank(attackAttr.rank) as Rank;
@@ -579,7 +591,7 @@ export async function executeCombatAttack(
 
     if (!attackOptions) {
       // User cancelled
-      return;
+      return null;
     }
 
     // Extract first attack's karma settings from combo result
@@ -1206,6 +1218,9 @@ export async function executeCombatAttack(
       });
     }
   }
+
+  // Return the attack roll total for botch detection in combo attacks
+  return attackTotal;
 }
 
 /**
