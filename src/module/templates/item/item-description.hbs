@@ -1,0 +1,19 @@
+<div class="tab description active" data-group="primary" data-tab="description">
+  <div class="p-4">
+    <div class="form-group">
+      <label class="text-sm font-semibold text-gray-300">Description</label>
+      <textarea
+        name="system.description"
+        rows="8"
+        class="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white"
+      >{{system.description}}</textarea>
+    </div>
+    {{#if enrichedDescription}}
+      <div
+        class="description-display mt-4 p-3 bg-gray-900 rounded border border-gray-700 text-gray-300"
+      >
+        {{{enrichedDescription}}}
+      </div>
+    {{/if}}
+  </div>
+</div>

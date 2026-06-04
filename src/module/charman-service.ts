@@ -77,6 +77,7 @@ export interface CharmanPower {
   damageType?: string; // Type of damage dealt (fire, cold, etc.)
   resistanceType?: string; // Type of damage this power resists (for resistance powers)
   vulnerabilityType?: string; // Type of damage this power is weak to (for vulnerability/weakness powers)
+  multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
 }
 
 export interface CharmanTalent {
@@ -547,6 +548,7 @@ export class CharmanService {
         damageType: power.damageType || "none",
         resistanceType: power.resistanceType,
         vulnerabilityType: power.vulnerabilityType,
+        multiHit: power.multiHit || false,
         value: power.value || getRankValue(rankName),
         maxValue: power.maxValue || getRankValue(rankName)
       };
@@ -740,12 +742,73 @@ export class CharmanService {
         "system.notes": actorData.system.notes,
         "system.powers": actorData.system.powers,
         "system.talents": actorData.system.talents,
-        "system.armors": actorData.system.armors,
-        "system.weapons": actorData.system.weapons,
         "system.charman": actorData.system.charman
+        // Note: system.armors and system.weapons are NOT updated here
+        // They are converted to Item documents below
       };
 
       await existingActor.update(updateData);
+
+      // Delete existing armor and weapon items
+      const existingArmorIds = existingActor.items
+        .filter((item: any) => item.type === "armor")
+        .map((item: any) => item.id);
+      const existingWeaponIds = existingActor.items
+        .filter((item: any) => item.type === "weapon")
+        .map((item: any) => item.id);
+
+      if (existingArmorIds.length > 0) {
+        await existingActor.deleteEmbeddedDocuments("Item", existingArmorIds);
+      }
+      if (existingWeaponIds.length > 0) {
+        await existingActor.deleteEmbeddedDocuments("Item", existingWeaponIds);
+      }
+
+      // Create armor items from Charman data
+      if (actorData.system.armors && actorData.system.armors.length > 0) {
+        const armorItems = actorData.system.armors.map((armor: any) => ({
+          name: armor.name,
+          type: "armor",
+          system: {
+            rank: armor.rank,
+            value: armor.value,
+            maxValue: armor.maxValue,
+            equipped: armor.equipped,
+            description: armor.description
+          }
+        }));
+        await existingActor.createEmbeddedDocuments("Item", armorItems);
+      }
+
+      // Create weapon items from Charman data
+      if (actorData.system.weapons && actorData.system.weapons.length > 0) {
+        const weaponItems = actorData.system.weapons.map((weapon: any) => {
+          // Convert old weapon format to new format
+          const weaponType = weapon.type === "ranged" ? "ranged" : "melee";
+          const isRanged = weaponType === "ranged";
+
+          return {
+            name: weapon.name,
+            type: "weapon",
+            system: {
+              weaponType,
+              damage: isRanged
+                ? 0
+                : typeof weapon.damage === "number"
+                  ? weapon.damage
+                  : 0,
+              damageRank: isRanged
+                ? typeof weapon.damage === "string"
+                  ? weapon.damage
+                  : Rank.Typical
+                : Rank.Typical,
+              equipped: weapon.equipped,
+              description: weapon.description || ""
+            }
+          };
+        });
+        await existingActor.createEmbeddedDocuments("Item", weaponItems);
+      }
 
       // Build consolidated notification message
       const messageParts = [`Updated ${actorData.name} from Charman`];
@@ -782,8 +845,67 @@ export class CharmanService {
       ui.notifications?.info(messageParts.join(" "));
       return existingActor;
     } else {
-      // Create new actor
-      const actor = await Actor.create(actorData);
+      // Create new actor (without armors/weapons in system data)
+      const actorDataForCreate = {
+        ...actorData,
+        system: {
+          ...actorData.system,
+          armors: [], // Don't create embedded arrays
+          weapons: [] // Will be created as Item documents below
+        }
+      };
+
+      const actor = await Actor.create(actorDataForCreate);
+
+      if (!actor) {
+        throw new Error("Failed to create actor");
+      }
+
+      // Create armor items from Charman data
+      if (actorData.system.armors && actorData.system.armors.length > 0) {
+        const armorItems = actorData.system.armors.map((armor: any) => ({
+          name: armor.name,
+          type: "armor",
+          system: {
+            rank: armor.rank,
+            value: armor.value,
+            maxValue: armor.maxValue,
+            equipped: armor.equipped,
+            description: armor.description
+          }
+        }));
+        await actor.createEmbeddedDocuments("Item", armorItems);
+      }
+
+      // Create weapon items from Charman data
+      if (actorData.system.weapons && actorData.system.weapons.length > 0) {
+        const weaponItems = actorData.system.weapons.map((weapon: any) => {
+          // Convert old weapon format to new format
+          const weaponType = weapon.type === "ranged" ? "ranged" : "melee";
+          const isRanged = weaponType === "ranged";
+
+          return {
+            name: weapon.name,
+            type: "weapon",
+            system: {
+              weaponType,
+              damage: isRanged
+                ? 0
+                : typeof weapon.damage === "number"
+                  ? weapon.damage
+                  : 0,
+              damageRank: isRanged
+                ? typeof weapon.damage === "string"
+                  ? weapon.damage
+                  : Rank.Typical
+                : Rank.Typical,
+              equipped: weapon.equipped,
+              description: weapon.description || ""
+            }
+          };
+        });
+        await actor.createEmbeddedDocuments("Item", weaponItems);
+      }
 
       // Build consolidated notification message
       const messageParts = [`Imported ${actorData.name} from Charman`];
@@ -817,7 +939,6 @@ export class CharmanService {
         messageParts.push(`(${dataParts.join(", ")})`);
       }
 
-      // @ts-expect-error - Foundry's ui.notifications may not be typed
       ui.notifications?.success(messageParts.join(" "));
       return actor as Actor;
     }

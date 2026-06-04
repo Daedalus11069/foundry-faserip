@@ -1,0 +1,19 @@
+<header
+  class="sheet-header flex items-center gap-3 p-4 bg-gray-800 border-b border-gray-700"
+>
+  <img
+    class="profile-img w-16 h-16 rounded cursor-pointer"
+    src="{{img}}"
+    data-action="onEditImage"
+    title="{{name}}"
+  />
+  <div class="flex-1">
+    <input
+      type="text"
+      name="name"
+      value="{{name}}"
+      placeholder="Item Name"
+      class="text-2xl font-bold bg-transparent border-b border-gray-600 focus:border-blue-500 outline-none w-full text-white"
+    />
+  </div>
+</header>

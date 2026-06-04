@@ -69,19 +69,19 @@ export class FaseripActor<
   SubType extends Actor.SubType = Actor.SubType
 > extends Actor<SubType> {
   /**
-   * Pre-create hook to set default prototypeToken configuration
+   * Pre-create hook to set default prototypeToken configuration and initialize data
    */
   protected override async _preCreate(
     data: any,
     options: any,
     user: any
   ): Promise<boolean | void> {
-    // Set default prototypeToken configuration for PCs only before calling super
-    if (data.type === ActorType.Pc && !data.prototypeToken) {
-      data.prototypeToken = {
-        sight: {
-          enabled: true
-        },
+    // Set default prototypeToken configuration for PCs and NPCs
+    if (
+      (data.type === ActorType.Pc || data.type === ActorType.Npc) &&
+      !data.prototypeToken
+    ) {
+      const tokenConfig: any = {
         displayName: CONST.TOKEN_DISPLAY_MODES.ALWAYS,
         displayBars: CONST.TOKEN_DISPLAY_MODES.ALWAYS,
         bar1: {
@@ -91,6 +91,54 @@ export class FaseripActor<
           attribute: "resources.armor"
         }
       };
+
+      // Only PCs get vision enabled by default
+      if (data.type === ActorType.Pc) {
+        tokenConfig.sight = { enabled: true };
+      }
+
+      data.prototypeToken = tokenConfig;
+    }
+
+    // Initialize forms if not present
+    if (!data.system?.forms || data.system.forms.length === 0) {
+      if (!data.system) data.system = {};
+      data.system.forms = [
+        {
+          id: "default",
+          name: "Base Form",
+          isPrimary: true,
+          attributes: {
+            fighting: { rank: Rank.Typical, value: 6 },
+            agility: { rank: Rank.Typical, value: 6 },
+            strength: { rank: Rank.Typical, value: 6 },
+            endurance: { rank: Rank.Typical, value: 6 },
+            reasoning: { rank: Rank.Typical, value: 6 },
+            intuition: { rank: Rank.Typical, value: 6 },
+            psyche: { rank: Rank.Typical, value: 6 }
+          }
+        }
+      ];
+      data.system.currentFormId = "default";
+    }
+
+    // Initialize healthByForm for default form
+    if (
+      !data.system?.healthByForm ||
+      Object.keys(data.system.healthByForm).length === 0
+    ) {
+      const defaultForm = data.system.forms?.[0];
+      if (defaultForm) {
+        const calculatedHealth = calculateHealth(defaultForm);
+        if (!data.system.healthByForm) data.system.healthByForm = {};
+        data.system.healthByForm[defaultForm.id] = calculatedHealth;
+
+        // Also initialize the health value
+        if (!data.system.resources) data.system.resources = {};
+        if (!data.system.resources.health) data.system.resources.health = {};
+        data.system.resources.health.value = calculatedHealth;
+        data.system.resources.health.max = calculatedHealth;
+      }
     }
 
     return super._preCreate(data, options, user);
@@ -205,7 +253,6 @@ export class FaseripActor<
     }
 
     // Calculate derived armor resource for token bar display
-    // This is not stored in the schema - it's dynamically calculated
     const activeFormId = system.currentFormId;
     const bodyArmorPower = (system.powers || []).find(
       (p: any) =>
@@ -213,8 +260,10 @@ export class FaseripActor<
         (!p.formIds?.length || p.formIds.includes(activeFormId))
     );
 
-    // Find equipped armor
-    const equippedArmor = (system.armors || []).find((a: any) => a.equipped);
+    // Find equipped armor items (from actor.items collection)
+    const equippedArmorItems = this.items.filter(
+      (item: any) => item.type === "armor" && item.system.equipped
+    );
 
     // Calculate current and max armor values
     let currentArmor = 0;
@@ -225,15 +274,19 @@ export class FaseripActor<
       maxArmor += bodyArmorPower.maxValue || bodyArmorPower.value;
     }
 
-    if (equippedArmor) {
-      currentArmor += equippedArmor.value;
-      maxArmor += equippedArmor.maxValue || equippedArmor.value;
+    // Sum up all equipped armor items
+    for (const armorItem of equippedArmorItems) {
+      const armorSystem = armorItem.system as any;
+      currentArmor += armorSystem.value || 0;
+      maxArmor += armorSystem.maxValue || 0;
     }
 
-    // Add armor as derived data (not stored in database)
+    // Ensure armor resource exists (for backwards compatibility)
     if (!system.resources.armor) {
       system.resources.armor = { value: 0, max: 0 };
     }
+
+    // Update armor resource (now stored in schema)
     system.resources.armor.value = currentArmor;
     system.resources.armor.max = maxArmor;
   }

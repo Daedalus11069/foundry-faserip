@@ -5,6 +5,7 @@
 
 import type { FaseripActor } from "../documents";
 import { calculateHealth } from "../utils";
+import { type ArmorItem, isArmorItem } from "../types/items";
 
 export interface DamageApplicationResult {
   armorDamage: number;
@@ -29,12 +30,13 @@ export interface DamageApplicationData {
 
 /**
  * Apply damage to an actor with armor soak and overflow calculation
- * Updates healthByForm (source data) and armor/power arrays
- * Does NOT call actor.update() - caller must handle persistence
+ * Updates healthByForm (source data) and armor items directly
+ * Does NOT call actor.update() for health - caller must handle health persistence
+ * DOES call item.update() for armor items (Item documents must be updated individually)
  */
-export function applyDamageToActor(
+export async function applyDamageToActor(
   data: DamageApplicationData
-): DamageApplicationResult {
+): Promise<DamageApplicationResult> {
   const { actor, degradingArmorMode = "none" } = data;
   const system = actor.system as any;
 
@@ -58,17 +60,24 @@ export function applyDamageToActor(
   const currentHealth =
     healthByForm[currentFormId] ?? system.resources.health.max ?? 0;
 
-  // Find armor sources
+  // Find armor sources (use Item documents for equipped armor)
   const bodyArmorPower = (system.powers || []).find(
     (p: any) =>
       p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
       (!p.formIds?.length || p.formIds.includes(currentFormId))
   );
-  const equippedArmor = (system.armors || []).find((a: any) => a.equipped);
 
-  // Calculate total armor
+  // Find equipped armor items from actor.items collection
+  const equippedArmorItems = actor.items.filter(
+    (item): item is ArmorItem => isArmorItem(item) && item.system.equipped
+  );
+
+  // Calculate total armor from body armor power + all equipped armor items
   const bodyArmorValue = bodyArmorPower?.value ?? 0;
-  const equippedArmorValue = equippedArmor?.value ?? 0;
+  const equippedArmorValue = equippedArmorItems.reduce(
+    (sum, item) => sum + (item.system.value || 0),
+    0
+  );
   const totalArmor = bodyArmorValue + equippedArmorValue;
 
   let armorDamage = 0;
@@ -112,20 +121,23 @@ export function applyDamageToActor(
     // Apply armor degradation based on mode
     if (degradingArmorMode === "full") {
       // Full degradation: Reduce armor by damage soaked
-      // Equipped armor soaks first
-      if (equippedArmor && remainingArmorDamage > 0) {
-        const equippedArmorReduction = Math.min(
-          remainingArmorDamage,
-          equippedArmor.value
-        );
-        equippedArmor.value = Math.max(
-          0,
-          equippedArmor.value - equippedArmorReduction
-        );
-        remainingArmorDamage -= equippedArmorReduction;
+      // Equipped armor items soak first (update each directly)
+      for (const armorItem of equippedArmorItems) {
+        if (remainingArmorDamage <= 0) break;
 
-        if (equippedArmor.value === 0) {
-          armorDestroyed = true;
+        const armorValue = armorItem.system.value || 0;
+        const armorReduction = Math.min(remainingArmorDamage, armorValue);
+
+        if (armorReduction > 0) {
+          const newValue = Math.max(0, armorValue - armorReduction);
+          await armorItem.update({
+            "system.value": newValue
+          } as Record<string, unknown>);
+          remainingArmorDamage -= armorReduction;
+
+          if (newValue === 0) {
+            armorDestroyed = true;
+          }
         }
       }
 
@@ -147,10 +159,19 @@ export function applyDamageToActor(
     } else if (degradingArmorMode === "per-hit" && overflow > 0) {
       // Per-hit degradation: Reduce armor by 1 only if damage penetrated
       // Prioritize equipped armor degradation first
-      if (equippedArmor && equippedArmor.value > 0) {
-        equippedArmor.value = Math.max(0, equippedArmor.value - 1);
-        if (equippedArmor.value === 0) {
-          armorDestroyed = true;
+      if (equippedArmorItems.length > 0) {
+        // Degrade the first equipped armor item with value > 0
+        const armorToDegrade = equippedArmorItems.find(
+          item => item.system.value > 0
+        );
+        if (armorToDegrade) {
+          const newValue = Math.max(0, armorToDegrade.system.value - 1);
+          await armorToDegrade.update({
+            "system.value": newValue
+          } as Record<string, unknown>);
+          if (newValue === 0) {
+            armorDestroyed = true;
+          }
         }
       } else if (bodyArmorPower && bodyArmorPower.value > 0) {
         bodyArmorPower.value = Math.max(0, bodyArmorPower.value - 1);

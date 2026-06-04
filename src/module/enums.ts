@@ -222,5 +222,7 @@ export enum ItemType {
   Power = "power",
   Talent = "talent",
   Equipment = "equipment",
-  Contact = "contact"
+  Contact = "contact",
+  Armor = "armor",
+  Weapon = "weapon"
 }

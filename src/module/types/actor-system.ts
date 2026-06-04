@@ -79,6 +79,7 @@ export interface PowerData {
   damageType?: string; // Damage type (fire, cold, energy, etc.)
   formIds?: string[]; // Form IDs this power is active in
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs
+  multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
 }
 
 export interface TalentData {

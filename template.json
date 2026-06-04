@@ -70,6 +70,20 @@
     "contact": {
       "templates": ["base"],
       "relationship": ""
+    },
+    "armor": {
+      "templates": ["base"],
+      "rank": "typical",
+      "value": 6,
+      "maxValue": 6,
+      "equipped": false
+    },
+    "weapon": {
+      "templates": ["base"],
+      "weaponType": "melee",
+      "damage": 0,
+      "damageRank": "typical",
+      "equipped": false
     }
   }
 }

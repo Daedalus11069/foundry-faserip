@@ -202,7 +202,8 @@ async function _rollPower(power: PowerData) {
       powerName: power.name,
       powerRank: rank, // Pass the power's rank for damage calculation
       damageRoll: `1d${value}`, // Simple damage based on power rank value
-      damageType: power.damageType !== "none" ? power.damageType : undefined
+      damageType: power.damageType !== "none" ? power.damageType : undefined,
+      multiHit: power.multiHit || false // Pass multiHit flag for AoE powers
     });
 
     // Deduct MP after successful attack
@@ -1054,6 +1055,26 @@ async function applyArmorHealingToTarget(
               <option value="psyche">vs Psyche</option>
             </select>
           </div>
+        </div>
+
+        <!-- Multi-Hit checkbox (for AoE/multi-target attacks) -->
+        <div
+          v-if="power.attackType && power.attackType !== 'none'"
+          class="mb-2"
+        >
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              v-model="power.multiHit"
+              type="checkbox"
+              class="w-4 h-4 rounded border-gray-600 text-blue-500 focus:ring-2 focus:ring-blue-500"
+            />
+            <span class="fsr-label mb-0"
+              >Multi-Hit (AoE)
+              <span class="fsr-help-text"
+                >(one roll for all targets, no combo penalty)</span
+              ></span
+            >
+          </label>
         </div>
 
         <!-- Damage Type, Resistance Type, and Vulnerability Type -->

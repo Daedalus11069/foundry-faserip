@@ -255,7 +255,6 @@ async function resyncFromCharman() {
     );
 
     // Base sheet's updateActor hook will automatically sync reactive actor
-    // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
     ui.notifications?.success("Character re-synced from Charman");
   } catch (error) {
     console.error("Re-sync failed:", error);
@@ -390,7 +389,7 @@ async function browseTokenImage() {
             @click="startEditingLink"
             class="fsr-btn bg-blue-900 hover:bg-blue-950 text-white text-sm"
           >
-            ✏️ Edit Link
+            <i class="fas fa-edit"></i>
           </button>
           <button
             @click="unlinkCharacter"

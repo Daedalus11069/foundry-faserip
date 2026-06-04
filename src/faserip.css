@@ -9,6 +9,8 @@
     }
 
     .application.sheet.fsr-sheet,
+    .application.sheet.item.armor,
+    .application.sheet.item.weapon,
     .application.fsr-dialog {
         .window-content {
             color: #f9fafb;

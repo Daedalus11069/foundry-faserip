@@ -2,9 +2,23 @@ import "./faserip.css";
 
 // System imports
 import { FaseripActor } from "./module/documents";
-import { ActorType } from "./module/enums";
-import { PcDataModel, NpcDataModel } from "./module/data-models/index";
+import { ActorType, ItemType } from "./module/enums";
+import {
+  PcDataModel,
+  NpcDataModel,
+  PowerDataModel,
+  TalentDataModel,
+  EquipmentDataModel,
+  ContactDataModel,
+  ArmorDataModel,
+  WeaponDataModel
+} from "./module/data-models/index";
 import { PcSheet, NpcSheet } from "./module/actor/ActorSheets";
+import {
+  ArmorSheet,
+  WeaponSheet,
+  GenericItemSheet
+} from "./module/item/ItemSheets";
 import { initCharmanService } from "./module/charman-service";
 import { registerChatCommands } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
@@ -14,6 +28,10 @@ import {
   cleanupAllIntuitionOverlays,
   initIntuitionHoverListener
 } from "./module/utils/intuition-overlay";
+import {
+  migrateEmbeddedItemsToDocuments,
+  forceMigrateItems
+} from "./module/utils/migrate-items";
 import { showMovementSettingsDialog } from "./module/applications/dialog-utils";
 import { initializeSocket } from "./module/socket/faserip-socket";
 
@@ -370,12 +388,69 @@ const initHandler = () => {
     restricted: true
   });
 
+  // Migration flag for converting embedded armors/weapons to Item documents
+  game.settings.register("faserip", "itemsMigrationCompleted", {
+    name: "Items Migration Completed",
+    hint: "Internal flag tracking whether embedded armors/weapons have been migrated to Item documents.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false
+  });
+
   // Register the custom Actor document class
   CONFIG.Actor.documentClass = FaseripActor;
+
+  // Configure FASERIP-specific settings
+  // @ts-expect-error - Custom CONFIG property
+  CONFIG.FASERIP = {
+    ranks: {
+      shift_0: "Shift 0",
+      feeble: "Feeble",
+      poor: "Poor",
+      typical: "Typical",
+      good: "Good",
+      excellent: "Excellent",
+      remarkable: "Remarkable",
+      incredible: "Incredible",
+      amazing: "Amazing",
+      monstrous: "Monstrous",
+      unearthly: "Unearthly",
+      shift_x: "Shift X",
+      shift_y: "Shift Y",
+      shift_z: "Shift Z",
+      class_1000: "Class 1000",
+      class_3000: "Class 3000",
+      class_5000: "Class 5000",
+      beyond: "Beyond"
+    }
+  };
+
+  // Register Handlebars helpers for templates
+  Handlebars.registerHelper("gt", (a: number, b: number) => a > b);
+  Handlebars.registerHelper("subtract", (a: number, b: number) => a - b);
+  Handlebars.registerHelper("eq", (a: any, b: any) => a === b);
+  Handlebars.registerHelper("checked", (value: boolean) =>
+    value ? "checked" : ""
+  );
 
   // Register data models for each actor type
   CONFIG.Actor.dataModels[ActorType.Pc] = PcDataModel;
   CONFIG.Actor.dataModels[ActorType.Npc] = NpcDataModel;
+
+  // Register data models for each item type
+  CONFIG.Item.dataModels[ItemType.Power] = PowerDataModel;
+  CONFIG.Item.dataModels[ItemType.Talent] = TalentDataModel;
+  CONFIG.Item.dataModels[ItemType.Equipment] = EquipmentDataModel;
+  CONFIG.Item.dataModels[ItemType.Contact] = ContactDataModel;
+  CONFIG.Item.dataModels[ItemType.Armor] = ArmorDataModel;
+  CONFIG.Item.dataModels[ItemType.Weapon] = WeaponDataModel;
+
+  // Log registered item types for debugging
+  console.log(
+    "FASERIP | Registered Item Types:",
+    Object.keys(CONFIG.Item.dataModels)
+  );
 
   // Configure trackable attributes for tokens
   CONFIG.Actor.trackableAttributes = {
@@ -409,6 +484,43 @@ const initHandler = () => {
     makeDefault: true,
     label: "FASERIP.ActorType.npc"
   });
+
+  // Register item sheets
+  foundry.documents.collections.Items.unregisterSheet(
+    "core",
+    // @ts-expect-error - Type definitions don't match Foundry v13 runtime
+    foundry.applications.sheets.ItemSheetV2
+  );
+
+  // @ts-expect-error - Type definitions don't match Foundry v13 runtime
+  foundry.documents.collections.Items.registerSheet("faserip", ArmorSheet, {
+    types: [ItemType.Armor],
+    makeDefault: true,
+    label: "FASERIP.ItemType.armor"
+  });
+
+  // @ts-expect-error - Type definitions don't match Foundry v13 runtime
+  foundry.documents.collections.Items.registerSheet("faserip", WeaponSheet, {
+    types: [ItemType.Weapon],
+    makeDefault: true,
+    label: "FASERIP.ItemType.weapon"
+  });
+
+  foundry.documents.collections.Items.registerSheet(
+    "faserip",
+    // @ts-expect-error - Type definitions don't match Foundry v13 runtime
+    GenericItemSheet,
+    {
+      types: [
+        ItemType.Power,
+        ItemType.Talent,
+        ItemType.Equipment,
+        ItemType.Contact
+      ],
+      makeDefault: true,
+      label: "FASERIP.ItemType.generic"
+    }
+  );
 
   // Initialize Charman service from settings
   const charmanApiUrl = game.settings.get("faserip", "charmanApiUrl") as string;
@@ -749,11 +861,27 @@ Hooks.on(
 );
 
 // Ready hook
-Hooks.once("ready", () => {
+Hooks.once("ready", async () => {
   console.log("FASERIP | System ready");
+
+  // Diagnostic: Log valid item types recognized by Foundry
+  // @ts-expect-error - TypeScript doesn't recognize documentTypes on game
+  const itemTypes = game.documentTypes?.Item || [];
 
   // Initialize socket system for multiplayer combat interactions
   initializeSocket();
+
+  // Run migration to convert embedded armors/weapons to Item documents
+  // This only runs once per world and is safe to call repeatedly
+  // @ts-expect-error - TypeScript doesn't recognize game.user.isGM
+  if (game.user?.isGM) {
+    await migrateEmbeddedItemsToDocuments();
+  }
+
+  // Set up game.faserip namespace for console access
+  game.faserip = {
+    forceMigrateItems
+  };
 });
 
 // Export for global access if needed
@@ -761,3 +889,4 @@ export { FaseripActor } from "./module/documents";
 export { ActorType, Rank, Attribute } from "./module/enums";
 export { getCharmanService } from "./module/charman-service";
 export { FaseripRoll } from "./module/rolling/index";
+export { forceMigrateItems } from "./module/utils/migrate-items";

@@ -88,13 +88,13 @@ src/
 
 ### Attributes
 
-- **Fighting** (⚔️): Combat ability
-- **Agility** (🏃): Dodging and reflexes
-- **Strength** (💪): Physical power
-- **Endurance** (🛡️): Durability and health
-- **Reasoning** (🧠): Logic and problem-solving
-- **Intuition** (👁️): Awareness and initiative
-- **Psyche** (✨): Mental fortitude and willpower
+- **Fighting**: Combat ability
+- **Agility**: Dodging and reflexes
+- **Strength**: Physical power
+- **Endurance**: Durability and health
+- **Reasoning**: Logic and problem-solving
+- **Intuition**: Awareness and initiative
+- **Psyche**: Mental fortitude and willpower
 
 ### Rank System
 

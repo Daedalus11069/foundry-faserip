@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, ref, computed, watch } from "vue";
+import { inject, ref, computed, watch, onMounted, onUnmounted } from "vue";
 import StatsTab from "./StatsTab.vue";
 import EditTab from "./EditTab.vue";
 import PowersTab from "./PowersTab.vue";
@@ -16,9 +16,13 @@ import {
 } from "../../utils/damage-application";
 import type { ReactiveActorData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
+import { isArmorItem } from "../../types/items";
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
 const actor = inject("actor") as FaseripActor;
+
+// Reactive key to force computed updates when actor/items change
+const actorUpdateKey = ref(0);
 
 const activeTab = ref<string>(
   (actor.getFlag("faserip", "activeTab") as string | undefined) ?? "edit"
@@ -126,6 +130,7 @@ const healthPercent = computed(() => {
 
 // Combined armor (Body Armor power + equipped armor)
 const bodyArmorPower = computed(() => {
+  void actorUpdateKey.value; // Force reactivity
   const activeFormId = reactiveActor.system.currentFormId;
   return (
     (reactiveActor.system.powers || []).find(
@@ -136,10 +141,11 @@ const bodyArmorPower = computed(() => {
   );
 });
 
-const equippedArmor = computed(() => {
-  if (!armorEnabled.value) return null;
-  return (
-    (reactiveActor.system.armors || []).find((a: any) => a.equipped) ?? null
+const equippedArmorItems = computed(() => {
+  void actorUpdateKey.value; // Force reactivity
+  if (!armorEnabled.value) return [];
+  return actor.items.filter(
+    (item: any) => item.type === "armor" && item.system.equipped
   );
 });
 
@@ -148,21 +154,15 @@ const degradingEnabled = computed(
 );
 
 const armorValue = computed(() => {
-  let total = 0;
-  if (bodyArmorPower.value) total += bodyArmorPower.value.value;
-  if (equippedArmor.value) total += equippedArmor.value.value;
-  return total;
+  void actorUpdateKey.value; // Force reactivity
+  const system = actor.system as any;
+  return system.resources?.armor?.value || 0;
 });
 
 const armorMax = computed(() => {
-  let total = 0;
-  if (bodyArmorPower.value) {
-    total += bodyArmorPower.value.maxValue || bodyArmorPower.value.value;
-  }
-  if (equippedArmor.value) {
-    total += equippedArmor.value.maxValue || equippedArmor.value.value;
-  }
-  return total;
+  void actorUpdateKey.value; // Force reactivity
+  const system = actor.system as any;
+  return system.resources?.armor?.max || 0;
 });
 
 const armorPercent = computed(() => {
@@ -175,6 +175,7 @@ const forms = computed(() => reactiveActor.system.forms || []);
 
 // Computed armor list for compact display
 const armorList = computed(() => {
+  void actorUpdateKey.value; // Force reactivity
   const armors: Array<{ icon: string; name: string; title: string }> = [];
 
   if (bodyArmorPower.value) {
@@ -188,14 +189,16 @@ const armorList = computed(() => {
     });
   }
 
-  if (equippedArmor.value) {
+  for (const armorItem of equippedArmorItems.value) {
+    if (!isArmorItem(armorItem)) continue;
+
     const absorbs = degradingEnabled.value
-      ? `absorbs ${equippedArmor.value.value}/${equippedArmor.value.maxValue || equippedArmor.value.value}`
-      : `absorbs ${equippedArmor.value.value}`;
+      ? `absorbs ${armorItem.system.value}/${armorItem.system.maxValue || armorItem.system.value}`
+      : `absorbs ${armorItem.system.value}`;
     armors.push({
       icon: "🛡️",
-      name: equippedArmor.value.name,
-      title: `${equippedArmor.value.rank}, ${absorbs}`
+      name: armorItem.name || "Unknown Armor",
+      title: `${armorItem.system.rank}, ${absorbs}`
     });
   }
 
@@ -243,8 +246,8 @@ async function applyDamage() {
     (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
 
   // Use centralized damage application
-  const result = applyDamageToActor({
-    actor: reactiveActor as any,
+  const result = await applyDamageToActor({
+    actor: actor,
     damage: damageAmount.value,
     degradingArmorMode: degradingMode
   });
@@ -312,13 +315,49 @@ async function applyHealing() {
   if (damageAmount.value === 0) return;
 
   // Use centralized healing application
-  const newHealthValue = applyHealingToActor(
-    reactiveActor as any,
-    damageAmount.value
-  );
+  applyHealingToActor(actor, damageAmount.value);
 
   damageAmount.value = 0;
 }
+
+// Hook callbacks to trigger reactivity when actor or items change
+const handleActorUpdate = (updatedActor: Actor) => {
+  if (updatedActor._id === actor._id) {
+    actorUpdateKey.value++;
+  }
+};
+
+const handleItemCreate = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    actorUpdateKey.value++;
+  }
+};
+
+const handleItemUpdate = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    actorUpdateKey.value++;
+  }
+};
+
+const handleItemDelete = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    actorUpdateKey.value++;
+  }
+};
+
+onMounted(() => {
+  Hooks.on("updateActor", handleActorUpdate);
+  Hooks.on("createItem", handleItemCreate);
+  Hooks.on("updateItem", handleItemUpdate);
+  Hooks.on("deleteItem", handleItemDelete);
+});
+
+onUnmounted(() => {
+  Hooks.off("updateActor", handleActorUpdate);
+  Hooks.off("createItem", handleItemCreate);
+  Hooks.off("updateItem", handleItemUpdate);
+  Hooks.off("deleteItem", handleItemDelete);
+});
 </script>
 
 <template>

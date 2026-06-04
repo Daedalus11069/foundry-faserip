@@ -1,87 +1,201 @@
 <script setup lang="ts">
-import { inject, computed } from "vue";
-import { Rank, RANK_ORDER, RANK_VALUES, formatRankDisplay } from "../../enums";
-import { getRankValue } from "../../utils";
-import { getCharmanService } from "../../charman-service";
-import type { ArmorItem } from "../../types";
+import { inject, computed, ref, onMounted, onUnmounted } from "vue";
+import { Rank, formatRankDisplay, ItemType, RANK_VALUES } from "../../enums";
+import { stringToRank } from "../../utils";
+import type { FaseripActor } from "../../documents";
+import type { ArmorItem } from "../../types/items";
+import { isArmorItem } from "../../types/items";
 
-const reactiveActor = inject("reactiveActor") as any;
-const actor = inject("actor") as Actor<"pc" | "npc">;
+const actor = inject("actor") as FaseripActor;
 
-const armors = computed<ArmorItem[]>(() => reactiveActor.system.armors || []);
+// Reactive key to force computed updates when items change
+const itemsUpdateKey = ref(0);
 
-const equippedArmor = computed<ArmorItem | undefined>(() =>
-  armors.value.find(a => a.equipped)
-);
+// Get armor items from actor.items
+const armorItems = computed((): ArmorItem[] => {
+  void itemsUpdateKey.value; // Force reactivity
+  return actor.items.filter(isArmorItem);
+});
+
+const equippedArmor = computed((): ArmorItem | undefined => {
+  void itemsUpdateKey.value; // Force reactivity
+  return armorItems.value.find(item => item.system.equipped);
+});
+
+// Hook callbacks
+const handleItemCreate = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+const handleItemUpdate = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+const handleItemDelete = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+onMounted(() => {
+  Hooks.on("createItem", handleItemCreate);
+  Hooks.on("updateItem", handleItemUpdate);
+  Hooks.on("deleteItem", handleItemDelete);
+});
+
+onUnmounted(() => {
+  Hooks.off("createItem", handleItemCreate);
+  Hooks.off("updateItem", handleItemUpdate);
+  Hooks.off("deleteItem", handleItemDelete);
+});
 
 const degradingEnabled = computed(
   () => game.settings.get("faserip", "degradingArmor") ?? false
 );
 
-// Ranks available as armor (Typical and above — Shift 0/Feeble/Poor rarely used for armor)
-const armorRanks = RANK_ORDER.filter(
-  r => r !== Rank.Shift0 && r !== Rank.Feeble && r !== Rank.Poor
-);
+const rankChoices = computed(() => {
+  // @ts-expect-error - CONFIG.FASERIP added by system
+  return CONFIG.FASERIP?.ranks || {};
+});
 
-function addArmor() {
-  if (!reactiveActor.system.armors) reactiveActor.system.armors = [];
-  const rankValue = RANK_VALUES[Rank.Typical];
-  const newArmor: ArmorItem = {
-    id: crypto.randomUUID(),
-    name: "New Armor",
-    rank: Rank.Typical,
-    value: rankValue,
-    maxValue: rankValue,
-    equipped: false,
-    description: ""
-  };
-  reactiveActor.system.armors.push(newArmor);
+const rankChoicesWithValues = computed(() => {
+  const choices: Record<string, string> = {};
+  Object.entries(rankChoices.value).forEach(([key, label]) => {
+    const rank = stringToRank(key);
+    const value = RANK_VALUES[rank];
+    choices[key] = `${label} (${value})`;
+  });
+  return choices;
+});
+
+async function createArmor() {
+  await actor.createEmbeddedDocuments("Item", [
+    {
+      name: "New Armor",
+      type: ItemType.Armor,
+      system: {
+        rank: Rank.Typical,
+        value: 6,
+        maxValue: 6,
+        equipped: false,
+        description: ""
+      }
+    } as any
+  ]);
 }
 
-async function removeArmor(index: number) {
-  const armor = reactiveActor.system.armors[index];
+async function deleteArmor(itemId: string) {
+  const item = actor.items.get(itemId);
+  if (!item) return;
+
   // @ts-expect-error - DialogV2 path not fully typed
   const confirmed = await foundry.applications.api.DialogV2.confirm({
-    content: `<p>Delete <strong>${armor.name}</strong>? This cannot be undone.</p>`,
+    content: `<p>Delete <strong>${item.name}</strong>? This cannot be undone.</p>`,
     modal: true
   });
-  if (!confirmed) return;
-  reactiveActor.system.armors.splice(index, 1);
-}
 
-function onRankChange(armor: ArmorItem, rank: string) {
-  armor.rank = rank;
-  const newValue = getRankValue(rank);
-  armor.value = newValue;
-  armor.maxValue = newValue;
-}
-
-function equipArmor(armorId: string) {
-  // Only one piece can be equipped at a time
-  for (const a of reactiveActor.system.armors) {
-    a.equipped = a.id === armorId;
+  if (confirmed) {
+    await item.delete();
   }
 }
 
-function unequipAll() {
-  for (const a of reactiveActor.system.armors) {
-    a.equipped = false;
+async function equipArmor(itemId: string) {
+  // Unequip all armor first
+  const updates = armorItems.value
+    .filter(item => item.system.equipped && item.id !== itemId)
+    .map(item => ({
+      _id: item.id,
+      "system.equipped": false
+    }));
+
+  if (updates.length > 0) {
+    await actor.updateEmbeddedDocuments("Item", updates);
+  }
+
+  // Equip the selected armor
+  const targetItem = actor.items.get(itemId);
+  if (targetItem) {
+    await targetItem.update({ "system.equipped": true } as Record<
+      string,
+      unknown
+    >);
   }
 }
 
-async function repairArmor(armor: ArmorItem) {
-  const maxValue = armor.maxValue || armor.value;
-  const currentDamage = maxValue - armor.value;
+async function unequipArmor(itemId: string) {
+  const item = actor.items.get(itemId);
+  if (item) {
+    await item.update({ "system.equipped": false } as Record<string, unknown>);
+  }
+}
+
+function editArmor(itemId: string) {
+  const item = actor.items.get(itemId);
+  if (item?.sheet) {
+    item.sheet.render(true);
+  }
+}
+
+async function updateArmorName(itemId: string, newName: string) {
+  const item = actor.items.get(itemId);
+  if (item && newName.trim()) {
+    await item.update({ name: newName.trim() });
+  }
+}
+
+async function updateArmorRank(itemId: string, newRank: string) {
+  const item = actor.items.get(itemId);
+  if (item) {
+    // Get the new armor value based on the rank
+    const rank = stringToRank(newRank);
+    const newValue = RANK_VALUES[rank];
+
+    // Update rank, current value, and max value all at once
+    await item.update({
+      "system.rank": newRank,
+      "system.value": newValue,
+      "system.maxValue": newValue
+    } as Record<string, unknown>);
+  }
+}
+
+async function updateArmorValue(itemId: string, newValue: number) {
+  const item = actor.items.get(itemId);
+  if (item) {
+    await item.update({ "system.value": Math.max(0, newValue) } as Record<
+      string,
+      unknown
+    >);
+  }
+}
+
+async function updateArmorMaxValue(itemId: string, newMaxValue: number) {
+  const item = actor.items.get(itemId);
+  if (item) {
+    await item.update({ "system.maxValue": Math.max(1, newMaxValue) } as Record<
+      string,
+      unknown
+    >);
+  }
+}
+
+async function repairArmor(item: ArmorItem) {
+  const maxValue = item.system.maxValue || item.system.value;
+  const currentDamage = maxValue - item.system.value;
 
   if (currentDamage <= 0) return;
 
   // @ts-expect-error - DialogV2 path not fully typed
   const result = await foundry.applications.api.DialogV2.prompt({
-    window: { title: `Repair ${armor.name}` },
+    window: { title: `Repair ${item.name}` },
     content: `
       <form>
         <div class="form-group">
-          <label>Repair Amount (Current: ${armor.value}/${maxValue}, Damage: ${currentDamage})</label>
+          <label>Repair Amount (Current: ${item.system.value}/${maxValue}, Damage: ${currentDamage})</label>
           <input type="number" name="amount" value="${currentDamage}" min="1" max="${currentDamage}" autofocus />
         </div>
       </form>
@@ -90,9 +204,9 @@ async function repairArmor(armor: ArmorItem) {
     rejectClose: false,
     ok: {
       label: "Repair",
-      callback: (event: any, button: any, dialog: any) => {
+      callback: (_event: unknown, button: { form: HTMLFormElement }) => {
         const form = button.form;
-        // @ts-expect-error - FormDataExtended exists on foundry.applications.ux
+        // @ts-expect-error - FormDataExtended exists
         return new foundry.applications.ux.FormDataExtended(form).object;
       }
     }
@@ -103,24 +217,9 @@ async function repairArmor(armor: ArmorItem) {
       Math.max(1, Number(result.amount)),
       currentDamage
     );
-    armor.value = Math.min(maxValue, armor.value + repairAmount);
-
-    // Sync armor repair with Charman if character is linked
-    const charmanData = actor.system.charman;
-    if (charmanData?.username && charmanData?.characterName) {
-      try {
-        const service = getCharmanService();
-        await service.updateEquipmentArmor(
-          charmanData.username,
-          charmanData.characterName,
-          armor.name,
-          armor.value
-        );
-      } catch (error) {
-        // Service not initialized or sync failed - ignore silently
-        console.warn("Could not sync armor repair to Charman:", error);
-      }
-    }
+    await item.update({
+      "system.value": Math.min(maxValue, item.system.value + repairAmount)
+    } as Record<string, unknown>);
   }
 }
 </script>
@@ -129,7 +228,7 @@ async function repairArmor(armor: ArmorItem) {
   <div>
     <div class="flex justify-between items-center mb-4">
       <h2 class="text-2xl font-bold text-white">Armor</h2>
-      <button @click="addArmor" class="fsr-btn fsr-btn-primary fsr-btn-sm">
+      <button @click="createArmor" class="fsr-btn fsr-btn-primary fsr-btn-sm">
         + Add Armor
       </button>
     </div>
@@ -149,21 +248,22 @@ async function repairArmor(armor: ArmorItem) {
       <div v-if="equippedArmor" class="flex items-center gap-3">
         <span class="text-white font-bold">{{ equippedArmor.name }}</span>
         <span class="fsr-rank-badge">{{
-          formatRankDisplay(equippedArmor.rank)
+          formatRankDisplay(equippedArmor.system.rank)
         }}</span>
         <span v-if="degradingEnabled" class="text-green-400 font-bold"
-          >{{ equippedArmor.value }}/{{
-            equippedArmor.maxValue || equippedArmor.value
+          >{{ equippedArmor.system.value }}/{{
+            equippedArmor.system.maxValue || equippedArmor.system.value
           }}
           armor</span
         >
         <span v-else class="text-green-400 font-bold"
-          >–{{ equippedArmor.value }} dmg</span
+          >–{{ equippedArmor.system.value }} dmg</span
         >
         <button
-          @click="unequipAll"
+          v-if="equippedArmor.id"
+          @click="unequipArmor(equippedArmor.id)"
           class="ml-auto text-xs text-gray-400 hover:text-red-400"
-          title="Unequip"
+          :title="'Unequip'"
         >
           ✕ unequip
         </button>
@@ -173,7 +273,7 @@ async function repairArmor(armor: ArmorItem) {
 
     <!-- Armor list -->
     <div
-      v-if="armors.length === 0"
+      v-if="armorItems.length === 0"
       class="text-gray-500 italic text-center py-8"
     >
       No armor. Click "+ Add Armor" to add a piece.
@@ -181,86 +281,166 @@ async function repairArmor(armor: ArmorItem) {
 
     <div class="flex flex-col gap-3">
       <div
-        v-for="(armor, index) in armors"
-        :key="armor.id"
+        v-for="item in armorItems"
+        :key="item.id!"
         class="fsr-card p-3"
-        :class="armor.equipped ? 'border border-green-600' : ''"
+        :class="item.system.equipped ? 'border border-green-600' : ''"
       >
-        <!-- Row 1: equip radio + name + rank + delete -->
+        <!-- Row 1: equip radio + name + rank + edit -->
         <div class="flex items-center gap-2">
           <!-- Equip toggle -->
           <button
-            @click="armor.equipped ? unequipAll() : equipArmor(armor.id)"
-            :title="armor.equipped ? 'Unequip' : 'Equip'"
+            @click="
+              item.system.equipped
+                ? unequipArmor(item.id!)
+                : equipArmor(item.id!)
+            "
+            :title="item.system.equipped ? 'Unequip' : 'Equip'"
             class="w-5 h-5 rounded-full border-2 shrink-0 transition-colors"
             :class="
-              armor.equipped
+              item.system.equipped
                 ? 'bg-green-500 border-green-400'
                 : 'bg-transparent border-gray-500 hover:border-green-500'
             "
-          />
+          >
+            <span
+              v-if="item.system.equipped"
+              class="text-white text-xs leading-none"
+              >✓</span
+            >
+          </button>
 
-          <!-- Name -->
+          <!-- Name (inline editable) -->
           <input
-            v-model="armor.name"
             type="text"
-            class="fsr-input basis-1/4 text-sm"
+            :value="item.name"
+            @blur="
+              e =>
+                updateArmorName(item.id!, (e.target as HTMLInputElement).value)
+            "
+            @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+            class="basis-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
             placeholder="Armor name"
           />
 
-          <!-- Rank selector -->
+          <!-- Rank selector (inline editable) -->
           <select
-            :value="armor.rank"
-            @change="(e: any) => onRankChange(armor, e.target.value)"
-            class="fsr-select text-sm w-40"
+            :value="item.system.rank"
+            @change="
+              e =>
+                updateArmorRank(item.id!, (e.target as HTMLSelectElement).value)
+            "
+            class="basis-auto bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
           >
-            <option v-for="r in armorRanks" :key="r" :value="r">
-              {{ formatRankDisplay(r) }} ({{ RANK_VALUES[r as Rank] }})
+            <option
+              v-for="(label, value) in rankChoicesWithValues"
+              :key="value"
+              :value="value"
+            >
+              {{ label }}
             </option>
           </select>
 
-          <!-- Value badge -->
-          <span
-            v-if="degradingEnabled"
-            class="text-gray-400 text-sm w-24 text-right"
-            >{{ armor.value }}/{{ armor.maxValue || armor.value }}</span
-          >
-          <span v-else class="text-gray-400 text-sm w-14 text-right"
-            >–{{ armor.value }}</span
-          >
+          <!-- Old rank badge for reference -->
+          <span v-if="false" class="fsr-rank-badge">{{
+            formatRankDisplay(item.system.rank)
+          }}</span>
 
-          <!-- Repair button (only if degrading is enabled and armor is damaged) -->
+          <!-- Edit button -->
           <button
-            v-if="
-              degradingEnabled && armor.value < (armor.maxValue || armor.value)
-            "
-            @click="repairArmor(armor)"
-            class="text-blue-400 hover:text-blue-300 text-xs shrink-0"
-            title="Repair to full"
+            @click="editArmor(item.id!)"
+            class="text-xs text-blue-400 hover:text-blue-300 px-2"
+            :title="'Edit armor'"
           >
-            🔧
+            <i class="fas fa-edit"></i>
           </button>
 
-          <!-- Delete -->
+          <!-- Delete button -->
           <button
-            @click="removeArmor(index)"
-            class="text-gray-500 hover:text-red-400 ml-1 shrink-0"
-            title="Delete"
+            @click="deleteArmor(item.id!)"
+            class="text-xs text-red-400 hover:text-red-300"
+            :title="'Delete armor'"
           >
-            ✕
+            <i class="fas fa-trash"></i>
           </button>
         </div>
 
-        <!-- Row 2: description -->
-        <div class="mt-2">
-          <input
-            v-model="armor.description"
-            type="text"
-            class="fsr-input w-full text-xs text-gray-400"
-            placeholder="Description (optional)"
-          />
+        <!-- Row 2: armor value inputs + repair button -->
+        <div class="flex items-center gap-2 mt-2">
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-gray-400">Current:</label>
+            <input
+              type="number"
+              :value="item.system.value"
+              @blur="
+                e =>
+                  updateArmorValue(
+                    item.id!,
+                    Number((e.target as HTMLInputElement).value)
+                  )
+              "
+              @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+              :min="0"
+              :max="item.system.maxValue"
+              class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+            />
+            <span v-if="degradingEnabled" class="text-xs text-gray-400">/</span>
+            <input
+              v-if="degradingEnabled"
+              type="number"
+              :value="item.system.maxValue"
+              @blur="
+                e =>
+                  updateArmorMaxValue(
+                    item.id!,
+                    Number((e.target as HTMLInputElement).value)
+                  )
+              "
+              @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+              :min="1"
+              class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+            />
+            <span class="text-xs text-gray-400">{{
+              degradingEnabled ? "armor" : "armor value"
+            }}</span>
+          </div>
+
+          <button
+            v-if="degradingEnabled && item.system.value < item.system.maxValue"
+            @click="repairArmor(item)"
+            class="ml-auto text-xs fsr-btn fsr-btn-primary py-0.5 px-2"
+          >
+            🔧 Repair
+          </button>
+        </div>
+
+        <!-- Description -->
+        <div
+          v-if="item.system.description"
+          class="text-xs text-gray-400 mt-2 italic"
+        >
+          {{ item.system.description }}
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.fsr-card {
+  background-color: rgb(31 41 55);
+  border-radius: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid rgb(55 65 81);
+}
+
+.fsr-rank-badge {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 700;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  background-color: rgb(202 138 4);
+  color: #000;
+}
+</style>

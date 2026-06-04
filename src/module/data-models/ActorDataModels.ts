@@ -207,7 +207,12 @@ export function definePowerRefSchema() {
     }),
     damageType: new StringField({ required: false, initial: "none" }),
     resistanceType: new StringField({ required: false, nullable: true }),
-    vulnerabilityType: new StringField({ required: false, nullable: true })
+    vulnerabilityType: new StringField({ required: false, nullable: true }),
+    multiHit: new BooleanField({
+      required: false,
+      initial: false,
+      label: "Multi-Hit (AoE)"
+    })
   });
 }
 
@@ -283,7 +288,22 @@ export class ActorDataModel extends TypeDataModel<
             })
           },
           { required: false }
-        )
+        ),
+        // Armor resource (derived from Body Armor power + equipped armor items)
+        armor: new SchemaField({
+          value: new NumberField({
+            required: true,
+            integer: true,
+            min: 0,
+            initial: 0
+          }),
+          max: new NumberField({
+            required: true,
+            integer: true,
+            min: 0,
+            initial: 0
+          })
+        })
       }),
 
       // Health tracked per-form (key = formId, value = HP)
@@ -308,13 +328,15 @@ export class ActorDataModel extends TypeDataModel<
       // Talents (stored as references)
       talents: new ArrayField(defineTalentRefSchema()),
 
-      // Armor items (house rule: armorEnabled setting)
+      // DEPRECATED: Armor items - use Item documents (type: "armor") instead
+      // Kept for backwards compatibility with existing actors
       armors: new ArrayField(defineArmorSchema(), {
         required: false,
         initial: () => []
       }),
 
-      // Weapon items (house rule: weaponsEnabled setting)
+      // DEPRECATED: Weapon items - use Item documents (type: "weapon") instead
+      // Kept for backwards compatibility with existing actors
       weapons: new ArrayField(defineWeaponSchema(), {
         required: false,
         initial: () => []

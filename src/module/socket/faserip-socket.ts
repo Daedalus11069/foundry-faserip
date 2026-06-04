@@ -745,13 +745,12 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   // @todo fix me later; don't cast to any.
   const system = targetActor.system as any;
 
-  // CRITICAL: Clone arrays BEFORE damage application to avoid mutating source
-  // This follows Foundry's recommended pattern for array updates
-  const clonedArmors = system.armors ? [...system.armors] : [];
+  // CRITICAL: Clone powers array BEFORE damage application to avoid mutating source
+  // (Armor is now handled via Item documents which are updated directly)
   const clonedPowers = system.powers ? [...system.powers] : [];
 
-  // Use centralized damage application (will mutate the clones)
-  const result = applyDamageToActor({
+  // Use centralized damage application (updates armor items directly, mutates clonedPowers)
+  const result = await applyDamageToActor({
     actor: targetActor,
     damage: data.damage,
     damageType: data.damageType,
@@ -817,11 +816,6 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   // Build updates object using the cloned arrays (which now have mutations applied)
   const updates: Record<string, any> = {};
 
-  // Add armor updates - use cloned arrays (always update if actor has armors property)
-  if (system.armors !== undefined) {
-    updates["system.armors"] = clonedArmors;
-  }
-
   // Add power updates - use cloned arrays (always update if actor has powers property)
   if (system.powers !== undefined) {
     updates["system.powers"] = clonedPowers;
@@ -832,13 +826,13 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     system.healthByForm = {};
   }
   updates["system.healthByForm"] = system.healthByForm;
-  // CRITICAL: Also update resources directly (health and armor)
-  // prepareDerivedData() will recalculate from healthByForm/armors/powers, but we need immediate update
-  // This is especially important for unlinked tokens where the delta must contain complete resource data
+  // CRITICAL: Update health resources directly
+  // prepareDerivedData() will recalculate health from healthByForm, but we need immediate update
+  // for unlinked tokens where the delta must contain complete resource data
   updates["system.resources.health.value"] = result.newHealthValue;
   updates["system.resources.health.max"] = system.resources.health.max;
-  updates["system.resources.armor.value"] = result.newArmorValue;
-  updates["system.resources.armor.max"] = system.resources.armor.max;
+  // NOTE: Armor resources are NOT set here - they're derived values recalculated by prepareDerivedData
+  // from armor items (which were already updated directly by applyDamageToActor)
 
   // Update actor with new values
   try {

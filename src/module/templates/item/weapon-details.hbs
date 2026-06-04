@@ -1,0 +1,35 @@
+<div class="tab details" data-group="primary" data-tab="details">
+  <div class="p-4 space-y-4">
+    <div class="form-group">
+      <label class="text-sm font-semibold text-gray-300">Weapon Type</label>
+      <select name="system.weaponType" class="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white">
+        {{#each weaponTypes}}
+        <option value="{{value}}" {{#if (eq ../system.weaponType value)}}selected{{/if}}>{{label}}</option>
+        {{/each}}
+      </select>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="form-group">
+        <label class="text-sm font-semibold text-gray-300">Damage (CS for Melee)</label>
+        <input type="number" name="system.damage" value="{{system.damage}}" class="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white" />
+        <p class="text-xs text-gray-400 mt-1">For melee/thrown: Column Shifts added to Strength</p>
+      </div>
+
+      <div class="form-group">
+        <label class="text-sm font-semibold text-gray-300">Damage Rank (Ranged)</label>
+        <select name="system.damageRank" class="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white">
+          {{#each ranks}}
+          <option value="{{value}}" {{#if (eq ../system.damageRank value)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+        <p class="text-xs text-gray-400 mt-1">For ranged weapons: fixed damage rank</p>
+      </div>
+    </div>
+
+    <div class="form-group flex items-center gap-2">
+      <input type="checkbox" name="system.equipped" {{checked system.equipped}} class="w-4 h-4" />
+      <label class="text-sm font-semibold text-gray-300">Equipped</label>
+    </div>
+  </div>
+</div>

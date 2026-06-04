@@ -19,6 +19,7 @@ import {
   formatRankDisplay,
   RANK_VALUES
 } from "../enums";
+import { type ArmorItem, isArmorItem } from "../types/items";
 
 /**
  * Data for an attack attempt
@@ -41,6 +42,7 @@ interface AttackData {
   manualChartShift?: number; // Optional: Manual chart shift modifier (from combo dialog)
   comboIndex?: number; // Optional: Current attack number in combo (1-based)
   comboTotal?: number; // Optional: Total number of attacks in combo
+  multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
 }
 
 /**
@@ -277,14 +279,18 @@ async function applyDamageToActor(
   const degradingArmorEnabled =
     game.settings.get("faserip", "degradingArmor") ?? false;
 
-  // Armor is derived from body armor power + equipped armor
+  // Armor is derived from body armor power + equipped armor items
   const activeFormId = system.currentFormId;
   const bodyArmorPower = (system.powers || []).find(
     (p: any) =>
       p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
       (!p.formIds?.length || p.formIds.includes(activeFormId))
   );
-  const equippedArmor = (system.armors || []).find((a: any) => a.equipped);
+
+  // Find equipped armor from actor.items collection (Item documents)
+  const equippedArmorItems = actor.items.filter(
+    (item): item is ArmorItem => isArmorItem(item) && item.system.equipped
+  );
 
   const currentArmor = system.resources?.armor?.value || 0;
   const currentHealth =
@@ -314,25 +320,19 @@ async function applyDamageToActor(
       // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
       let remainingArmorDamage = armorDamage;
 
-      // Equipped armor soaks first
-      if (equippedArmor && remainingArmorDamage > 0) {
-        const equippedArmorReduction = Math.min(
-          remainingArmorDamage,
-          equippedArmor.value
-        );
-        // Clone armors array and update the specific armor
-        const updatedArmors = [...system.armors];
-        const armorIndex = updatedArmors.findIndex(
-          (a: any) => a.id === equippedArmor.id
-        );
-        if (armorIndex !== -1) {
-          updatedArmors[armorIndex] = {
-            ...updatedArmors[armorIndex],
-            value: equippedArmor.value - equippedArmorReduction
-          };
-          updates["system.armors"] = updatedArmors;
+      // Equipped armor items soak first (update each item directly)
+      for (const armorItem of equippedArmorItems) {
+        if (remainingArmorDamage <= 0) break;
+
+        const armorValue = armorItem.system.value || 0;
+        const armorReduction = Math.min(remainingArmorDamage, armorValue);
+
+        if (armorReduction > 0) {
+          await armorItem.update({
+            "system.value": armorValue - armorReduction
+          } as Record<string, unknown>);
+          remainingArmorDamage -= armorReduction;
         }
-        remainingArmorDamage -= equippedArmorReduction;
       }
 
       // Body Armor power soaks remainder
@@ -426,6 +426,25 @@ export async function executeCombatAttack(
     ? attackData.targets
     : // @ts-expect-error - game.user.targets may not be typed
       (Array.from(game.user?.targets ?? []) as Token[]);
+
+  // MULTI-TARGET HANDLING:
+  // If NOT multi-hit and multiple targets, process each target individually with separate rolls
+  if (!attackData.multiHit && targets.length > 1) {
+    for (let i = 0; i < targets.length; i++) {
+      await executeCombatAttack({
+        ...attackData,
+        targets: [targets[i]], // Single target
+        comboIndex: i + 1, // 1-based index for combo penalty
+        comboTotal: targets.length // Total number of targets
+      });
+
+      // Brief delay between attacks for readability
+      if (i < targets.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    return;
+  }
 
   // If no targets, show warning and just roll the attack without combat flow
   if (targets.length === 0) {
@@ -570,7 +589,11 @@ export async function executeCombatAttack(
   }
 
   // Calculate combo penalty if this is part of a combo attack
-  const comboPenalty = comboTotal && comboTotal > 1 ? -(comboIndex ?? 1) : 0;
+  // Multi-hit powers (AoE) don't suffer combo penalty - one roll for all targets
+  const comboPenalty =
+    !attackData.multiHit && comboTotal && comboTotal > 1
+      ? -(comboIndex ?? 1)
+      : 0;
 
   // Calculate total chart shift (manual + talent bonuses + combo penalty)
   const totalChartShift = manualChartShift + (talentCS || 0) + comboPenalty;

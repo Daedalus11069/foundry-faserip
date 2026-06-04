@@ -1,148 +1,151 @@
 <script setup lang="ts">
-import { inject, computed } from "vue";
-import {
-  Rank,
-  RANK_ORDER,
-  formatRankDisplay,
-  applyChartShift
-} from "../../enums";
-import { getRankValue, stringToRank } from "../../utils";
-import { executeCombatAttack } from "../../combat/combat-flow";
+import { inject, computed, ref, onMounted, onUnmounted } from "vue";
+import { Rank, ItemType, RANK_VALUES } from "../../enums";
+import { stringToRank } from "../../utils";
+import type { FaseripActor } from "../../documents";
+import type { WeaponItem } from "../../types/items";
+import { isWeaponItem } from "../../types/items";
 
-const reactiveActor = inject("reactiveActor") as any;
-const actor = inject("actor") as Actor<"pc" | "npc">;
+const actor = inject("actor") as FaseripActor;
 
-// Get current form for strength attribute
-const currentForm = computed(() => {
-  const system = reactiveActor.system;
-  return (
-    system.forms?.find((f: any) => f.id === system.currentFormId) ||
-    system.forms?.[0]
-  );
+// Reactive key to force computed updates when items change
+const itemsUpdateKey = ref(0);
+
+// Get weapon items from actor.items
+const weaponItems = computed((): WeaponItem[] => {
+  void itemsUpdateKey.value; // Force reactivity
+  return actor.items.filter(isWeaponItem);
 });
 
-interface Weapon {
-  id: string;
-  name: string;
-  type: "melee" | "ranged";
-  damage: string | number; // CS number for melee (+X), Rank string for ranged
-  stat: "fighting" | "agility";
-  applicableTalent?: string;
-  description?: string;
-  equipped?: boolean;
+// Hook callbacks
+const handleItemCreate = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+const handleItemUpdate = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+const handleItemDelete = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+onMounted(() => {
+  Hooks.on("createItem", handleItemCreate);
+  Hooks.on("updateItem", handleItemUpdate);
+  Hooks.on("deleteItem", handleItemDelete);
+});
+
+onUnmounted(() => {
+  Hooks.off("createItem", handleItemCreate);
+  Hooks.off("updateItem", handleItemUpdate);
+  Hooks.off("deleteItem", handleItemDelete);
+});
+
+const rankChoices = computed(() => {
+  // @ts-expect-error - CONFIG.FASERIP added by system
+  return CONFIG.FASERIP?.ranks || {};
+});
+
+const rankChoicesWithValues = computed(() => {
+  const choices: Record<string, string> = {};
+  Object.entries(rankChoices.value).forEach(([key, label]) => {
+    const rank = stringToRank(key);
+    const value = RANK_VALUES[rank];
+    choices[key] = `${label} (${value})`;
+  });
+  return choices;
+});
+
+async function createWeapon() {
+  await actor.createEmbeddedDocuments("Item", [
+    {
+      name: "New Weapon",
+      type: ItemType.Weapon,
+      system: {
+        weaponType: "melee",
+        damage: 0,
+        damageRank: Rank.Typical,
+        equipped: false,
+        description: ""
+      }
+    } as any
+  ]);
 }
 
-const weapons = computed<Weapon[]>(() => reactiveActor.system.weapons || []);
+async function deleteWeapon(itemId: string) {
+  const item = actor.items.get(itemId);
+  if (!item) return;
 
-// Ranks available for weapons
-const weaponRanks = RANK_ORDER.filter(
-  r => r !== Rank.Shift0 && r !== Rank.Feeble
-);
-
-function addWeapon() {
-  if (!reactiveActor.system.weapons) reactiveActor.system.weapons = [];
-  const newWeapon: Weapon = {
-    id: crypto.randomUUID(),
-    name: "New Weapon",
-    type: "melee",
-    damage: 0, // CS for melee weapons
-    stat: "fighting",
-    applicableTalent: "",
-    description: ""
-  };
-  reactiveActor.system.weapons.push(newWeapon);
-}
-
-async function removeWeapon(index: number) {
-  const weapon = reactiveActor.system.weapons[index];
   // @ts-expect-error - DialogV2 path not fully typed
   const confirmed = await foundry.applications.api.DialogV2.confirm({
-    content: `<p>Delete <strong>${weapon.name}</strong>? This cannot be undone.</p>`,
+    content: `<p>Delete <strong>${item.name}</strong>? This cannot be undone.</p>`,
     modal: true
   });
-  if (!confirmed) return;
-  reactiveActor.system.weapons.splice(index, 1);
-}
 
-function onRankChange(weapon: Weapon, rank: string) {
-  weapon.damage = rank;
-}
-
-function onTypeChange(weapon: Weapon, type: "melee" | "ranged") {
-  weapon.type = type;
-  // Auto-update stat based on type
-  weapon.stat = type === "melee" ? "fighting" : "agility";
-  // Change damage format based on type
-  if (type === "melee") {
-    weapon.damage = 0; // CS for melee
-  } else {
-    weapon.damage = Rank.Typical; // Rank for ranged
+  if (confirmed) {
+    await item.delete();
   }
 }
 
-async function attackWithWeapon(weapon: Weapon) {
-  if (!currentForm.value) return;
+async function toggleEquip(itemId: string) {
+  const item = actor.items.get(itemId) as any;
+  if (!item) return;
 
-  const attackAttribute = weapon.stat;
-  const attackType = weapon.type;
-  let damageRank: Rank;
-
-  // Calculate damage based on weapon type
-  if (weapon.type === "melee") {
-    // Melee: Strength + weapon CS
-    const strengthRank = stringToRank(
-      currentForm.value.attributes.strength.rank
-    );
-    const weaponCS =
-      typeof weapon.damage === "number"
-        ? weapon.damage
-        : Number(weapon.damage) || 0;
-    damageRank = applyChartShift(strengthRank, weaponCS);
-  } else {
-    // Ranged: Fixed damage rank
-    damageRank = stringToRank(
-      typeof weapon.damage === "string" ? weapon.damage : Rank.Typical
-    );
-  }
-
-  // Use combat flow system
-  await executeCombatAttack({
-    attacker: actor as any,
-    attackAttribute,
-    attackType,
-    effectType: "damage",
-    powerName: weapon.name,
-    powerRank: damageRank,
-    damageType: undefined
-  });
+  await item.update({ "system.equipped": !item.system.equipped } as Record<
+    string,
+    unknown
+  >);
 }
 
-async function toggleEquip(weapon: Weapon) {
-  if (!reactiveActor.system.weapons) return;
-
-  const weaponIndex = reactiveActor.system.weapons.findIndex(
-    (w: Weapon) => w.id === weapon.id
-  );
-  if (weaponIndex === -1) return;
-
-  const newEquippedState = !weapon.equipped;
-
-  // If equipping, unequip any other weapon of the same type
-  if (newEquippedState) {
-    reactiveActor.system.weapons.forEach((w: Weapon, idx: number) => {
-      if (idx !== weaponIndex && w.type === weapon.type && w.equipped) {
-        w.equipped = false;
-      }
-    });
+function editWeapon(itemId: string) {
+  const item = actor.items.get(itemId);
+  if (item?.sheet) {
+    item.sheet.render(true);
   }
+}
 
-  // Toggle this weapon's equipped state
-  reactiveActor.system.weapons[weaponIndex].equipped = newEquippedState;
+async function updateWeaponName(itemId: string, newName: string) {
+  const item = actor.items.get(itemId);
+  if (item && newName.trim()) {
+    await item.update({ name: newName.trim() });
+  }
+}
 
-  // Persist to actor
-  // await actor.update({
-  //   "system.weapons": JSON.parse(JSON.stringify(reactiveActor.system.weapons))
-  // });
+async function updateWeaponType(itemId: string, newType: string) {
+  const item = actor.items.get(itemId);
+  if (item) {
+    await item.update({ "system.weaponType": newType } as Record<
+      string,
+      unknown
+    >);
+  }
+}
+
+async function updateWeaponDamage(itemId: string, newDamage: number) {
+  const item = actor.items.get(itemId);
+  if (item) {
+    await item.update({ "system.damage": newDamage } as Record<
+      string,
+      unknown
+    >);
+  }
+}
+
+async function updateWeaponDamageRank(itemId: string, newRank: string) {
+  const item = actor.items.get(itemId);
+  if (item) {
+    await item.update({ "system.damageRank": newRank } as Record<
+      string,
+      unknown
+    >);
+  }
 }
 </script>
 
@@ -150,14 +153,14 @@ async function toggleEquip(weapon: Weapon) {
   <div>
     <div class="flex justify-between items-center mb-4">
       <h2 class="text-2xl font-bold text-white">Weapons</h2>
-      <button @click="addWeapon" class="fsr-btn fsr-btn-primary fsr-btn-sm">
+      <button @click="createWeapon" class="fsr-btn fsr-btn-primary fsr-btn-sm">
         + Add Weapon
       </button>
     </div>
 
     <!-- Weapons list -->
     <div
-      v-if="weapons.length === 0"
+      v-if="weaponItems.length === 0"
       class="text-gray-500 italic text-center py-8"
     >
       No weapons. Click "+ Add Weapon" to add one.
@@ -165,154 +168,165 @@ async function toggleEquip(weapon: Weapon) {
 
     <div class="flex flex-col gap-3">
       <div
-        v-for="(weapon, index) in weapons"
-        :key="weapon.id"
+        v-for="item in weaponItems"
+        :key="item.id!"
         class="fsr-card p-3"
+        :class="item.system.equipped ? 'border border-yellow-600' : ''"
       >
-        <!-- Row 1: name + type + equip + attack + delete -->
-        <div class="flex items-center gap-2 mb-2">
+        <!-- Row 1: name + type + equipped badge + edit -->
+        <div class="flex items-center gap-2">
+          <!-- Name (inline editable) -->
           <input
-            v-model="weapon.name"
             type="text"
-            class="basis-1/3 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white"
+            :value="item.name"
+            @blur="
+              e =>
+                updateWeaponName(item.id!, (e.target as HTMLInputElement).value)
+            "
+            @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+            class="basis-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
             placeholder="Weapon name"
           />
 
+          <!-- Weapon type selector (inline editable) -->
           <select
-            :value="weapon.type"
+            :value="item.system.weaponType"
             @change="
               e =>
-                onTypeChange(
-                  weapon,
-                  (e.target as HTMLSelectElement).value as 'melee' | 'ranged'
+                updateWeaponType(
+                  item.id!,
+                  (e.target as HTMLSelectElement).value
                 )
             "
-            class="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm"
+            class="basis-auto bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
           >
             <option value="melee">⚔️ Melee</option>
             <option value="ranged">🏹 Ranged</option>
+            <option value="thrown">🎯 Thrown</option>
           </select>
 
+          <!-- Old weapon type badge for reference -->
+          <span
+            v-if="false"
+            class="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300"
+          >
+            <template v-if="item.system.weaponType === 'melee'">Melee</template>
+            <template v-else-if="item.system.weaponType === 'ranged'"
+              >Ranged</template
+            >
+            <template v-else>🎯 Thrown</template>
+          </span>
+
+          <!-- Equipped badge -->
           <button
-            @click="toggleEquip(weapon)"
+            @click="toggleEquip(item.id!)"
             class="text-xs px-2 py-1 rounded"
             :class="[
-              weapon.equipped
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-gray-600 hover:bg-gray-500 text-gray-300'
+              item.system.equipped
+                ? 'bg-yellow-600 text-black font-bold'
+                : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
             ]"
-            :title="weapon.equipped ? 'Equipped' : 'Equip'"
+            :title="item.system.equipped ? 'Unequip' : 'Equip'"
           >
-            {{ weapon.equipped ? "✓" : "○" }}
+            {{ item.system.equipped ? "✓ Equipped" : "Equip" }}
           </button>
 
+          <!-- Edit button -->
           <button
-            @click="removeWeapon(index)"
-            class="text-red-400 hover:text-red-300 px-2"
-            title="Delete weapon"
+            @click="editWeapon(item.id!)"
+            class="text-xs text-blue-400 hover:text-blue-300 px-2"
+            :title="'Edit weapon'"
+          >
+            <i class="fas fa-edit"></i>
+          </button>
+
+          <!-- Delete button -->
+          <button
+            @click="deleteWeapon(item.id!)"
+            class="text-xs text-red-400 hover:text-red-300"
+            :title="'Delete weapon'"
           >
             <i class="fas fa-trash"></i>
           </button>
         </div>
 
-        <!-- Row 2: damage (CS for melee, rank for ranged) + stat + attack button -->
-        <div class="flex items-center gap-2 mb-2">
-          <!-- Melee weapons: CS input -->
-          <div v-if="weapon.type === 'melee'" class="flex items-center gap-1">
-            <span class="text-sm text-gray-400">Damage CS:</span>
+        <!-- Row 2: damage inputs -->
+        <div class="flex items-center gap-2 mt-2">
+          <!-- Damage input (varies by weapon type) -->
+          <template
+            v-if="
+              item.system.weaponType === 'melee' ||
+              item.system.weaponType === 'thrown'
+            "
+          >
+            <label class="text-xs text-gray-400">Damage:</label>
+            <span class="text-xs text-gray-400">Strength</span>
             <input
-              v-model.number="weapon.damage"
               type="number"
-              min="-10"
-              max="10"
-              class="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm w-20"
-              placeholder="0"
-            />
-            <span class="text-xs text-gray-500">
-              ({{
-                currentForm?.attributes?.strength?.rank
-                  ? formatRankDisplay(
-                      applyChartShift(
-                        stringToRank(currentForm.attributes.strength.rank),
-                        typeof weapon.damage === "number"
-                          ? weapon.damage
-                          : Number(weapon.damage) || 0
-                      )
-                    )
-                  : "Str " +
-                    ((typeof weapon.damage === "number"
-                      ? weapon.damage
-                      : Number(weapon.damage) || 0) > 0
-                      ? "+"
-                      : "") +
-                    (typeof weapon.damage === "number"
-                      ? weapon.damage
-                      : Number(weapon.damage) || 0) +
-                    " CS"
-              }})
-            </span>
-          </div>
-
-          <!-- Ranged weapons: Rank selector -->
-          <div v-else class="flex items-center gap-1">
-            <span class="text-sm text-gray-400">Damage:</span>
-            <select
-              :value="weapon.damage"
-              @change="
-                e => (weapon.damage = (e.target as HTMLSelectElement).value)
+              :value="item.system.damage"
+              @blur="
+                e =>
+                  updateWeaponDamage(
+                    item.id!,
+                    Number((e.target as HTMLInputElement).value)
+                  )
               "
-              class="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm"
+              @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+              class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+            />
+            <span class="text-xs text-gray-400">CS</span>
+          </template>
+          <template v-else>
+            <label class="text-xs text-gray-400">Damage:</label>
+            <select
+              :value="item.system.damageRank"
+              @change="
+                e =>
+                  updateWeaponDamageRank(
+                    item.id!,
+                    (e.target as HTMLSelectElement).value
+                  )
+              "
+              class="bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
             >
-              <option v-for="rank in weaponRanks" :key="rank" :value="rank">
-                {{ formatRankDisplay(rank) }}
+              <option
+                v-for="(label, value) in rankChoicesWithValues"
+                :key="value"
+                :value="value"
+              >
+                {{ label }}
               </option>
             </select>
-          </div>
-
-          <div class="flex items-center gap-1">
-            <span class="text-sm text-gray-400">Stat:</span>
-            <select
-              v-model="weapon.stat"
-              class="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm"
-            >
-              <option value="fighting">Fighting</option>
-              <option value="agility">Agility</option>
-            </select>
-          </div>
+          </template>
         </div>
 
-        <!-- Row 3: applicable talent -->
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-sm text-gray-400">Talent:</span>
-          <input
-            v-model="weapon.applicableTalent"
-            type="text"
-            class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm"
-            placeholder="Applicable talent (optional)"
-          />
-        </div>
-
-        <!-- Row 4: description -->
-        <div v-if="weapon.description || weapon.description === ''">
-          <textarea
-            v-model="weapon.description"
-            class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm"
-            rows="2"
-            placeholder="Description (optional)"
-          />
-        </div>
-        <button
-          v-else
-          @click="weapon.description = ''"
-          class="text-xs text-gray-500 hover:text-gray-400"
+        <!-- Description -->
+        <div
+          v-if="item.system.description"
+          class="text-xs text-gray-400 mt-2 italic"
         >
-          + Add description
-        </button>
+          {{ item.system.description }}
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Weapon card styling inherited from global fsr-card class */
+.fsr-card {
+  background-color: rgb(31 41 55);
+  border-radius: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid rgb(55 65 81);
+}
+
+.fsr-rank-badge {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 700;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  background-color: rgb(202 138 4);
+  color: #000;
+}
 </style>
