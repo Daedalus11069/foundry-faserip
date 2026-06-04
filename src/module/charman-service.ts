@@ -546,8 +546,8 @@ export class CharmanService {
         effectType: power.effectType || "none",
         attackType: power.attackType || "none",
         damageType: power.damageType || "none",
-        resistanceType: power.resistanceType,
-        vulnerabilityType: power.vulnerabilityType,
+        resistanceType: power.resistanceType || undefined,
+        vulnerabilityType: power.vulnerabilityType || undefined,
         multiHit: power.multiHit || false,
         value: power.value || getRankValue(rankName),
         maxValue: power.maxValue || getRankValue(rankName)
