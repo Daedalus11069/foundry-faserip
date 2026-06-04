@@ -2,15 +2,76 @@
 
 All notable changes to the FASERIP system will be documented in this file.
 
-## [Unreleased]
+## [1.3.0-1.4.0]
 
 ### Added
+
+#### Armor Piercing System
+
+- **Hybrid armor piercing mechanic** with flat reduction + percentage bypass
+  - **Step 1:** Flat reduction = max(0, piercingRankValue - armorRankValue)
+  - **Step 2:** Percentage bypass based on rank difference (10% per rank step, max 50%)
+  - **Step 3:** Effective armor = remainingAfterFlat × (1 - percentageBypass/100)
+  - Applied to powers, weapons, and combat attacks
+  - Full integration with damage calculation system
+- **Armor piercing UI in PowersTab**
+  - Rank dropdown with "None" option (nullable)
+  - Shows rank names with numeric values (e.g., "Typical (6)")
+  - Armor piercing saves properly in character data
+- **Armor piercing UI in WeaponsTab**
+  - 3-column grid layout: Damage | Piercing | Material
+  - Rank values displayed alongside names
+  - Default value: empty string ("None")
+- **Charman armor piercing integration**
+  - Database columns: `armor_piercing` for powers, `piercing` for weapons
+  - Validation layer with rank normalization (SHIFT_0 → Shift0)
+  - API normalization (Shift0 → SHIFT_0) for frontend consistency
+  - Full serialization/unserialization support
+  - UI dropdowns with rank values in power/weapon editors
+
+#### Two-Stage Resistance System
+
+- **Stage 1: Flat damage reduction** equal to resistance rank value
+  - Example: Class 1000 resistance reduces damage by 1000 first
+- **Stage 2: Percentage reduction on overflow** via Universal Table roll
+  - If damage exceeds resistance value, roll d100 on Universal Table
+  - White = 0% additional reduction (full overflow damage)
+  - Green = 25% reduction on overflow
+  - Yellow = 50% reduction on overflow
+  - Red = 75% reduction on overflow
+- **Resistance display in StatsTab** with both stages explained
+  - Clear tooltips explaining two-stage mechanics
+  - Visual indicators for different resistance types
+
+#### Combo Attack Enhancements
+
+- **Combo attack exhaustion system**
+  - Combos cannot go below Feeble rank (exhaustion floor)
+  - Maximum combo count dynamically calculated based on effective rank
+  - Exhaustion warning appears in dialogs when combo reaches Poor rank or below
+  - Chat notification when character becomes exhausted: "Cannot dodge for rest of round"
+  - Applied to all combo attack paths (fighting, weapons, powers, attributes)
+- **Combo botch breaking system**
+  - Combos immediately stop when roll result is 1-5 (botch)
+  - Implemented in all four combo code paths:
+    - StatsTab fighting combo loop
+    - StatsTab weapon combo loop
+    - StatsTab attribute combo loop
+    - combat-flow multi-target handling
+  - Chat notification shows which attack botched and how many were cancelled
+  - Multi-target attacks respect combo breaking (no further targets after botch)
+
+#### Configuration & UI
 
 - **Configurable vulnerability damage increase** setting
   - New game setting `vulnerabilityDamageIncrease` (default: 25%)
   - Range slider from 0% to 100% (5% increments)
   - Accessible via Game Settings → FASERIP Settings
   - Allows GMs to customize vulnerability house rule severity
+- **Mental Points conditional visibility**
+  - New game setting to show/hide Mental Points resource
+  - Config-based conditional display in character sheets
+  - Backwards compatible with existing characters
 
 ### Changed
 
@@ -20,9 +81,36 @@ All notable changes to the FASERIP system will be documented in this file.
 - **Damage calculation uses dynamic vulnerability percentage**
   - Updated `damage-application.ts` to read from game settings
   - Vulnerability now applies configured percentage instead of hardcoded 25%
+- **Rank displays show numeric values** alongside rank names
+  - Format: "Rank Name (value)" (e.g., "Remarkable (30)")
+  - Applied to armor piercing dropdowns, power ranks, and stat displays
+  - Improves clarity for players understanding mechanical values
+- **PowersTab armor piercing dropdown** with rank values
+  - Shows "None" option for powers without armor piercing
+  - Displays integer values in parentheses
+  - Proper null handling in rank-select component
 
 ### Fixed
 
+- **Combo attack rank penalty calculation**
+  - Fixed bug where combo penalties hit rank floor prematurely
+  - Now combines all chart shifts (penalty + bonuses) in single operation
+  - Previously: Applied penalty first (hit Shift0 floor), then added bonuses
+  - Now: Calculates net shift before applying (e.g., -7 penalty + 4 talent = -3 net)
+  - Affects `AttackOptionsDialog.vue`, `ComboDialog.vue`, and karma cost calculations
+  - Resolves issue where high-count combos showed same rank for multiple attacks
+- **Form-specific power ranks display**
+  - Fixed `unserializePowers()` losing form-specific power rank overrides
+  - Changed from `flatMap()` to `mapWithKeys()->toArray()` to preserve structure
+  - `appForms` property now properly initialized as object instead of array
+  - Form-specific power ranks now display correctly in character sheets
+- **Armor piercing null handling**
+  - Added nullable prop support in rank-select component
+  - Fixed crashes when armor piercing value is null/undefined
+  - "None" option properly saves as empty string
+- **StringField validation for armor piercing**
+  - Added `blank: true` to allow empty string values
+  - Prevents validation errors when armor piercing is not set
 - **TypeScript compilation errors in socket system**
   - Fixed 26 TypeScript errors in `faserip-socket.ts`
   - Proper type guards for Foundry Game API properties
@@ -30,6 +118,31 @@ All notable changes to the FASERIP system will be documented in this file.
   - Removed unused variable declarations
   - Fixed VueDialog instantiation pattern
   - Added null safety checks for canvas and token properties
+
+### Technical Details
+
+**Major System Changes:**
+
+- Armor piercing calculation integrated into `damage-application.ts`
+- Two-stage resistance system in `damage-application.ts`
+- Combo botch detection in 4 separate code paths
+- Enhanced rank display utilities in `enums.ts` with `formatRankDisplay()`
+
+**Database Schema (Charman):**
+
+- Added `armor_piercing` column to powers table
+- Added `piercing` column to weapons table
+- Rank validation and normalization in Models layer
+- API transformation layer for frontend compatibility
+
+**UI Components Updated:**
+
+- `PowersTab.vue` - Armor piercing dropdown with rank values
+- `WeaponsTab.vue` - 3-column grid with piercing column
+- `StatsTab.vue` - Resistance display, combo botch handling
+- `AttackOptionsDialog.vue` - Combined chart shift calculation
+- `ComboDialog.vue` - Combined chart shift calculation
+- `rank-select.vue` - Nullable prop support, rank values display
 
 ---
 
