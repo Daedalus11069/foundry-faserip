@@ -29,7 +29,7 @@ interface AttackData {
   attackerToken?: Token;
   targets?: Token[]; // Optional: Explicit targets (for counter attacks, auto-targeting)
   attackAttribute: "fighting" | "agility" | "psyche";
-  attackType: "melee" | "ranged" | "psyche";
+  attackType: "melee" | "ranged" | "thrown" | "psyche";
   effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // What effect this power has
   powerName?: string;
   powerRank?: Rank; // Base rank of the attacking power

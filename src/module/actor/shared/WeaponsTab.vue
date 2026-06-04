@@ -5,16 +5,83 @@ import { stringToRank } from "../../utils";
 import type { FaseripActor } from "../../documents";
 import type { WeaponItem } from "../../types/items";
 import { isWeaponItem } from "../../types/items";
+import type { ReactiveActorData } from "../../types/actor-system";
+
+interface DisplayWeapon {
+  id: string;
+  name: string;
+  weaponType: "melee" | "ranged" | "thrown";
+  damageRank: string;
+  damage: number;
+  equipped: boolean;
+  description?: string;
+  isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
+  itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
+}
 
 const actor = inject("actor") as FaseripActor;
+const reactiveActor = inject("reactiveActor") as ReactiveActorData;
 
 // Reactive key to force computed updates when items change
 const itemsUpdateKey = ref(0);
 
-// Get weapon items from actor.items
-const weaponItems = computed((): WeaponItem[] => {
+// Get weapon items from actor.items AND system.weapons, merge into DisplayWeapon format
+const weaponItems = computed((): DisplayWeapon[] => {
   void itemsUpdateKey.value; // Force reactivity
-  return actor.items.filter(isWeaponItem);
+
+  const displayWeapons: DisplayWeapon[] = [];
+
+  // Add weapon Items (editable)
+  const items = actor.items.filter(isWeaponItem) as WeaponItem[];
+  items.forEach(item => {
+    displayWeapons.push({
+      id: item._id!,
+      name: item.name || "Unnamed Weapon",
+      weaponType: item.system.weaponType as "melee" | "ranged" | "thrown",
+      damageRank: item.system.damageRank,
+      damage: item.system.damage,
+      equipped: item.system.equipped,
+      description: item.system.description,
+      isItem: true,
+      itemRef: item
+    });
+  });
+
+  // Add system.weapons (read-only from charman sync)
+  const systemWeapons = reactiveActor.system.weapons || [];
+  systemWeapons.forEach((weapon: any) => {
+    // Convert old format to DisplayWeapon
+    const weaponType =
+      weapon.type === "ranged" || weapon.type === "thrown" ? "ranged" : "melee";
+
+    // Convert damage to rank string if needed
+    let damageRank: string;
+    if (typeof weapon.damage === "string") {
+      damageRank = weapon.damage;
+    } else if (typeof weapon.damage === "number") {
+      // For melee, damage is CS (column shift), convert to rank for display
+      // For now, show as "typical" + CS modifier
+      damageRank =
+        weapon.type === "melee"
+          ? `${Rank.Typical}+${weapon.damage}`
+          : Rank.Typical;
+    } else {
+      damageRank = Rank.Typical;
+    }
+
+    displayWeapons.push({
+      id: weapon.id || `weapon-${Math.random()}`,
+      name: weapon.name,
+      weaponType,
+      damageRank,
+      damage: typeof weapon.damage === "number" ? weapon.damage : 0,
+      equipped: weapon.equipped || false,
+      description: weapon.description,
+      isItem: false
+    });
+  });
+
+  return displayWeapons;
 });
 
 // Hook callbacks
@@ -36,16 +103,24 @@ const handleItemDelete = (item: Item) => {
   }
 };
 
+const handleActorUpdate = (updatedActor: any) => {
+  if (updatedActor._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
 onMounted(() => {
   Hooks.on("createItem", handleItemCreate);
   Hooks.on("updateItem", handleItemUpdate);
   Hooks.on("deleteItem", handleItemDelete);
+  Hooks.on("updateActor", handleActorUpdate);
 });
 
 onUnmounted(() => {
   Hooks.off("createItem", handleItemCreate);
   Hooks.off("updateItem", handleItemUpdate);
   Hooks.off("deleteItem", handleItemDelete);
+  Hooks.off("updateActor", handleActorUpdate);
 });
 
 const rankChoices = computed(() => {
@@ -79,72 +154,216 @@ async function createWeapon() {
   ]);
 }
 
-async function deleteWeapon(itemId: string) {
-  const item = actor.items.get(itemId);
-  if (!item) return;
+async function deleteWeapon(weaponId: string, isItem: boolean) {
+  if (isItem) {
+    // Delete Item weapon
+    const item = actor.items.get(weaponId);
+    if (!item) return;
 
-  // @ts-expect-error - DialogV2 path not fully typed
-  const confirmed = await foundry.applications.api.DialogV2.confirm({
-    content: `<p>Delete <strong>${item.name}</strong>? This cannot be undone.</p>`,
-    modal: true
-  });
+    // @ts-expect-error - DialogV2 path not fully typed
+    const confirmed = await foundry.applications.api.DialogV2.confirm({
+      content: `<p>Delete <strong>${item.name}</strong>? This cannot be undone.</p>`,
+      modal: true
+    });
 
-  if (confirmed) {
-    await item.delete();
+    if (confirmed) {
+      await item.delete();
+    }
+  } else {
+    // Delete synced weapon from system.weapons
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+
+    if (weaponIndex === -1) return;
+
+    const weapon = systemWeapons[weaponIndex];
+
+    // @ts-expect-error - DialogV2 path not fully typed
+    const confirmed = await foundry.applications.api.DialogV2.confirm({
+      content: `<p>Delete <strong>${weapon.name}</strong>? This cannot be undone.</p>`,
+      modal: true
+    });
+
+    if (confirmed) {
+      systemWeapons.splice(weaponIndex, 1);
+      await actor.update({
+        // @ts-expect-error - system.weapons not fully typed
+        "system.weapons": systemWeapons
+      });
+    }
   }
 }
 
-async function toggleEquip(itemId: string) {
-  const item = actor.items.get(itemId) as any;
-  if (!item) return;
+async function toggleEquip(weaponId: string, isItem: boolean) {
+  if (isItem) {
+    // Toggle Item weapon
+    const item = actor.items.get(weaponId) as any;
+    if (!item) return;
 
-  await item.update({ "system.equipped": !item.system.equipped } as Record<
-    string,
-    unknown
-  >);
+    await item.update({ "system.equipped": !item.system.equipped } as Record<
+      string,
+      unknown
+    >);
+  } else {
+    // Toggle synced weapon in system.weapons
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+
+    if (weaponIndex === -1) return;
+
+    systemWeapons[weaponIndex] = {
+      ...systemWeapons[weaponIndex],
+      equipped: !systemWeapons[weaponIndex].equipped
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
+  }
 }
 
-function editWeapon(itemId: string) {
-  const item = actor.items.get(itemId);
+function editWeapon(weaponId: string, isItem: boolean) {
+  if (!isItem) {
+    ui.notifications?.info(
+      "Synced weapons can be edited inline. Use Charman to change additional properties."
+    );
+    return;
+  }
+
+  const item = actor.items.get(weaponId);
   if (item?.sheet) {
     item.sheet.render(true);
   }
 }
 
-async function updateWeaponName(itemId: string, newName: string) {
-  const item = actor.items.get(itemId);
-  if (item && newName.trim()) {
-    await item.update({ name: newName.trim() });
+async function updateWeaponName(
+  weaponId: string,
+  newName: string,
+  isItem: boolean
+) {
+  if (isItem) {
+    const item = actor.items.get(weaponId);
+    if (item && newName.trim()) {
+      await item.update({ name: newName.trim() });
+    }
+  } else {
+    // Update synced weapon name
+    if (!newName.trim()) return;
+
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+
+    if (weaponIndex === -1) return;
+
+    systemWeapons[weaponIndex] = {
+      ...systemWeapons[weaponIndex],
+      name: newName.trim()
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
   }
 }
 
-async function updateWeaponType(itemId: string, newType: string) {
-  const item = actor.items.get(itemId);
-  if (item) {
-    await item.update({ "system.weaponType": newType } as Record<
-      string,
-      unknown
-    >);
+async function updateWeaponType(
+  weaponId: string,
+  newType: string,
+  isItem: boolean
+) {
+  if (isItem) {
+    const item = actor.items.get(weaponId);
+    if (item) {
+      await item.update({ "system.weaponType": newType } as Record<
+        string,
+        unknown
+      >);
+    }
+  } else {
+    // Update synced weapon type
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+
+    if (weaponIndex === -1) return;
+
+    systemWeapons[weaponIndex] = {
+      ...systemWeapons[weaponIndex],
+      type: (newType === "thrown" ? "ranged" : newType) as
+        | "melee"
+        | "ranged"
+        | "thrown"
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
   }
 }
 
-async function updateWeaponDamage(itemId: string, newDamage: number) {
-  const item = actor.items.get(itemId);
-  if (item) {
-    await item.update({ "system.damage": newDamage } as Record<
-      string,
-      unknown
-    >);
+async function updateWeaponDamage(
+  weaponId: string,
+  newDamage: number,
+  isItem: boolean
+) {
+  if (isItem) {
+    const item = actor.items.get(weaponId);
+    if (item) {
+      await item.update({ "system.damage": newDamage } as Record<
+        string,
+        unknown
+      >);
+    }
+  } else {
+    // Update synced weapon damage
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+
+    if (weaponIndex === -1) return;
+
+    systemWeapons[weaponIndex] = {
+      ...systemWeapons[weaponIndex],
+      damage: newDamage.toString() // Store as string for compatibility with rank-based damage
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
   }
 }
 
-async function updateWeaponDamageRank(itemId: string, newRank: string) {
-  const item = actor.items.get(itemId);
-  if (item) {
-    await item.update({ "system.damageRank": newRank } as Record<
-      string,
-      unknown
-    >);
+async function updateWeaponDamageRank(
+  weaponId: string,
+  newRank: string,
+  isItem: boolean
+) {
+  if (isItem) {
+    const item = actor.items.get(weaponId);
+    if (item) {
+      await item.update({ "system.damageRank": newRank } as Record<
+        string,
+        unknown
+      >);
+    }
+  } else {
+    // Update synced weapon damage rank
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+
+    if (weaponIndex === -1) return;
+
+    systemWeapons[weaponIndex] = {
+      ...systemWeapons[weaponIndex],
+      damage: newRank
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
   }
 }
 </script>
@@ -168,20 +387,24 @@ async function updateWeaponDamageRank(itemId: string, newRank: string) {
 
     <div class="flex flex-col gap-3">
       <div
-        v-for="item in weaponItems"
-        :key="item.id!"
+        v-for="weapon in weaponItems"
+        :key="weapon.id"
         class="fsr-card p-3"
-        :class="item.system.equipped ? 'border border-yellow-600' : ''"
+        :class="weapon.equipped ? 'border border-yellow-600' : ''"
       >
-        <!-- Row 1: name + type + equipped badge + edit -->
+        <!-- Row 1: name + type + equipped badge + sync badge + edit -->
         <div class="flex items-center gap-2">
           <!-- Name (inline editable) -->
           <input
             type="text"
-            :value="item.name"
+            :value="weapon.name"
             @blur="
               e =>
-                updateWeaponName(item.id!, (e.target as HTMLInputElement).value)
+                updateWeaponName(
+                  weapon.id,
+                  (e.target as HTMLInputElement).value,
+                  weapon.isItem
+                )
             "
             @keyup.enter="e => (e.target as HTMLInputElement).blur()"
             class="basis-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
@@ -190,12 +413,13 @@ async function updateWeaponDamageRank(itemId: string, newRank: string) {
 
           <!-- Weapon type selector (inline editable) -->
           <select
-            :value="item.system.weaponType"
+            :value="weapon.weaponType"
             @change="
               e =>
                 updateWeaponType(
-                  item.id!,
-                  (e.target as HTMLSelectElement).value
+                  weapon.id,
+                  (e.target as HTMLSelectElement).value,
+                  weapon.isItem
                 )
             "
             class="basis-auto bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
@@ -205,35 +429,33 @@ async function updateWeaponDamageRank(itemId: string, newRank: string) {
             <option value="thrown">🎯 Thrown</option>
           </select>
 
-          <!-- Old weapon type badge for reference -->
+          <!-- Synced from Charman badge -->
           <span
-            v-if="false"
-            class="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300"
+            v-if="!weapon.isItem"
+            class="text-xs px-2 py-0.5 rounded bg-blue-900/60 text-blue-300"
+            title="This weapon was synced from Charman (editable here, will be overwritten on next sync)"
           >
-            <template v-if="item.system.weaponType === 'melee'">Melee</template>
-            <template v-else-if="item.system.weaponType === 'ranged'"
-              >Ranged</template
-            >
-            <template v-else>🎯 Thrown</template>
+            📡 Synced
           </span>
 
           <!-- Equipped badge -->
           <button
-            @click="toggleEquip(item.id!)"
+            @click="toggleEquip(weapon.id, weapon.isItem)"
             class="text-xs px-2 py-1 rounded"
             :class="[
-              item.system.equipped
+              weapon.equipped
                 ? 'bg-yellow-600 text-black font-bold'
                 : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
             ]"
-            :title="item.system.equipped ? 'Unequip' : 'Equip'"
+            :title="weapon.equipped ? 'Unequip' : 'Equip'"
           >
-            {{ item.system.equipped ? "✓ Equipped" : "Equip" }}
+            {{ weapon.equipped ? "Equipped" : "Equip" }}
           </button>
 
-          <!-- Edit button -->
+          <!-- Edit button (Items only) -->
           <button
-            @click="editWeapon(item.id!)"
+            v-if="weapon.isItem"
+            @click="editWeapon(weapon.id, weapon.isItem)"
             class="text-xs text-blue-400 hover:text-blue-300 px-2"
             :title="'Edit weapon'"
           >
@@ -242,7 +464,7 @@ async function updateWeaponDamageRank(itemId: string, newRank: string) {
 
           <!-- Delete button -->
           <button
-            @click="deleteWeapon(item.id!)"
+            @click="deleteWeapon(weapon.id, weapon.isItem)"
             class="text-xs text-red-400 hover:text-red-300"
             :title="'Delete weapon'"
           >
@@ -255,20 +477,20 @@ async function updateWeaponDamageRank(itemId: string, newRank: string) {
           <!-- Damage input (varies by weapon type) -->
           <template
             v-if="
-              item.system.weaponType === 'melee' ||
-              item.system.weaponType === 'thrown'
+              weapon.weaponType === 'melee' || weapon.weaponType === 'thrown'
             "
           >
             <label class="text-xs text-gray-400">Damage:</label>
             <span class="text-xs text-gray-400">Strength</span>
             <input
               type="number"
-              :value="item.system.damage"
+              :value="weapon.damage"
               @blur="
                 e =>
                   updateWeaponDamage(
-                    item.id!,
-                    Number((e.target as HTMLInputElement).value)
+                    weapon.id,
+                    Number((e.target as HTMLInputElement).value),
+                    weapon.isItem
                   )
               "
               @keyup.enter="e => (e.target as HTMLInputElement).blur()"
@@ -279,12 +501,13 @@ async function updateWeaponDamageRank(itemId: string, newRank: string) {
           <template v-else>
             <label class="text-xs text-gray-400">Damage:</label>
             <select
-              :value="item.system.damageRank"
+              :value="weapon.damageRank"
               @change="
                 e =>
                   updateWeaponDamageRank(
-                    item.id!,
-                    (e.target as HTMLSelectElement).value
+                    weapon.id,
+                    (e.target as HTMLSelectElement).value,
+                    weapon.isItem
                   )
               "
               class="bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
@@ -302,10 +525,10 @@ async function updateWeaponDamageRank(itemId: string, newRank: string) {
 
         <!-- Description -->
         <div
-          v-if="item.system.description"
+          v-if="weapon.description"
           class="text-xs text-gray-400 mt-2 italic"
         >
-          {{ item.system.description }}
+          {{ weapon.description }}
         </div>
       </div>
     </div>

@@ -102,7 +102,7 @@ export interface ArmorData {
 export interface WeaponData {
   id: string;
   name: string;
-  type: "melee" | "ranged"; // Weapon type determines which stat is used for to-hit
+  type: "melee" | "ranged" | "thrown"; // Weapon type determines which stat is used for to-hit
   damage: string; // Damage rank (e.g., "Typical", "Good", "Excellent")
   stat: "fighting" | "agility"; // Stat used for to-hit rolls
   applicableTalent?: string; // Name of talent that applies to this weapon

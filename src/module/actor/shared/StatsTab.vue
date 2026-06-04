@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, computed, ref, watch } from "vue";
+import { inject, computed, ref, watch, onMounted, onUnmounted } from "vue";
 import {
   formatRankDisplay,
   applyChartShift,
@@ -19,11 +19,12 @@ import type { ReactiveActorData, PowerData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 import { VueDialog } from "../../applications/vue-dialog";
 import ArmorSelectionDialog from "../../applications/dialogs/ArmorSelectionDialog.vue";
+import { isWeaponItem, type WeaponItem } from "../../types/items";
 
 interface Weapon {
   id: string;
   name: string;
-  type: "melee" | "ranged";
+  type: "melee" | "ranged" | "thrown"; // Weapon type determines which stat is used for to-hit
   damage: string | number; // CS number for melee (+X), Rank string for ranged
   stat: "fighting" | "agility";
   applicableTalent?: string;
@@ -59,8 +60,37 @@ const currentForm = computed(
   () => forms.value.find(f => f.id === viewFormId.value) ?? forms.value[0]
 );
 
+// Reactive key to force computed updates when items change
+const itemsUpdateKey = ref(0);
+
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
-const weapons = computed<Weapon[]>(() => reactiveActor.system.weapons || []);
+
+// Weapons: Merge system.weapons with weapon items from actor.items
+const weapons = computed<Weapon[]>(() => {
+  void itemsUpdateKey.value; // Force reactivity
+
+  // Get weapons from actor.system (old format)
+  const systemWeapons = (reactiveActor.system.weapons || []) as Weapon[];
+
+  // Get weapon items and convert to Weapon format
+  const weaponItems = actor.items.filter(isWeaponItem) as WeaponItem[];
+  const convertedItems: Weapon[] = weaponItems.map(item => ({
+    id: item._id!,
+    name: item.name || "Unnamed Weapon",
+    type:
+      item.system.weaponType === "thrown"
+        ? "ranged"
+        : (item.system.weaponType as "melee" | "ranged"),
+    damage: item.system.damageRank, // Use rank string for consistency
+    stat: item.system.weaponType === "melee" ? "fighting" : "agility",
+    description: item.system.description || "",
+    equipped: item.system.equipped
+  }));
+
+  // Merge both sources
+  return [...systemWeapons, ...convertedItems];
+});
+
 const allPowers = computed(() =>
   (reactiveActor.system.powers || []).filter(
     (p: PowerData) => !p.formIds?.length || p.formIds.includes(viewFormId.value)
@@ -95,6 +125,37 @@ const mpEnabled = computed(
 const vulnerabilityPercent = computed(
   () => game.settings.get("faserip", "vulnerabilityDamageIncrease") ?? 25
 );
+
+// Hook handlers for item updates
+const handleItemCreate = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+const handleItemUpdate = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+const handleItemDelete = (item: Item) => {
+  if (item.parent?._id === actor._id) {
+    itemsUpdateKey.value++;
+  }
+};
+
+onMounted(() => {
+  Hooks.on("createItem", handleItemCreate);
+  Hooks.on("updateItem", handleItemUpdate);
+  Hooks.on("deleteItem", handleItemDelete);
+});
+
+onUnmounted(() => {
+  Hooks.off("createItem", handleItemCreate);
+  Hooks.off("updateItem", handleItemUpdate);
+  Hooks.off("deleteItem", handleItemDelete);
+});
 
 const faseAttributes = [
   { key: "fighting", label: "Fighting", icon: "⚔️" },

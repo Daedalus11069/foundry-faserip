@@ -23,7 +23,7 @@ interface DefensePromptData {
   targetTokenId?: string; // For unlinked tokens
   attackerName: string;
   attackRoll: number; // The attacker's roll result
-  attackType: "melee" | "ranged" | "psyche"; // Determines which attribute defender uses
+  attackType: "melee" | "ranged" | "thrown" | "psyche"; // Determines which attribute defender uses
   attackAttribute: string; // Name of attacking attribute (Fighting, Agility, Psyche)
   attackResult?: string; // FASERIP result (Red, Yellow, Green, White, etc.)
   attackRank?: string; // Attacker's rank
