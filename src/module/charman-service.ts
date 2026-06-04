@@ -742,72 +742,139 @@ export class CharmanService {
         "system.notes": actorData.system.notes,
         "system.powers": actorData.system.powers,
         "system.talents": actorData.system.talents,
-        "system.charman": actorData.system.charman
-        // Note: system.armors and system.weapons are NOT updated here
-        // They are converted to Item documents below
+        "system.charman": actorData.system.charman,
+        "system.armors": [], // Clear old armors array - Items are created below
+        "system.weapons": [] // Clear old weapons array - Items are created below
       };
 
       await existingActor.update(updateData);
 
-      // Delete existing armor and weapon items
-      const existingArmorIds = existingActor.items
-        .filter((item: any) => item.type === "armor")
+      // Smart sync: Update existing items by name, create new ones, delete obsolete ones
+
+      // --- ARMOR SYNC ---
+      const existingArmorItems = existingActor.items.filter(
+        (item: any) => item.type === "armor"
+      );
+      const charmanArmors = actorData.system.armors || [];
+
+      // Track which armors to delete (not in Charman data)
+      const armorNamesToKeep = new Set(charmanArmors.map((a: any) => a.name));
+      const armorIdsToDelete = existingArmorItems
+        .filter((item: any) => !armorNamesToKeep.has(item.name))
         .map((item: any) => item.id);
-      const existingWeaponIds = existingActor.items
-        .filter((item: any) => item.type === "weapon")
-        .map((item: any) => item.id);
 
-      if (existingArmorIds.length > 0) {
-        await existingActor.deleteEmbeddedDocuments("Item", existingArmorIds);
-      }
-      if (existingWeaponIds.length > 0) {
-        await existingActor.deleteEmbeddedDocuments("Item", existingWeaponIds);
-      }
+      // Update existing armors or create new ones
+      const armorUpdates: any[] = [];
+      const armorCreates: any[] = [];
 
-      // Create armor items from Charman data
-      if (actorData.system.armors && actorData.system.armors.length > 0) {
-        const armorItems = actorData.system.armors.map((armor: any) => ({
-          name: armor.name,
-          type: "armor",
-          system: {
-            rank: armor.rank,
-            value: armor.value,
-            maxValue: armor.maxValue,
-            equipped: armor.equipped,
-            description: armor.description
-          }
-        }));
-        await existingActor.createEmbeddedDocuments("Item", armorItems);
-      }
+      for (const charmanArmor of charmanArmors) {
+        const existingItem = existingArmorItems.find(
+          (item: any) => item.name === charmanArmor.name
+        );
 
-      // Create weapon items from Charman data
-      if (actorData.system.weapons && actorData.system.weapons.length > 0) {
-        const weaponItems = actorData.system.weapons.map((weapon: any) => {
-          // Convert old weapon format to new format
-          const weaponType = weapon.type === "ranged" ? "ranged" : "melee";
-          const isRanged = weaponType === "ranged";
-
-          return {
-            name: weapon.name,
-            type: "weapon",
+        if (existingItem) {
+          // Update existing armor
+          armorUpdates.push({
+            _id: existingItem.id,
             system: {
-              weaponType,
-              damage: isRanged
-                ? 0
-                : typeof weapon.damage === "number"
-                  ? weapon.damage
-                  : 0,
-              damageRank: isRanged
-                ? typeof weapon.damage === "string"
-                  ? weapon.damage
-                  : Rank.Typical
-                : Rank.Typical,
-              equipped: weapon.equipped,
-              description: weapon.description || ""
+              rank: charmanArmor.rank,
+              value: charmanArmor.value,
+              maxValue: charmanArmor.maxValue,
+              equipped: charmanArmor.equipped,
+              description: charmanArmor.description
             }
-          };
-        });
-        await existingActor.createEmbeddedDocuments("Item", weaponItems);
+          });
+        } else {
+          // Create new armor
+          armorCreates.push({
+            name: charmanArmor.name,
+            type: "armor",
+            system: {
+              rank: charmanArmor.rank,
+              value: charmanArmor.value,
+              maxValue: charmanArmor.maxValue,
+              equipped: charmanArmor.equipped,
+              description: charmanArmor.description
+            }
+          });
+        }
+      }
+
+      if (armorIdsToDelete.length > 0) {
+        await existingActor.deleteEmbeddedDocuments("Item", armorIdsToDelete);
+      }
+      if (armorUpdates.length > 0) {
+        await existingActor.updateEmbeddedDocuments("Item", armorUpdates);
+      }
+      if (armorCreates.length > 0) {
+        await existingActor.createEmbeddedDocuments("Item", armorCreates);
+      }
+
+      // --- WEAPON SYNC ---
+      const existingWeaponItems = existingActor.items.filter(
+        (item: any) => item.type === "weapon"
+      );
+      const charmanWeapons = actorData.system.weapons || [];
+
+      // Track which weapons to delete (not in Charman data)
+      const weaponNamesToKeep = new Set(charmanWeapons.map((w: any) => w.name));
+      const weaponIdsToDelete = existingWeaponItems
+        .filter((item: any) => !weaponNamesToKeep.has(item.name))
+        .map((item: any) => item.id);
+
+      // Update existing weapons or create new ones
+      const weaponUpdates: any[] = [];
+      const weaponCreates: any[] = [];
+
+      for (const charmanWeapon of charmanWeapons) {
+        const weaponType = charmanWeapon.type === "ranged" ? "ranged" : "melee";
+        const isRanged = weaponType === "ranged";
+
+        const weaponData = {
+          weaponType,
+          damage: isRanged
+            ? 0
+            : typeof charmanWeapon.damage === "number"
+              ? charmanWeapon.damage
+              : 0,
+          damageRank: isRanged
+            ? typeof charmanWeapon.damage === "string"
+              ? charmanWeapon.damage
+              : Rank.Typical
+            : Rank.Typical,
+          equipped: charmanWeapon.equipped,
+          description: charmanWeapon.description || "",
+          talent: charmanWeapon.applicableTalent || ""
+        };
+
+        const existingItem = existingWeaponItems.find(
+          (item: any) => item.name === charmanWeapon.name
+        );
+
+        if (existingItem) {
+          // Update existing weapon
+          weaponUpdates.push({
+            _id: existingItem.id,
+            system: weaponData
+          });
+        } else {
+          // Create new weapon
+          weaponCreates.push({
+            name: charmanWeapon.name,
+            type: "weapon",
+            system: weaponData
+          });
+        }
+      }
+
+      if (weaponIdsToDelete.length > 0) {
+        await existingActor.deleteEmbeddedDocuments("Item", weaponIdsToDelete);
+      }
+      if (weaponUpdates.length > 0) {
+        await existingActor.updateEmbeddedDocuments("Item", weaponUpdates);
+      }
+      if (weaponCreates.length > 0) {
+        await existingActor.createEmbeddedDocuments("Item", weaponCreates);
       }
 
       // Build consolidated notification message
@@ -900,7 +967,8 @@ export class CharmanService {
                   : Rank.Typical
                 : Rank.Typical,
               equipped: weapon.equipped,
-              description: weapon.description || ""
+              description: weapon.description || "",
+              talent: weapon.applicableTalent || ""
             }
           };
         });

@@ -121,6 +121,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare damage: number;
   declare damageRank: string;
   declare equipped: boolean;
+  declare talent?: string;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -140,7 +141,8 @@ export class WeaponDataModel extends ItemDataModel {
         initial: Rank.Typical,
         choices: Object.values(Rank)
       }),
-      equipped: new BooleanField({ required: true, initial: false })
+      equipped: new BooleanField({ required: true, initial: false }),
+      talent: new StringField({ required: false, initial: "" })
     };
   }
 }

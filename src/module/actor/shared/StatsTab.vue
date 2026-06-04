@@ -77,14 +77,15 @@ const weapons = computed<Weapon[]>(() => {
   const convertedItems: Weapon[] = weaponItems.map(item => ({
     id: item._id!,
     name: item.name || "Unnamed Weapon",
-    type:
-      item.system.weaponType === "thrown"
-        ? "ranged"
-        : (item.system.weaponType as "melee" | "ranged"),
-    damage: item.system.damageRank, // Use rank string for consistency
+    type: item.system.weaponType as "melee" | "ranged" | "thrown",
+    damage:
+      item.system.weaponType === "melee" || item.system.weaponType === "thrown"
+        ? item.system.damage // CS number for melee/thrown
+        : item.system.damageRank, // Rank string for ranged
     stat: item.system.weaponType === "melee" ? "fighting" : "agility",
     description: item.system.description || "",
-    equipped: item.system.equipped
+    equipped: item.system.equipped,
+    applicableTalent: item.system.talent
   }));
 
   // Merge both sources
@@ -454,8 +455,8 @@ async function rollWeapon(weapon: Weapon) {
   let damageRank: Rank;
 
   // Calculate damage based on weapon type
-  if (weapon.type === "melee") {
-    // Melee: Strength + weapon CS
+  if (weapon.type === "melee" || weapon.type === "thrown") {
+    // Melee/Thrown: Strength + weapon CS
     const strengthRank = stringToRank(
       currentForm.value.attributes.strength.rank
     );
@@ -550,31 +551,60 @@ async function rollWeapon(weapon: Weapon) {
 }
 
 async function toggleEquip(weapon: Weapon) {
-  if (!reactiveActor.system.weapons) return;
-
-  const weaponIndex = reactiveActor.system.weapons.findIndex(
-    (w: Weapon) => w.id === weapon.id
+  // Check if this is a weapon Item or a system weapon
+  const weaponItem = actor.items.find(
+    (item: any) => item.type === "weapon" && item._id === weapon.id
   );
-  if (weaponIndex === -1) return;
 
-  const newEquippedState = !weapon.equipped;
+  if (weaponItem) {
+    // Toggle Item weapon - also unequip other weapons of the same type
+    const otherWeaponsOfType = actor.items.filter(
+      (item: any) =>
+        item.type === "weapon" &&
+        item._id !== weapon.id &&
+        // @ts-expect-error - system properties are dynamic
+        item.system.weaponType === weaponItem.system.weaponType &&
+        item.system.equipped
+    );
 
-  // If equipping, unequip any other weapon of the same type
-  if (newEquippedState) {
-    reactiveActor.system.weapons.forEach((w: Weapon, idx: number) => {
-      if (idx !== weaponIndex && w.type === weapon.type && w.equipped) {
-        w.equipped = false;
-      }
+    // Unequip other weapons of the same type
+    for (const otherWeapon of otherWeaponsOfType) {
+      // @ts-expect-error - system properties are dynamic
+      await otherWeapon.update({ "system.equipped": false });
+    }
+
+    // Toggle this weapon
+    await weaponItem.update({
+      // @ts-expect-error - system properties are dynamic
+      "system.equipped": !weaponItem.system.equipped
+    });
+  } else if (reactiveActor.system.weapons) {
+    // Legacy system weapon (shouldn't happen after sync, but keep for compatibility)
+    const weaponIndex = reactiveActor.system.weapons.findIndex(
+      (w: Weapon) => w.id === weapon.id
+    );
+    if (weaponIndex === -1) return;
+
+    const newEquippedState = !weapon.equipped;
+
+    // If equipping, unequip any other weapon of the same type
+    if (newEquippedState) {
+      reactiveActor.system.weapons.forEach((w: Weapon, idx: number) => {
+        if (idx !== weaponIndex && w.type === weapon.type && w.equipped) {
+          w.equipped = false;
+        }
+      });
+    }
+
+    // Toggle this weapon's equipped state
+    reactiveActor.system.weapons[weaponIndex].equipped = newEquippedState;
+
+    // Persist to actor
+    await actor.update({
+      // @ts-expect-error - system properties are dynamic
+      "system.weapons": JSON.parse(JSON.stringify(reactiveActor.system.weapons))
     });
   }
-
-  // Toggle this weapon's equipped state
-  reactiveActor.system.weapons[weaponIndex].equipped = newEquippedState;
-
-  // Persist to actor
-  // await actor.update({
-  //   "system.weapons": JSON.parse(JSON.stringify(reactiveActor.system.weapons))
-  // });
 }
 
 async function rollPower(power: any) {

@@ -15,8 +15,10 @@ interface DisplayWeapon {
   damage: number;
   equipped: boolean;
   description?: string;
+  talent?: string;
   isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
   itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
+  systemIndex?: number; // Array index in system.weapons for synced weapons
 }
 
 const actor = inject("actor") as FaseripActor;
@@ -42,6 +44,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       damage: item.system.damage,
       equipped: item.system.equipped,
       description: item.system.description,
+      talent: item.system.talent,
       isItem: true,
       itemRef: item
     });
@@ -49,7 +52,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
 
   // Add system.weapons (read-only from charman sync)
   const systemWeapons = reactiveActor.system.weapons || [];
-  systemWeapons.forEach((weapon: any) => {
+  systemWeapons.forEach((weapon: any, index: number) => {
     // Convert old format to DisplayWeapon
     const weaponType =
       weapon.type === "ranged" || weapon.type === "thrown" ? "ranged" : "melee";
@@ -70,14 +73,16 @@ const weaponItems = computed((): DisplayWeapon[] => {
     }
 
     displayWeapons.push({
-      id: weapon.id || `weapon-${Math.random()}`,
+      id: `system-weapon-${index}`,
       name: weapon.name,
       weaponType,
       damageRank,
       damage: typeof weapon.damage === "number" ? weapon.damage : 0,
       equipped: weapon.equipped || false,
       description: weapon.description,
-      isItem: false
+      talent: weapon.applicableTalent,
+      isItem: false,
+      systemIndex: index
     });
   });
 
@@ -154,7 +159,11 @@ async function createWeapon() {
   ]);
 }
 
-async function deleteWeapon(weaponId: string, isItem: boolean) {
+async function deleteWeapon(
+  weaponId: string,
+  isItem: boolean,
+  systemIndex?: number
+) {
   if (isItem) {
     // Delete Item weapon
     const item = actor.items.get(weaponId);
@@ -170,13 +179,13 @@ async function deleteWeapon(weaponId: string, isItem: boolean) {
       await item.delete();
     }
   } else {
-    // Delete synced weapon from system.weapons
+    // Delete synced weapon from system.weapons using array index
+    if (systemIndex === undefined) return;
+
     const systemWeapons = [...(reactiveActor.system.weapons || [])];
-    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
 
-    if (weaponIndex === -1) return;
-
-    const weapon = systemWeapons[weaponIndex];
+    const weapon = systemWeapons[systemIndex];
 
     // @ts-expect-error - DialogV2 path not fully typed
     const confirmed = await foundry.applications.api.DialogV2.confirm({
@@ -185,7 +194,7 @@ async function deleteWeapon(weaponId: string, isItem: boolean) {
     });
 
     if (confirmed) {
-      systemWeapons.splice(weaponIndex, 1);
+      systemWeapons.splice(systemIndex, 1);
       await actor.update({
         // @ts-expect-error - system.weapons not fully typed
         "system.weapons": systemWeapons
@@ -194,7 +203,11 @@ async function deleteWeapon(weaponId: string, isItem: boolean) {
   }
 }
 
-async function toggleEquip(weaponId: string, isItem: boolean) {
+async function toggleEquip(
+  weaponId: string,
+  isItem: boolean,
+  systemIndex?: number
+) {
   if (isItem) {
     // Toggle Item weapon
     const item = actor.items.get(weaponId) as any;
@@ -205,15 +218,15 @@ async function toggleEquip(weaponId: string, isItem: boolean) {
       unknown
     >);
   } else {
-    // Toggle synced weapon in system.weapons
+    // Toggle synced weapon in system.weapons using array index
+    if (systemIndex === undefined) return;
+
     const systemWeapons = [...(reactiveActor.system.weapons || [])];
-    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
 
-    if (weaponIndex === -1) return;
-
-    systemWeapons[weaponIndex] = {
-      ...systemWeapons[weaponIndex],
-      equipped: !systemWeapons[weaponIndex].equipped
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
+      equipped: !systemWeapons[systemIndex].equipped
     };
 
     await actor.update({
@@ -240,7 +253,8 @@ function editWeapon(weaponId: string, isItem: boolean) {
 async function updateWeaponName(
   weaponId: string,
   newName: string,
-  isItem: boolean
+  isItem: boolean,
+  systemIndex?: number
 ) {
   if (isItem) {
     const item = actor.items.get(weaponId);
@@ -248,16 +262,14 @@ async function updateWeaponName(
       await item.update({ name: newName.trim() });
     }
   } else {
-    // Update synced weapon name
-    if (!newName.trim()) return;
+    // Update synced weapon name using array index
+    if (!newName.trim() || systemIndex === undefined) return;
 
     const systemWeapons = [...(reactiveActor.system.weapons || [])];
-    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
 
-    if (weaponIndex === -1) return;
-
-    systemWeapons[weaponIndex] = {
-      ...systemWeapons[weaponIndex],
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
       name: newName.trim()
     };
 
@@ -271,7 +283,8 @@ async function updateWeaponName(
 async function updateWeaponType(
   weaponId: string,
   newType: string,
-  isItem: boolean
+  isItem: boolean,
+  systemIndex?: number
 ) {
   if (isItem) {
     const item = actor.items.get(weaponId);
@@ -282,14 +295,14 @@ async function updateWeaponType(
       >);
     }
   } else {
-    // Update synced weapon type
+    // Update synced weapon type using array index
+    if (systemIndex === undefined) return;
+
     const systemWeapons = [...(reactiveActor.system.weapons || [])];
-    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
 
-    if (weaponIndex === -1) return;
-
-    systemWeapons[weaponIndex] = {
-      ...systemWeapons[weaponIndex],
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
       type: (newType === "thrown" ? "ranged" : newType) as
         | "melee"
         | "ranged"
@@ -306,7 +319,8 @@ async function updateWeaponType(
 async function updateWeaponDamage(
   weaponId: string,
   newDamage: number,
-  isItem: boolean
+  isItem: boolean,
+  systemIndex?: number
 ) {
   if (isItem) {
     const item = actor.items.get(weaponId);
@@ -317,14 +331,14 @@ async function updateWeaponDamage(
       >);
     }
   } else {
-    // Update synced weapon damage
+    // Update synced weapon damage using array index
+    if (systemIndex === undefined) return;
+
     const systemWeapons = [...(reactiveActor.system.weapons || [])];
-    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
 
-    if (weaponIndex === -1) return;
-
-    systemWeapons[weaponIndex] = {
-      ...systemWeapons[weaponIndex],
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
       damage: newDamage.toString() // Store as string for compatibility with rank-based damage
     };
 
@@ -338,7 +352,8 @@ async function updateWeaponDamage(
 async function updateWeaponDamageRank(
   weaponId: string,
   newRank: string,
-  isItem: boolean
+  isItem: boolean,
+  systemIndex?: number
 ) {
   if (isItem) {
     const item = actor.items.get(weaponId);
@@ -349,15 +364,48 @@ async function updateWeaponDamageRank(
       >);
     }
   } else {
-    // Update synced weapon damage rank
+    // Update synced weapon damage rank using array index
+    if (systemIndex === undefined) return;
+
     const systemWeapons = [...(reactiveActor.system.weapons || [])];
-    const weaponIndex = systemWeapons.findIndex((w: any) => w.id === weaponId);
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
 
-    if (weaponIndex === -1) return;
-
-    systemWeapons[weaponIndex] = {
-      ...systemWeapons[weaponIndex],
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
       damage: newRank
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
+  }
+}
+
+async function updateWeaponTalent(
+  weaponId: string,
+  newTalent: string,
+  isItem: boolean,
+  systemIndex?: number
+) {
+  if (isItem) {
+    const item = actor.items.get(weaponId);
+    if (item) {
+      await item.update({ "system.talent": newTalent } as Record<
+        string,
+        unknown
+      >);
+    }
+  } else {
+    // Update synced weapon talent using array index
+    if (systemIndex === undefined) return;
+
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
+
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
+      applicableTalent: newTalent
     };
 
     await actor.update({
@@ -403,7 +451,8 @@ async function updateWeaponDamageRank(
                 updateWeaponName(
                   weapon.id,
                   (e.target as HTMLInputElement).value,
-                  weapon.isItem
+                  weapon.isItem,
+                  weapon.systemIndex
                 )
             "
             @keyup.enter="e => (e.target as HTMLInputElement).blur()"
@@ -419,7 +468,8 @@ async function updateWeaponDamageRank(
                 updateWeaponType(
                   weapon.id,
                   (e.target as HTMLSelectElement).value,
-                  weapon.isItem
+                  weapon.isItem,
+                  weapon.systemIndex
                 )
             "
             class="basis-auto bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
@@ -440,7 +490,7 @@ async function updateWeaponDamageRank(
 
           <!-- Equipped badge -->
           <button
-            @click="toggleEquip(weapon.id, weapon.isItem)"
+            @click="toggleEquip(weapon.id, weapon.isItem, weapon.systemIndex)"
             class="text-xs px-2 py-1 rounded"
             :class="[
               weapon.equipped
@@ -464,7 +514,7 @@ async function updateWeaponDamageRank(
 
           <!-- Delete button -->
           <button
-            @click="deleteWeapon(weapon.id, weapon.isItem)"
+            @click="deleteWeapon(weapon.id, weapon.isItem, weapon.systemIndex)"
             class="text-xs text-red-400 hover:text-red-300"
             :title="'Delete weapon'"
           >
@@ -490,7 +540,8 @@ async function updateWeaponDamageRank(
                   updateWeaponDamage(
                     weapon.id,
                     Number((e.target as HTMLInputElement).value),
-                    weapon.isItem
+                    weapon.isItem,
+                    weapon.systemIndex
                   )
               "
               @keyup.enter="e => (e.target as HTMLInputElement).blur()"
@@ -507,7 +558,8 @@ async function updateWeaponDamageRank(
                   updateWeaponDamageRank(
                     weapon.id,
                     (e.target as HTMLSelectElement).value,
-                    weapon.isItem
+                    weapon.isItem,
+                    weapon.systemIndex
                   )
               "
               class="bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
@@ -521,6 +573,27 @@ async function updateWeaponDamageRank(
               </option>
             </select>
           </template>
+        </div>
+
+        <!-- Row 3: talent input -->
+        <div class="flex items-center gap-2 mt-2">
+          <label class="text-xs text-gray-400">Talent:</label>
+          <input
+            type="text"
+            :value="weapon.talent || ''"
+            @blur="
+              e =>
+                updateWeaponTalent(
+                  weapon.id,
+                  (e.target as HTMLInputElement).value,
+                  weapon.isItem,
+                  weapon.systemIndex
+                )
+            "
+            @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+            class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+            placeholder="e.g., Martial Arts Supreme, Weapons Master"
+          />
         </div>
 
         <!-- Description -->
