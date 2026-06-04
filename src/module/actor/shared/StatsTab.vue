@@ -1009,7 +1009,8 @@ async function rollPower(power: any) {
           karmaResultShift: attackKarma?.resultShift ?? 0,
           manualChartShift: comboResult.manualChartShift ?? 0,
           comboIndex: i + 1,
-          comboTotal: comboResult.comboCount
+          comboTotal: comboResult.comboCount,
+          multiHit: power.multiHit || false
         });
       }
     } else {
@@ -1030,7 +1031,8 @@ async function rollPower(power: any) {
         // Pass karma settings from combo dialog
         karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
         karmaResultShift: firstAttackKarma?.resultShift ?? 0,
-        manualChartShift: comboResult.manualChartShift ?? 0
+        manualChartShift: comboResult.manualChartShift ?? 0,
+        multiHit: power.multiHit || false
       });
     }
 
