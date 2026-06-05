@@ -299,45 +299,17 @@ async function handleDefensePrompt(
       // @ts-expect-error - hasStatusEffect may not be in types
       targetToken.actor.hasStatusEffect?.("stun") || false;
 
-    // Also check statuses collection directly
+    // Also check statuses collection directly as fallback
     const statusesArray = Array.from(targetToken.actor.statuses || []);
-    const effectsArray =
-      targetToken.actor.effects?.map((e: any) => ({
-        name: e.name,
-        id: e.id,
-        disabled: e.disabled,
-        statuses: Array.from(e.statuses || [])
-      })) || [];
 
     isStunned = hasStatusEffectResult || statusesArray.includes("stun");
-
-    console.log(
-      `[FASERIP Socket] Checking stunned status for ${targetActor.name}:`,
-      {
-        hasToken: !!targetToken,
-        isLinked: targetToken?.document?.actorLink,
-        isStunned,
-        hasStatusEffectResult,
-        statusesArray,
-        effectsArray,
-        checkedOn: "token.actor"
-      }
-    );
   } else if (targetActor) {
     // Fallback: check actor directly if no token
     // @ts-expect-error - hasStatusEffect may not be in types
     isStunned = targetActor.hasStatusEffect?.("stun") || false;
-    console.log(
-      `[FASERIP Socket] Checking stunned status on actor (no token):`,
-      {
-        isStunned,
-        actorName: targetActor.name
-      }
-    );
   }
 
   if (isStunned) {
-    console.log("FASERIP Combat | Target is stunned - cannot defend");
     // Create a chat message to inform that the target is stunned
     ChatMessage.create({
       content: `<div class="faserip-chat-card">

@@ -736,14 +736,6 @@ export async function executeCombatAttack(
   const comboBotchCount = attackData.comboBotchCount ?? 0;
   const botchPenalty = -comboBotchCount;
 
-  // Debug armor piercing data
-  console.log("[Combat Flow] Armor piercing data:", {
-    armorPiercing: attackData.armorPiercing,
-    armorPiercingType: typeof attackData.armorPiercing,
-    powerName: attackData.powerName,
-    fullAttackData: attackData
-  });
-
   // Calculate combo penalty if this is part of a combo attack
   // Multi-hit powers (AoE) don't suffer combo penalty - one roll for all targets
   const comboPenalty =
@@ -796,13 +788,6 @@ export async function executeCombatAttack(
 
   // Use karma-modified total if available (for botch detection), otherwise use raw roll total
   const attackTotal = (attackRoll.modifiedTotal ?? attackRoll.roll.total) || 0;
-  console.log("[Combat Flow] attackTotal calculated:", {
-    modifiedTotal: attackRoll.modifiedTotal,
-    rollTotal: attackRoll.roll.total,
-    finalAttackTotal: attackTotal,
-    comboIndex,
-    comboTotal
-  });
 
   // Track botches within this combo
   const newBotchCount =
@@ -1006,14 +991,6 @@ export async function executeCombatAttack(
     if (!defenseResponse || defenseResponse.defenseType === "takeHit") {
       // Target took the hit without defending
       attackHit = true;
-      console.log(
-        `[Combat Flow] Target taking hit without defense: ${targetActor.name}`,
-        {
-          defenseResponse,
-          attackHit,
-          effectType: attackData.effectType
-        }
-      );
 
       const attackResultText = attackRoll.getResultText();
       const attackResultClass = attackRoll.getResultClass();
@@ -1238,19 +1215,10 @@ export async function executeCombatAttack(
     // Brief delay before next target
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    console.log(`[Combat Flow] Pre-damage check for ${targetActor.name}:`, {
-      attackHit,
-      effectType: attackData.effectType,
-      willCalculateDamage: attackHit && attackData.effectType === "damage"
-    });
-
     // Step 5: Calculate and apply damage using hybrid system (skip if power doesn't deal damage)
     if (attackHit && attackData.effectType === "damage") {
       // Get power rank (from attackData or default to attack attribute rank)
       let powerRank = attackData.powerRank || attackRank;
-      console.log(
-        `[Combat Flow] Starting damage calculation with powerRank: ${formatRankDisplay(powerRank)}, damageRankBump: ${damageRankBump}`
-      );
 
       // Apply damage rank bump if specified (global modifier)
       if (damageRankBump !== 0) {
@@ -1381,11 +1349,6 @@ export async function executeCombatAttack(
             ]
           });
         }
-
-        // Still show combat result message (but without damage application text)
-        console.log(
-          `[Combo Damage] Deferred ${damageResult.damage} damage to ${targetActor.name} (cumulative: ${existingPendingDamage ? existingPendingDamage.totalDamage : damageResult.damage})`
-        );
 
         // Build damage deferred text
         const damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0; font-style: italic;">⏳ Damage accumulated (will apply at end of combo)</div>`;
@@ -1795,13 +1758,7 @@ export async function applyPendingDamages(
   attacker: FaseripActor,
   pendingDamages: PendingDamage[]
 ): Promise<void> {
-  console.log(`[Combat Flow] applyPendingDamages called:`, {
-    pendingCount: pendingDamages?.length || 0,
-    pendingDamages
-  });
-
   if (!pendingDamages || pendingDamages.length === 0) {
-    console.log(`[Combat Flow] No pending damages to apply`);
     return;
   }
 
