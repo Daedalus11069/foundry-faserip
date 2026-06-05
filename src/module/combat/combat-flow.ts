@@ -924,6 +924,28 @@ export async function executeCombatAttack(
       continue;
     }
 
+    // Check if target is stunned before requesting defense
+    // @ts-expect-error - hasStatusEffect may not be in types
+    const isStunned = target.actor?.hasStatusEffect?.("stun") || false;
+
+    if (isStunned) {
+      // Create chat message once here (not in handler to avoid duplicates)
+      ChatMessage.create({
+        content: `<div class="faserip-chat-card">
+          <div class="card-header">
+            <h3><i class="fas fa-dizzy"></i> Stunned!</h3>
+          </div>
+          <div class="card-body">
+            <p><strong>${targetActor.name}</strong> is stunned and cannot defend!</p>
+          </div>
+        </div>`,
+        speaker: ChatMessage.getSpeaker({ actor: targetActor })
+      });
+      // Add takeHit response without prompting
+      defenseResponses.push({ defenseType: "takeHit" });
+      continue;
+    }
+
     const defenseResponse = await requestDefenseResponse({
       targetActorId: targetActor.id!,
       targetTokenId: target.id,

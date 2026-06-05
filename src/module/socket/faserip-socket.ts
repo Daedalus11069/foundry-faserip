@@ -310,18 +310,7 @@ async function handleDefensePrompt(
   }
 
   if (isStunned) {
-    // Create a chat message to inform that the target is stunned
-    ChatMessage.create({
-      content: `<div class="faserip-chat-card">
-        <div class="card-header">
-          <h3><i class="fas fa-dizzy"></i> Stunned!</h3>
-        </div>
-        <div class="card-body">
-          <p><strong>${targetActor.name}</strong> is stunned and cannot defend!</p>
-        </div>
-      </div>`,
-      speaker: ChatMessage.getSpeaker({ actor: targetActor })
-    });
+    // Don't create chat message here - let the caller handle it to avoid duplicates
     return { defenseType: "takeHit" };
   }
 
