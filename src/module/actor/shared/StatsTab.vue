@@ -4,7 +4,8 @@ import {
   formatRankDisplay,
   applyChartShift,
   type Rank,
-  RollResult
+  RollResult,
+  RANK_VALUES
 } from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
 import { stringToRank } from "../../utils";
@@ -307,6 +308,83 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         return; // User cancelled
       }
 
+      // Calculate and deduct total karma cost upfront (for all attacks in combo)
+      let totalKarmaCost = 0;
+      for (let i = 0; i < comboResult.attackKarmaSettings.length; i++) {
+        const attack = comboResult.attackKarmaSettings[i];
+        const comboPenalty = -(i + 1);
+
+        // Pre-roll karma (column shifts)
+        if (attack.columnShifts > 0) {
+          const effectiveRank = applyChartShift(
+            fightingRank,
+            comboPenalty + (talentCS || 0)
+          );
+          const shiftedRank = applyChartShift(
+            effectiveRank,
+            attack.columnShifts
+          );
+          const effectiveValue = RANK_VALUES[effectiveRank] || 6;
+          const shiftedValue = RANK_VALUES[shiftedRank] || 6;
+          const scoreDiff = Math.abs(shiftedValue - effectiveValue);
+          totalKarmaCost += Math.max(10, scoreDiff);
+        }
+
+        // Post-roll karma (result shift)
+        if (attack.resultShift > 0) {
+          totalKarmaCost += Math.max(10, attack.resultShift);
+        }
+
+        // Damage rank shift karma
+        if (attack.damageRankShift > 0) {
+          const effectiveRank = applyChartShift(
+            fightingRank,
+            comboPenalty + (talentCS || 0)
+          );
+          const shiftedRank = applyChartShift(
+            effectiveRank,
+            attack.damageRankShift
+          );
+          const effectiveValue = RANK_VALUES[effectiveRank] || 6;
+          const shiftedValue = RANK_VALUES[shiftedRank] || 6;
+          const scoreDiff = Math.abs(shiftedValue - effectiveValue);
+          totalKarmaCost += Math.max(10, scoreDiff);
+        }
+
+        // Flat damage bonus karma
+        if (attack.damageBonus > 0) {
+          totalKarmaCost += Math.max(10, attack.damageBonus);
+        }
+      }
+
+      // Deduct karma
+      if (totalKarmaCost > 0) {
+        const newKarmaValue = Math.max(
+          0,
+          (reactiveActor.system.resources?.karma?.value || 0) - totalKarmaCost
+        );
+        reactiveActor.system.resources.karma.value = newKarmaValue;
+        await actor.update({
+          // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
+          "system.resources.karma.value": newKarmaValue
+        });
+
+        // Sync with Charman
+        const charmanData = reactiveActor.system?.charman;
+        if (charmanData?.username && charmanData?.characterName) {
+          try {
+            const service = getCharmanService();
+            await service.updateKarma(
+              charmanData.username,
+              charmanData.characterName,
+              newKarmaValue
+            );
+          } catch (error) {
+            console.warn("Could not sync karma to Charman:", error);
+          }
+        }
+      }
+
       // Handle combo attacks
       if (comboResult.comboCount > 1) {
         // Execute multiple attacks with distributed karma
@@ -330,6 +408,11 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             karmaColumnShifts: attackKarma?.columnShifts ?? 0,
             karmaResultShift: attackKarma?.resultShift ?? 0,
             manualChartShift: comboResult.manualChartShift ?? 0,
+            damageRankBump: comboResult.damageRankBump ?? 0,
+            perAttackKarma: {
+              damageRankShift: attackKarma?.damageRankShift ?? 0,
+              damageBonus: attackKarma?.damageBonus ?? 0
+            },
             comboIndex: i + 1,
             comboTotal: comboResult.comboCount,
             deferDamageApplication: true, // Defer damage for cumulative application
@@ -420,7 +503,12 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           talentCS: talentCS > 0 ? talentCS : undefined,
           karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
           karmaResultShift: firstAttackKarma?.resultShift ?? 0,
-          manualChartShift: comboResult.manualChartShift ?? 0
+          manualChartShift: comboResult.manualChartShift ?? 0,
+          damageRankBump: comboResult.damageRankBump ?? 0,
+          perAttackKarma: {
+            damageRankShift: firstAttackKarma?.damageRankShift ?? 0,
+            damageBonus: firstAttackKarma?.damageBonus ?? 0
+          }
         });
       }
       return;
@@ -602,6 +690,80 @@ async function rollWeapon(weapon: Weapon) {
     return; // User cancelled
   }
 
+  // Calculate and deduct total karma cost upfront (for all attacks in combo)
+  let totalKarmaCost = 0;
+  for (let i = 0; i < comboResult.attackKarmaSettings.length; i++) {
+    const attack = comboResult.attackKarmaSettings[i];
+    const comboPenalty = -(i + 1);
+
+    // Pre-roll karma (column shifts)
+    if (attack.columnShifts > 0) {
+      const effectiveRank = applyChartShift(
+        attackRank,
+        comboPenalty + (talentCS || 0)
+      );
+      const shiftedRank = applyChartShift(effectiveRank, attack.columnShifts);
+      const effectiveValue = RANK_VALUES[effectiveRank] || 6;
+      const shiftedValue = RANK_VALUES[shiftedRank] || 6;
+      const scoreDiff = Math.abs(shiftedValue - effectiveValue);
+      totalKarmaCost += Math.max(10, scoreDiff);
+    }
+
+    // Post-roll karma (result shift)
+    if (attack.resultShift > 0) {
+      totalKarmaCost += Math.max(10, attack.resultShift);
+    }
+
+    // Damage rank shift karma
+    if (attack.damageRankShift > 0) {
+      const effectiveRank = applyChartShift(
+        attackRank,
+        comboPenalty + (talentCS || 0)
+      );
+      const shiftedRank = applyChartShift(
+        effectiveRank,
+        attack.damageRankShift
+      );
+      const effectiveValue = RANK_VALUES[effectiveRank] || 6;
+      const shiftedValue = RANK_VALUES[shiftedRank] || 6;
+      const scoreDiff = Math.abs(shiftedValue - effectiveValue);
+      totalKarmaCost += Math.max(10, scoreDiff);
+    }
+
+    // Flat damage bonus karma
+    if (attack.damageBonus > 0) {
+      totalKarmaCost += Math.max(10, attack.damageBonus);
+    }
+  }
+
+  // Deduct karma
+  if (totalKarmaCost > 0) {
+    const newKarmaValue = Math.max(
+      0,
+      (reactiveActor.system.resources?.karma?.value || 0) - totalKarmaCost
+    );
+    reactiveActor.system.resources.karma.value = newKarmaValue;
+    await actor.update({
+      // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
+      "system.resources.karma.value": newKarmaValue
+    });
+
+    // Sync with Charman
+    const charmanData = reactiveActor.system?.charman;
+    if (charmanData?.username && charmanData?.characterName) {
+      try {
+        const service = getCharmanService();
+        await service.updateKarma(
+          charmanData.username,
+          charmanData.characterName,
+          newKarmaValue
+        );
+      } catch (error) {
+        console.warn("Could not sync karma to Charman:", error);
+      }
+    }
+  }
+
   // Handle combo attacks
   if (comboResult.comboCount > 1) {
     // Execute multiple attacks with distributed karma
@@ -626,6 +788,11 @@ async function rollWeapon(weapon: Weapon) {
         karmaColumnShifts: attackKarma?.columnShifts ?? 0,
         karmaResultShift: attackKarma?.resultShift ?? 0,
         manualChartShift: comboResult.manualChartShift ?? 0,
+        damageRankBump: comboResult.damageRankBump ?? 0,
+        perAttackKarma: {
+          damageRankShift: attackKarma?.damageRankShift ?? 0,
+          damageBonus: attackKarma?.damageBonus ?? 0
+        },
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount,
         multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
@@ -702,6 +869,11 @@ async function rollWeapon(weapon: Weapon) {
       karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
       karmaResultShift: firstAttackKarma?.resultShift ?? 0,
       manualChartShift: comboResult.manualChartShift ?? 0,
+      damageRankBump: comboResult.damageRankBump ?? 0,
+      perAttackKarma: {
+        damageRankShift: firstAttackKarma?.damageRankShift ?? 0,
+        damageBonus: firstAttackKarma?.damageBonus ?? 0
+      },
       multiHit: weapon.multiHit || false // Add multiHit flag for AoE weapons
     });
   }

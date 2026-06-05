@@ -22,6 +22,8 @@ interface Props {
 interface AttackKarma {
   columnShifts: number;
   resultShift: number;
+  damageRankShift: number;
+  damageBonus: number;
 }
 
 const props = defineProps<Props>();
@@ -31,7 +33,7 @@ const comboCount = ref(1);
 const manualChartShift = ref(0);
 const damageRankBump = ref(0);
 const attackKarmaSettings = ref<AttackKarma[]>([
-  { columnShifts: 0, resultShift: 0 }
+  { columnShifts: 0, resultShift: 0, damageRankShift: 0, damageBonus: 0 }
 ]);
 
 // Calculate maximum allowed combo count (cannot go below Feeble)
@@ -76,7 +78,12 @@ watch(comboCount, (newCount, oldCount) => {
   if (newCount > oldCount) {
     // Add new entries
     for (let i = oldCount; i < newCount; i++) {
-      attackKarmaSettings.value.push({ columnShifts: 0, resultShift: 0 });
+      attackKarmaSettings.value.push({
+        columnShifts: 0,
+        resultShift: 0,
+        damageRankShift: 0,
+        damageBonus: 0
+      });
     }
   } else if (newCount < oldCount) {
     // Remove excess entries
@@ -96,7 +103,11 @@ watch(manualChartShift, () => {
 const firstAttackUsesKarma = computed(() => {
   const firstAttack = attackKarmaSettings.value[0];
   return (
-    firstAttack && (firstAttack.columnShifts > 0 || firstAttack.resultShift > 0)
+    firstAttack &&
+    (firstAttack.columnShifts > 0 ||
+      firstAttack.resultShift > 0 ||
+      firstAttack.damageRankShift > 0 ||
+      firstAttack.damageBonus > 0)
   );
 });
 
@@ -107,6 +118,8 @@ watch(firstAttackUsesKarma, usesKarma => {
     for (let i = 1; i < attackKarmaSettings.value.length; i++) {
       attackKarmaSettings.value[i].columnShifts = 0;
       attackKarmaSettings.value[i].resultShift = 0;
+      attackKarmaSettings.value[i].damageRankShift = 0;
+      attackKarmaSettings.value[i].damageBonus = 0;
     }
   }
 });
@@ -133,6 +146,16 @@ const totalKarmaCost = computed(() => {
     // Post-roll cost (result shift)
     if (attack.resultShift > 0) {
       total += Math.max(10, attack.resultShift);
+    }
+
+    // Damage rank shift cost (same ratio as pre-roll CS)
+    if (attack.damageRankShift > 0) {
+      total += getDamageRankShiftCost(index, attack.damageRankShift);
+    }
+
+    // Damage bonus cost (1:1 ratio, minimum 10)
+    if (attack.damageBonus > 0) {
+      total += Math.max(10, attack.damageBonus);
     }
   });
 
@@ -197,6 +220,27 @@ function getPreRollCost(attackIndex: number, columnShifts: number): number {
 function getPostRollCost(resultShift: number): number {
   if (resultShift === 0) return 0;
   return Math.max(10, resultShift);
+}
+
+function getDamageRankShiftCost(
+  attackIndex: number,
+  damageRankShift: number
+): number {
+  if (damageRankShift === 0) return 0;
+
+  // Use same calculation as pre-roll CS (based on score difference)
+  const comboPenalty = getAttackPenalty(attackIndex);
+  const effectiveRank = applyChartShift(
+    props.attackRank,
+    comboPenalty + (props.talentCS || 0)
+  );
+  const shiftedRank = applyChartShift(effectiveRank, damageRankShift);
+
+  const effectiveValue = RANK_VALUES[effectiveRank] || 6;
+  const shiftedValue = RANK_VALUES[shiftedRank] || 6;
+  const scoreDiff = Math.abs(shiftedValue - effectiveValue);
+
+  return Math.max(10, scoreDiff);
 }
 
 function handleSubmit() {
@@ -434,6 +478,71 @@ function handleCancel() {
               </div>
               <div class="text-yellow-500">
                 Cost: {{ getPostRollCost(attack.resultShift) }} karma
+              </div>
+            </div>
+            <div
+              v-if="index > 0 && !firstAttackUsesKarma"
+              class="text-xs text-gray-500 mt-1 italic"
+            >
+              Enable karma on Attack 1 first
+            </div>
+          </div>
+        </div>
+
+        <!-- Damage Modification Row -->
+        <div class="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-gray-600">
+          <!-- Damage Rank CS -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1"
+              >Damage Rank CS</label
+            >
+            <input
+              type="number"
+              v-model.number="attack.damageRankShift"
+              :min="0"
+              :max="5"
+              :disabled="index > 0 && !firstAttackUsesKarma"
+              class="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              placeholder="0"
+            />
+            <div v-if="attack.damageRankShift > 0" class="text-xs mt-1">
+              <div class="text-orange-400">
+                +{{ attack.damageRankShift }} CS to damage rank
+              </div>
+              <div class="text-yellow-500">
+                Cost:
+                {{ getDamageRankShiftCost(index, attack.damageRankShift) }}
+                karma
+              </div>
+            </div>
+            <div
+              v-if="index > 0 && !firstAttackUsesKarma"
+              class="text-xs text-gray-500 mt-1 italic"
+            >
+              Enable karma on Attack 1 first
+            </div>
+          </div>
+
+          <!-- Flat Damage Bonus -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1"
+              >Flat Damage +</label
+            >
+            <input
+              type="number"
+              v-model.number="attack.damageBonus"
+              :min="0"
+              :max="100"
+              :disabled="index > 0 && !firstAttackUsesKarma"
+              class="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              placeholder="0"
+            />
+            <div v-if="attack.damageBonus > 0" class="text-xs mt-1">
+              <div class="text-red-400">
+                +{{ attack.damageBonus }} flat damage
+              </div>
+              <div class="text-yellow-500">
+                Cost: {{ Math.max(10, attack.damageBonus) }} karma (min 10)
               </div>
             </div>
             <div

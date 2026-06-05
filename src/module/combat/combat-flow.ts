@@ -21,6 +21,7 @@ import {
 } from "../enums";
 import { type ArmorItem, isArmorItem } from "../types/items";
 import { createRoll } from "../utils/manual-roll-handler";
+import { getCharmanService } from "../charman-service";
 
 /**
  * Data for an attack attempt
@@ -42,6 +43,8 @@ interface AttackData {
   karmaColumnShifts?: number; // Optional: Pre-determined karma column shifts (from combo dialog)
   karmaResultShift?: number; // Optional: Pre-determined karma result shifts (from combo dialog)
   manualChartShift?: number; // Optional: Manual chart shift modifier (from combo dialog)
+  damageRankBump?: number; // Optional: Global damage rank bump modifier (from combo dialog)
+  perAttackKarma?: { damageRankShift: number; damageBonus: number }; // Optional: Per-attack damage karma for this specific attack
   comboIndex?: number; // Optional: Current attack number in combo (1-based)
   comboTotal?: number; // Optional: Total number of attacks in combo
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
@@ -578,6 +581,7 @@ export async function executeCombatAttack(
       karmaColumnShifts = presetKarmaColumnShifts ?? 0;
       karmaResultShift = presetKarmaResultShift ?? 0;
       manualChartShift = presetManualChartShift ?? 0;
+      damageRankBump = attackData.damageRankBump ?? 0;
     } else {
       // Show attack options dialog
       const attackOptions = await showAttackOptionsDialog(
@@ -699,6 +703,7 @@ export async function executeCombatAttack(
     karmaColumnShifts = presetKarmaColumnShifts ?? 0;
     karmaResultShift = presetKarmaResultShift ?? 0;
     manualChartShift = presetManualChartShift ?? 0;
+    damageRankBump = attackData.damageRankBump ?? 0;
   } else {
     // Show attack options dialog
     attackOptions = await showAttackOptionsDialog(
@@ -721,6 +726,10 @@ export async function executeCombatAttack(
     karmaResultShift = firstAttackKarma?.resultShift ?? 0;
     manualChartShift = attackOptions.manualChartShift ?? 0;
     damageRankBump = attackOptions.damageRankBump ?? 0;
+
+    console.log(
+      `[Combat Flow] Attack options extracted: damageRankBump=${damageRankBump}, manualChartShift=${manualChartShift}`
+    );
   }
 
   // Get consecutive botch penalty from combo (not from actor flags - this is per-combo)
@@ -799,9 +808,74 @@ export async function executeCombatAttack(
   const newBotchCount =
     attackTotal <= 5 ? comboBotchCount + 1 : comboBotchCount;
   if (attackTotal <= 5) {
-    console.log(
-      `[Combat Flow] Botch detected! Combo botches: ${newBotchCount}`
-    );
+    // Botch detected
+  }
+
+  // Deduct damage karma ONLY if using attack options dialog (not preset values from StatsTab)
+  // When using preset values, karma is already deducted in StatsTab
+  if (
+    attackOptions &&
+    attackOptions.attackKarmaSettings &&
+    presetKarmaColumnShifts === undefined &&
+    presetKarmaResultShift === undefined &&
+    presetManualChartShift === undefined
+  ) {
+    let totalDamageKarma = 0;
+
+    // Calculate total damage karma cost from all attacks
+    for (let i = 0; i < attackOptions.attackKarmaSettings.length; i++) {
+      const attack = attackOptions.attackKarmaSettings[i];
+      const comboPenalty = -(i + 1); // Combo penalty for this attack
+
+      // Damage rank shift cost (same as pre-roll CS calculation)
+      if (attack.damageRankShift > 0) {
+        const effectiveRank = applyChartShift(
+          attackRank,
+          comboPenalty + (talentCS || 0)
+        );
+        const shiftedRank = applyChartShift(
+          effectiveRank,
+          attack.damageRankShift
+        );
+        const effectiveValue = RANK_VALUES[effectiveRank] || 6;
+        const shiftedValue = RANK_VALUES[shiftedRank] || 6;
+        const scoreDiff = Math.abs(shiftedValue - effectiveValue);
+        totalDamageKarma += Math.max(10, scoreDiff);
+      }
+
+      // Damage bonus cost (1:1 ratio, minimum 10)
+      if (attack.damageBonus > 0) {
+        totalDamageKarma += Math.max(10, attack.damageBonus);
+      }
+    }
+
+    // Deduct karma if any damage karma was spent
+    if (totalDamageKarma > 0) {
+      const actorSystem = (attacker as any).system;
+      const currentKarma = actorSystem?.resources?.karma?.value || 0;
+      const newKarmaValue = Math.max(0, currentKarma - totalDamageKarma);
+
+      await attacker.update({
+        // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
+        "system.resources.karma.value": newKarmaValue
+      });
+
+      // Sync karma with Charman if character is linked
+      const charmanData = actorSystem?.charman;
+      if (charmanData?.username && charmanData?.characterName) {
+        try {
+          const service = getCharmanService();
+          await service.updateKarma(
+            charmanData.username,
+            charmanData.characterName,
+            newKarmaValue
+          );
+        } catch (error) {
+          // Service not initialized or sync failed - ignore silently
+          console.warn("Could not sync karma to Charman:", error);
+        }
+      }
+    }
   }
 
   // Show the attack roll to chat BEFORE defense dialogs
@@ -1160,10 +1234,37 @@ export async function executeCombatAttack(
     if (attackHit && attackData.effectType === "damage") {
       // Get power rank (from attackData or default to attack attribute rank)
       let powerRank = attackData.powerRank || attackRank;
+      console.log(
+        `[Combat Flow] Starting damage calculation with powerRank: ${formatRankDisplay(powerRank)}, damageRankBump: ${damageRankBump}`
+      );
 
-      // Apply damage rank bump if specified
+      // Apply damage rank bump if specified (global modifier)
       if (damageRankBump !== 0) {
         powerRank = applyChartShift(powerRank, damageRankBump);
+      }
+
+      // Apply per-attack damage rank shift from karma (if using dialog OR preset values)
+      let perAttackDamageRankShift = 0;
+      let perAttackDamageBonus = 0;
+
+      if (attackData.perAttackKarma) {
+        // Preset per-attack karma from combo (passed via attackData)
+        perAttackDamageRankShift =
+          attackData.perAttackKarma.damageRankShift ?? 0;
+        perAttackDamageBonus = attackData.perAttackKarma.damageBonus ?? 0;
+      } else if (attackOptions && attackOptions.attackKarmaSettings) {
+        // Dialog-based karma settings (single attack or no preset values)
+        const karmaIndex = comboIndex ? comboIndex - 1 : 0;
+        const attackKarma = attackOptions.attackKarmaSettings[karmaIndex];
+        if (attackKarma) {
+          perAttackDamageRankShift = attackKarma.damageRankShift ?? 0;
+          perAttackDamageBonus = attackKarma.damageBonus ?? 0;
+        }
+      }
+
+      // Apply per-attack damage rank shift
+      if (perAttackDamageRankShift !== 0) {
+        powerRank = applyChartShift(powerRank, perAttackDamageRankShift);
       }
 
       // Calculate damage with tier-based rank reduction
@@ -1180,6 +1281,31 @@ export async function executeCombatAttack(
         isUltimateBotch,
         sharedBonusRoll // Pass pre-rolled bonus for AOE attacks
       );
+
+      // Apply per-attack flat damage bonus from karma
+      if (perAttackDamageBonus > 0) {
+        damageResult.damage += perAttackDamageBonus;
+      }
+
+      // Build damage modifier display text
+      let damageModifiersText = "";
+      const modifiers: string[] = [];
+      if (damageRankBump !== 0) {
+        modifiers.push(
+          `Global Bump: ${damageRankBump >= 0 ? "+" : ""}${damageRankBump} CS`
+        );
+      }
+      if (perAttackDamageRankShift !== 0) {
+        modifiers.push(
+          `Damage CS: ${perAttackDamageRankShift >= 0 ? "+" : ""}${perAttackDamageRankShift} CS`
+        );
+      }
+      if (perAttackDamageBonus > 0) {
+        modifiers.push(`Flat Bonus: +${perAttackDamageBonus}`);
+      }
+      if (modifiers.length > 0) {
+        damageModifiersText = `<div style="font-size: 0.75rem; background: #dbeafe; color: #1e40af; padding: 0.15rem 0.4rem; border-radius: 3px; margin: 0.25rem 0;">⚡ Karma Boosts: ${modifiers.join(" • ")}</div>`;
+      }
 
       // Get target's armor rank for armor piercing calculation
       const targetSystem = targetActor.system as any;
@@ -1249,6 +1375,26 @@ export async function executeCombatAttack(
 
         // Build damage deferred text
         const damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0; font-style: italic;">⏳ Damage accumulated (will apply at end of combo)</div>`;
+
+        // Build damage modifier display text (for deferred damage)
+        let damageModifiersText = "";
+        const deferredModifiers: string[] = [];
+        if (damageRankBump !== 0) {
+          deferredModifiers.push(
+            `Global Bump: ${damageRankBump >= 0 ? "+" : ""}${damageRankBump} CS`
+          );
+        }
+        if (perAttackDamageRankShift !== 0) {
+          deferredModifiers.push(
+            `Damage CS: ${perAttackDamageRankShift >= 0 ? "+" : ""}${perAttackDamageRankShift} CS`
+          );
+        }
+        if (perAttackDamageBonus > 0) {
+          deferredModifiers.push(`Flat Bonus: +${perAttackDamageBonus}`);
+        }
+        if (deferredModifiers.length > 0) {
+          damageModifiersText = `<div style="font-size: 0.75rem; background: #dbeafe; color: #1e40af; padding: 0.15rem 0.4rem; border-radius: 3px; margin: 0.25rem 0;">⚡ Karma Boosts: ${deferredModifiers.join(" • ")}</div>`;
+        }
 
         // Continue with combat message display (copied from below with damageApplicationText)
         // Build compact defense info
@@ -1346,6 +1492,8 @@ export async function executeCombatAttack(
             </div>
             ${damageApplicationText}
           </div>
+          
+          ${damageModifiersText}
           
           <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">${damageResult.description}${attackData.damageType ? ` • ${attackData.damageType}` : ""}</div>
         </div>`,
@@ -1529,6 +1677,8 @@ export async function executeCombatAttack(
             </div>
             ${damageApplicationText}
           </div>
+          
+          ${damageModifiersText}
           
           <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">${damageResult.description}${attackData.damageType ? ` • ${attackData.damageType}` : ""}</div>
         </div>`,

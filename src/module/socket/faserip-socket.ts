@@ -760,8 +760,9 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
 
   // First try to get actor from token (for unlinked tokens)
   if (data.targetTokenId) {
-    // @ts-expect-error - Foundry canvas.tokens collection
-    const token = canvas.tokens?.get(data.targetTokenId);
+    const token = canvas?.tokens?.placeables.find(
+      (t: Token) => t.id === data.targetTokenId
+    );
     if (token) {
       targetActor = token.actor as FaseripActor;
     }
@@ -947,7 +948,9 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     // CRITICAL: Get the specific token if token ID provided (for unlinked multi-target attacks)
     // Otherwise fall back to first active token
     const targetToken = data.targetTokenId
-      ? canvas?.tokens?.get(data.targetTokenId)?.document
+      ? canvas?.tokens?.placeables.find(
+          (t: Token) => t.id === data.targetTokenId
+        )?.document
       : targetActor.getActiveTokens()[0]?.document || null;
 
     // Update the token document if it exists and is unlinked, otherwise update the actor

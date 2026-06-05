@@ -141,7 +141,12 @@ export async function showAttackOptionsDialog(
   talentCS?: number
 ): Promise<{
   comboCount: number;
-  attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
+  attackKarmaSettings: Array<{
+    columnShifts: number;
+    resultShift: number;
+    damageRankShift: number;
+    damageBonus: number;
+  }>;
   manualChartShift: number;
   damageRankBump: number;
   hasExhaustion?: boolean;
@@ -171,7 +176,12 @@ export async function showAttackOptionsDialog(
 
   return result as {
     comboCount: number;
-    attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
+    attackKarmaSettings: Array<{
+      columnShifts: number;
+      resultShift: number;
+      damageRankShift: number;
+      damageBonus: number;
+    }>;
     manualChartShift: number;
     damageRankBump: number;
     hasExhaustion?: boolean;

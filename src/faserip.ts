@@ -728,29 +728,20 @@ Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
 
 Hooks.on("createChatMessage", (message: any) => {
   if (!message.flags?.faserip?.intuitionCheck) {
-    console.log("FASERIP | Not an intuition check message");
     return;
   }
 
-  console.log("FASERIP | This is an intuition check!");
-
   const tokenId: string | undefined = message.flags?.faserip?.tokenId;
 
-  console.log("FASERIP | tokenId:", tokenId);
-
   if (!tokenId) {
-    console.warn("FASERIP | Missing tokenId");
     return;
   }
 
   const rolls: any[] = message.rolls ?? [];
   if (!rolls.length) {
-    console.warn("FASERIP | No rolls in message");
     return;
   }
   const total: number = rolls[0]?.total ?? 0;
-
-  console.log("FASERIP | Roll total:", total);
 
   // Calculate color class from roll total
   let colorClass = "white";
