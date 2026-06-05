@@ -162,12 +162,15 @@ function getResultColors(resultClass: string): {
  *   - Yellow (tier 2): base (full damage)
  *   - Red (tier 3): base + 3d6 (critical damage)
  *   - Ultimate (100): base + 5d10 (ultimate damage)
+ * @param preRolledBonus - Optional pre-rolled bonus (for AOE attacks to use same bonus for all targets)
+ * @returns DamageResult with bonusRoll set to null if preRolledBonus was used (to avoid re-displaying)
  */
 async function calculateDamage(
   attackRoll: FaseripRoll,
   defenseRoll: FaseripRoll | null,
   powerRank: Rank,
-  isUltimateBotch: boolean = false
+  isUltimateBotch: boolean = false,
+  preRolledBonus?: Roll
 ): Promise<DamageResult> {
   const attackTier = getResultTier(attackRoll);
   const defenseTier = defenseRoll ? getResultTier(defenseRoll) : 0;
@@ -203,11 +206,16 @@ async function calculateDamage(
 
   if (rollValue === 100) {
     // Ultimate: reduced base + 5d10
-    bonusRoll = await createRoll("5d10", "Ultimate Damage Bonus", "d10");
-    if (!bonusRoll) {
-      // User cancelled, use 0 bonus
-      bonusRoll = await Roll.create("0");
-      await bonusRoll.evaluate();
+    // Use pre-rolled bonus if provided (for AOE attacks), otherwise roll new
+    if (preRolledBonus) {
+      bonusRoll = preRolledBonus;
+    } else {
+      bonusRoll = await createRoll("5d10", "Ultimate Damage Bonus", "d10");
+      if (!bonusRoll) {
+        // User cancelled, use 0 bonus
+        bonusRoll = await Roll.create("0");
+        await bonusRoll.evaluate();
+      }
     }
     const bonus = bonusRoll.total || 0;
     damage = reducedValue + bonus;
@@ -217,11 +225,16 @@ async function calculateDamage(
     switch (attackRoll.result) {
       case RollResult.Red:
         // Red: reduced base + 3d6
-        bonusRoll = await createRoll("3d6", "Critical Damage Bonus", "d6");
-        if (!bonusRoll) {
-          // User cancelled, use 0 bonus
-          bonusRoll = await Roll.create("0");
-          await bonusRoll.evaluate();
+        // Use pre-rolled bonus if provided (for AOE attacks), otherwise roll new
+        if (preRolledBonus) {
+          bonusRoll = preRolledBonus;
+        } else {
+          bonusRoll = await createRoll("3d6", "Critical Damage Bonus", "d6");
+          if (!bonusRoll) {
+            // User cancelled, use 0 bonus
+            bonusRoll = await Roll.create("0");
+            await bonusRoll.evaluate();
+          }
         }
         const redBonus = bonusRoll.total || 0;
         damage = reducedValue + redBonus;
@@ -262,7 +275,7 @@ async function calculateDamage(
     rankReduction,
     formula,
     description,
-    bonusRoll // Include the bonus roll for display
+    bonusRoll: preRolledBonus ? undefined : bonusRoll // Don't return pre-rolled bonus (already shown)
   };
 }
 
@@ -764,6 +777,40 @@ export async function executeCombatAttack(
     defenseResponses.push(defenseResponse);
   }
 
+  // Step 2.5: For multi-hit/AOE attacks with crit/ultimate, pre-roll bonus damage ONCE
+  let sharedBonusRoll: Roll | null | undefined = undefined;
+  let sharedBonusIsUltimate = false;
+  if (attackData.multiHit && targets.length > 1) {
+    const rollValue = attackRoll.roll.total || 0;
+    if (rollValue === 100) {
+      // Ultimate crit - roll 5d10 once for all targets
+      sharedBonusRoll = await createRoll(
+        "5d10",
+        "Ultimate Damage Bonus (AOE)",
+        "d10"
+      );
+      if (!sharedBonusRoll) {
+        sharedBonusRoll = await Roll.create("0");
+        await sharedBonusRoll.evaluate();
+      }
+      sharedBonusIsUltimate = true;
+      // Will show to chat AFTER damage cards
+    } else if (attackRoll.result === RollResult.Red) {
+      // Red crit - roll 3d6 once for all targets
+      sharedBonusRoll = await createRoll(
+        "3d6",
+        "Critical Damage Bonus (AOE)",
+        "d6"
+      );
+      if (!sharedBonusRoll) {
+        sharedBonusRoll = await Roll.create("0");
+        await sharedBonusRoll.evaluate();
+      }
+      sharedBonusIsUltimate = false;
+      // Will show to chat AFTER damage cards
+    }
+  }
+
   // Step 3: Show results and determine hits
   for (let i = 0; i < targets.length; i++) {
     const target = targets[i];
@@ -1019,7 +1066,8 @@ export async function executeCombatAttack(
         attackRoll,
         combatComparison.defenseTier > 0 ? defenseRoll : null,
         powerRank,
-        isUltimateBotch
+        isUltimateBotch,
+        sharedBonusRoll // Pass pre-rolled bonus for AOE attacks
       );
 
       // Get target's armor rank for armor piercing calculation
@@ -1281,6 +1329,14 @@ export async function executeCombatAttack(
         </div>`
       });
     }
+  }
+
+  // Step 4: Show AOE bonus damage roll AFTER all damage cards (if applicable)
+  if (sharedBonusRoll && attackData.multiHit) {
+    await sharedBonusRoll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor: attacker }),
+      flavor: `<strong>Bonus Damage Roll (AOE)</strong> (${sharedBonusIsUltimate ? "Ultimate +5d10" : "Critical +3d6"})`
+    });
   }
 
   // Return the attack roll total for botch detection in combo attacks
