@@ -143,6 +143,7 @@ export async function showAttackOptionsDialog(
   comboCount: number;
   attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
   manualChartShift: number;
+  damageRankBump: number;
   hasExhaustion?: boolean;
 } | null> {
   const result = await VueDialog.show(
@@ -172,6 +173,7 @@ export async function showAttackOptionsDialog(
     comboCount: number;
     attackKarmaSettings: Array<{ columnShifts: number; resultShift: number }>;
     manualChartShift: number;
+    damageRankBump: number;
     hasExhaustion?: boolean;
   } | null;
 }

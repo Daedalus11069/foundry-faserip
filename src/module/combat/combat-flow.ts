@@ -568,6 +568,7 @@ export async function executeCombatAttack(
     let karmaColumnShifts: number;
     let karmaResultShift: number;
     let manualChartShift: number;
+    let damageRankBump: number = 0;
 
     if (
       presetKarmaColumnShifts !== undefined ||
@@ -597,6 +598,7 @@ export async function executeCombatAttack(
       karmaColumnShifts = firstAttackKarma?.columnShifts ?? 0;
       karmaResultShift = firstAttackKarma?.resultShift ?? 0;
       manualChartShift = attackOptions.manualChartShift ?? 0;
+      damageRankBump = attackOptions.damageRankBump ?? 0;
     }
 
     // Get consecutive botch penalty from combo (not from actor flags - this is per-combo)
@@ -686,6 +688,7 @@ export async function executeCombatAttack(
   let karmaColumnShifts: number;
   let karmaResultShift: number;
   let manualChartShift: number;
+  let damageRankBump: number = 0;
 
   if (
     presetKarmaColumnShifts !== undefined ||
@@ -717,6 +720,7 @@ export async function executeCombatAttack(
     karmaColumnShifts = firstAttackKarma?.columnShifts ?? 0;
     karmaResultShift = firstAttackKarma?.resultShift ?? 0;
     manualChartShift = attackOptions.manualChartShift ?? 0;
+    damageRankBump = attackOptions.damageRankBump ?? 0;
   }
 
   // Get consecutive botch penalty from combo (not from actor flags - this is per-combo)
@@ -1155,7 +1159,12 @@ export async function executeCombatAttack(
     // Step 5: Calculate and apply damage using hybrid system (skip if power doesn't deal damage)
     if (attackHit && attackData.effectType === "damage") {
       // Get power rank (from attackData or default to attack attribute rank)
-      const powerRank = attackData.powerRank || attackRank;
+      let powerRank = attackData.powerRank || attackRank;
+
+      // Apply damage rank bump if specified
+      if (damageRankBump !== 0) {
+        powerRank = applyChartShift(powerRank, damageRankBump);
+      }
 
       // Calculate damage with tier-based rank reduction
       // Pass ultimate botch flag if defender rolled 1
@@ -1311,7 +1320,7 @@ export async function executeCombatAttack(
         await ChatMessage.create({
           speaker: ChatMessage.getSpeaker({ actor: attacker }),
           content: `<div class="fsr-combat-message result-${resultClass}">
-          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">${powerName || "Attack"}${comboTotal && comboTotal > 1 ? ` (${comboIndex} of ${comboTotal})` : ""} → ${targetActor.name}</h3>
+          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">💥 ${powerName || "Attack"} Damage${comboTotal && comboTotal > 1 ? ` (${comboIndex} of ${comboTotal})` : ""} → ${targetActor.name}</h3>
           
           ${
             defendedWithRoll
@@ -1494,7 +1503,7 @@ export async function executeCombatAttack(
         await ChatMessage.create({
           speaker: ChatMessage.getSpeaker({ actor: attacker }),
           content: `<div class="fsr-combat-message result-${resultClass}">
-          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">${powerName || "Attack"}${comboTotal && comboTotal > 1 ? ` (${comboIndex} of ${comboTotal})` : ""} → ${targetActor.name}</h3>
+          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">💥 ${powerName || "Attack"} Damage${comboTotal && comboTotal > 1 ? ` (${comboIndex} of ${comboTotal})` : ""} → ${targetActor.name}</h3>
           
           ${
             defendedWithRoll

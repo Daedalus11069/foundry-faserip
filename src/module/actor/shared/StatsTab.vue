@@ -401,6 +401,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
               <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
             </div>`
           });
+          // Apply stunned status effect
+          await actor.toggleStatusEffect("stunned", { active: true });
         }
       } else {
         // Single attack
@@ -489,6 +491,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
         </div>`
       });
+      // Apply stunned status effect
+      await actor.toggleStatusEffect("stunned", { active: true });
     }
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
@@ -677,6 +681,8 @@ async function rollWeapon(weapon: Weapon) {
           <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
         </div>`
       });
+      // Apply stunned status effect
+      await actor.toggleStatusEffect("stunned", { active: true });
     }
   } else {
     // Single attack

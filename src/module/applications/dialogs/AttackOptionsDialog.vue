@@ -29,6 +29,7 @@ const props = defineProps<Props>();
 // Combo attack settings
 const comboCount = ref(1);
 const manualChartShift = ref(0);
+const damageRankBump = ref(0);
 const attackKarmaSettings = ref<AttackKarma[]>([
   { columnShifts: 0, resultShift: 0 }
 ]);
@@ -207,6 +208,7 @@ function handleSubmit() {
     comboCount: comboCount.value,
     attackKarmaSettings: attackKarmaSettings.value,
     manualChartShift: manualChartShift.value,
+    damageRankBump: damageRankBump.value,
     hasExhaustion: hasExhaustionWarning.value
   });
 }
@@ -297,7 +299,7 @@ function handleCancel() {
     <div class="f-group mb-4">
       <label class="font-semibold text-sm">Manual Chart Shift</label>
       <div class="text-xs text-gray-400 mb-2">
-        Optional bonus or penalty to all rolls (e.g., +2 or -1)
+        Optional bonus or penalty to attack rolls (e.g., +2 or -1)
       </div>
       <input
         type="number"
@@ -317,6 +319,39 @@ function handleCancel() {
         "
       >
         {{ manualChartShift > 0 ? "+" : "" }}{{ manualChartShift }} Chart Shift
+        to Attack Rolls
+      </div>
+    </div>
+
+    <!-- Damage Rank Bump -->
+    <div class="f-group mb-4">
+      <label class="font-semibold text-sm">Damage Rank Bump</label>
+      <div class="text-xs text-gray-400 mb-2">
+        Increase or decrease damage rank by column shifts (e.g., +2 for called
+        shot bonus, -1 for holding back)
+      </div>
+      <input
+        type="number"
+        v-model.number="damageRankBump"
+        :min="-10"
+        :max="10"
+        class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded"
+        placeholder="0"
+      />
+      <div
+        v-if="damageRankBump !== 0"
+        class="text-sm mt-2 p-2 rounded"
+        :class="
+          damageRankBump > 0
+            ? 'bg-green-900/30 text-green-300'
+            : 'bg-red-900/30 text-red-300'
+        "
+      >
+        {{ damageRankBump > 0 ? "+" : "" }}{{ damageRankBump }} Damage Rank
+        <span v-if="damageRankBump !== 0" class="text-xs ml-2">
+          ({{ formatRankDisplay(attackRank) }} →
+          {{ formatRankDisplay(applyChartShift(attackRank, damageRankBump)) }})
+        </span>
       </div>
     </div>
 
