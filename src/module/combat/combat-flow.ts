@@ -219,7 +219,7 @@ async function calculateDamage(
     }
     const bonus = bonusRoll.total || 0;
     damage = reducedValue + bonus;
-    formula = `${reducedValue} + 5d10`;
+    formula = `${reducedValue} + 5d10 = ${bonus}`;
     description = `Ultimate Critical! ${formatRankDisplay(reducedRank)} base + 5d10`;
   } else {
     switch (attackRoll.result) {
@@ -238,7 +238,7 @@ async function calculateDamage(
         }
         const redBonus = bonusRoll.total || 0;
         damage = reducedValue + redBonus;
-        formula = `${reducedValue} + 3d6`;
+        formula = `${reducedValue} + 3d6 = ${redBonus}`;
         description = `Critical! ${formatRankDisplay(reducedRank)} base + 3d6`;
         break;
 
