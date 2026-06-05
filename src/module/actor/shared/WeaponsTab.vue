@@ -456,6 +456,39 @@ async function updateWeaponArmorPiercing(
     });
   }
 }
+
+async function updateWeaponDescription(
+  weaponId: string,
+  newDescription: string,
+  isItem: boolean,
+  systemIndex?: number
+) {
+  if (isItem) {
+    const item = actor.items.get(weaponId);
+    if (item) {
+      await item.update({ "system.description": newDescription } as Record<
+        string,
+        unknown
+      >);
+    }
+  } else {
+    // Update synced weapon description using array index
+    if (systemIndex === undefined) return;
+
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
+
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
+      description: newDescription
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
+  }
+}
 </script>
 
 <template>
@@ -674,11 +707,23 @@ async function updateWeaponArmorPiercing(
         </div>
 
         <!-- Description -->
-        <div
-          v-if="weapon.description"
-          class="text-xs text-gray-400 mt-2 italic"
-        >
-          {{ weapon.description }}
+        <div class="mt-2">
+          <label class="text-xs text-gray-400 block mb-1">Description</label>
+          <textarea
+            :value="weapon.description || ''"
+            @blur="
+              e =>
+                updateWeaponDescription(
+                  weapon.id,
+                  (e.target as HTMLTextAreaElement).value,
+                  weapon.isItem,
+                  weapon.systemIndex
+                )
+            "
+            class="w-full bg-gray-800 border border-gray-600 rounded px-2 p-2 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+            rows="2"
+            placeholder="Weapon description or notes..."
+          ></textarea>
         </div>
       </div>
     </div>

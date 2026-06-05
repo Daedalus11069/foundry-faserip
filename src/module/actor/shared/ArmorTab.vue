@@ -222,6 +222,16 @@ async function repairArmor(item: ArmorItem) {
     } as Record<string, unknown>);
   }
 }
+
+async function updateArmorDescription(itemId: string, newDescription: string) {
+  const item = actor.items.get(itemId);
+  if (item) {
+    await item.update({ "system.description": newDescription } as Record<
+      string,
+      unknown
+    >);
+  }
+}
 </script>
 
 <template>
@@ -415,11 +425,21 @@ async function repairArmor(item: ArmorItem) {
         </div>
 
         <!-- Description -->
-        <div
-          v-if="item.system.description"
-          class="text-xs text-gray-400 mt-2 italic"
-        >
-          {{ item.system.description }}
+        <div class="mt-2">
+          <label class="text-xs text-gray-400 block mb-1">Description</label>
+          <textarea
+            :value="item.system.description || ''"
+            @blur="
+              e =>
+                updateArmorDescription(
+                  item.id!,
+                  (e.target as HTMLTextAreaElement).value
+                )
+            "
+            class="w-full bg-gray-800 border border-gray-600 rounded px-2 p-2 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+            rows="2"
+            placeholder="Armor description or notes..."
+          ></textarea>
         </div>
       </div>
     </div>

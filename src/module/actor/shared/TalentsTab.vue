@@ -191,11 +191,14 @@ function removeTalent(index: number) {
           </div>
         </div>
 
-        <div
-          v-if="talent.description"
-          class="mb-2 text-sm text-gray-300 p-2 bg-gray-800 rounded"
-        >
-          {{ talent.description }}
+        <div class="mb-2">
+          <label class="fsr-label">Description:</label>
+          <textarea
+            v-model="talent.description"
+            class="fsr-textarea w-full p-2"
+            rows="2"
+            placeholder="Talent description or notes..."
+          ></textarea>
         </div>
       </div>
 

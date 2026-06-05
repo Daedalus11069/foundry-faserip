@@ -1229,11 +1229,14 @@ async function applyArmorHealingToTarget(
           Quick roll (skip talent &amp; combo dialogs)
         </label>
 
-        <div
-          v-if="power.description"
-          class="mb-2 text-sm text-gray-300 p-2 bg-gray-800 rounded"
-        >
-          {{ power.description }}
+        <div class="mb-2">
+          <label class="fsr-label">Description:</label>
+          <textarea
+            v-model="power.description"
+            class="fsr-textarea w-full p-2"
+            rows="2"
+            placeholder="Power description or notes..."
+          ></textarea>
         </div>
       </div>
 
