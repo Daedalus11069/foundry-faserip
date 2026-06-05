@@ -1661,15 +1661,17 @@ async function rollPower(power: any) {
                 ]"
                 :title="
                   weapon.equipped
-                    ? `${weapon.name} (${formatWeaponDamage(weapon)}) - ${weapon.stat.toUpperCase()}${
-                        (weapon.applicableTalents?.length || 0) > 0
-                          ? ` + ${(weapon.applicableTalents || []).join(", ")}`
-                          : ''
-                      }${
-                        weapon.armorPiercing
-                          ? ` | AP: ${formatRankDisplay(weapon.armorPiercing)}`
-                          : ''
-                      }`
+                    ? weapon.name +
+                      ' (' +
+                      formatWeaponDamage(weapon) +
+                      ') - ' +
+                      weapon.stat.toUpperCase() +
+                      ((weapon.applicableTalents?.length || 0) > 0
+                        ? ' + ' + (weapon.applicableTalents || []).join(', ')
+                        : '') +
+                      (weapon.armorPiercing
+                        ? ' | AP: ' + formatRankDisplay(weapon.armorPiercing)
+                        : '')
                     : 'Weapon must be equipped to attack'
                 "
               >
