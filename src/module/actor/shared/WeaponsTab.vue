@@ -21,7 +21,7 @@ interface DisplayWeapon {
   damage: number;
   equipped: boolean;
   description?: string;
-  talent?: string;
+  talents?: string[];
   armorPiercing?: string;
   isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
   itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
@@ -51,7 +51,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       damage: item.system.damage,
       equipped: item.system.equipped,
       description: item.system.description,
-      talent: item.system.talent,
+      talents: item.system.talents || [],
       armorPiercing: item.system.armorPiercing,
       isItem: true,
       itemRef: item
@@ -88,7 +88,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       damage: typeof weapon.damage === "number" ? weapon.damage : 0,
       equipped: weapon.equipped || false,
       description: weapon.description,
-      talent: weapon.applicableTalent,
+      talents: weapon.applicableTalents || [],
       armorPiercing: weapon.armorPiercing,
       isItem: false,
       systemIndex: index
@@ -391,22 +391,28 @@ async function updateWeaponDamageRank(
   }
 }
 
-async function updateWeaponTalent(
+async function updateWeaponTalents(
   weaponId: string,
-  newTalent: string,
+  newTalentsStr: string,
   isItem: boolean,
   systemIndex?: number
 ) {
+  // Parse comma-separated talents into array
+  const newTalents = newTalentsStr
+    .split(",")
+    .map(t => t.trim())
+    .filter(t => t.length > 0);
+
   if (isItem) {
     const item = actor.items.get(weaponId);
     if (item) {
-      await item.update({ "system.talent": newTalent } as Record<
+      await item.update({ "system.talents": newTalents } as Record<
         string,
         unknown
       >);
     }
   } else {
-    // Update synced weapon talent using array index
+    // Update synced weapon talents using array index
     if (systemIndex === undefined) return;
 
     const systemWeapons = [...(reactiveActor.system.weapons || [])];
@@ -414,7 +420,7 @@ async function updateWeaponTalent(
 
     systemWeapons[systemIndex] = {
       ...systemWeapons[systemIndex],
-      applicableTalent: newTalent
+      applicableTalents: newTalents
     };
 
     await actor.update({
@@ -655,15 +661,15 @@ async function updateWeaponDescription(
             </template>
           </div>
 
-          <!-- Talent -->
+          <!-- Talents -->
           <div>
-            <label class="text-xs text-gray-400 block mb-1">Talent</label>
+            <label class="text-xs text-gray-400 block mb-1">Talents</label>
             <input
               type="text"
-              :value="weapon.talent || ''"
+              :value="(weapon.talents || []).join(', ')"
               @blur="
                 e =>
-                  updateWeaponTalent(
+                  updateWeaponTalents(
                     weapon.id,
                     (e.target as HTMLInputElement).value,
                     weapon.isItem,
@@ -672,7 +678,7 @@ async function updateWeaponDescription(
               "
               @keyup.enter="e => (e.target as HTMLInputElement).blur()"
               class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-              placeholder="Martial Arts, etc."
+              placeholder="Martial Arts, Marksman, etc. (comma-separated)"
             />
           </div>
 

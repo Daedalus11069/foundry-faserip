@@ -87,6 +87,48 @@
         </div>
       </div>
 
+      <!-- Talents -->
+      <div class="fsr-form-group">
+        <label class="fsr-form-label">
+          Applicable Talents
+          <i
+            class="fas fa-star text-xs text-yellow-400 ml-1"
+            :title="'Talents that provide bonuses when using this weapon'"
+          ></i>
+        </label>
+        <div class="space-y-2">
+          <div
+            v-for="(talent, index) in reactiveItem.system.talents"
+            :key="index"
+            class="flex gap-2 items-center"
+          >
+            <input
+              v-model="reactiveItem.system.talents[index]"
+              type="text"
+              class="fsr-input flex-1"
+              placeholder="Talent name..."
+            />
+            <button
+              @click="removeTalent(index)"
+              class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+              :title="'Remove talent'"
+            >
+              ✕
+            </button>
+          </div>
+          <button
+            @click="addTalent"
+            class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
+          >
+            + Add Talent
+          </button>
+        </div>
+        <div class="text-xs text-gray-400 mt-1">
+          Specify talent names that apply bonuses to this weapon (e.g., "Weapon
+          Master", "Marksman")
+        </div>
+      </div>
+
       <!-- Multi-Hit (AoE) Checkbox -->
       <div class="fsr-form-group">
         <label class="flex items-center gap-2 cursor-pointer">
@@ -192,5 +234,16 @@ function openImagePicker() {
     }
   });
   fp.browse();
+}
+
+function addTalent() {
+  if (!reactiveItem.system.talents) {
+    reactiveItem.system.talents = [];
+  }
+  reactiveItem.system.talents.push("");
+}
+
+function removeTalent(index: number) {
+  reactiveItem.system.talents.splice(index, 1);
 }
 </script>

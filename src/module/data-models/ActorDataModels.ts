@@ -115,7 +115,10 @@ export function defineWeaponSchema() {
       initial: "fighting",
       choices: ["fighting", "agility"]
     }),
-    applicableTalent: new StringField({ required: false, initial: "" }),
+    applicableTalents: new ArrayField(new StringField(), {
+      required: false,
+      initial: []
+    }),
     description: new StringField({ required: false, initial: "" }),
     equipped: new BooleanField({ required: true, initial: false })
   });

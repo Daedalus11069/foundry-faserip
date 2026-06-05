@@ -128,7 +128,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare damage: number;
   declare damageRank: string;
   declare equipped: boolean;
-  declare talent?: string;
+  declare talents?: string[];
   declare armorPiercing?: string;
   declare multiHit?: boolean;
 
@@ -151,7 +151,10 @@ export class WeaponDataModel extends ItemDataModel {
         choices: Object.values(Rank)
       }),
       equipped: new BooleanField({ required: true, initial: false }),
-      talent: new StringField({ required: false, initial: "" }),
+      talents: new ArrayField(new StringField(), {
+        required: false,
+        initial: []
+      }),
       armorPiercing: new StringField({
         required: false,
         blank: true,

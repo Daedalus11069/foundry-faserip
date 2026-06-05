@@ -106,7 +106,7 @@ export interface WeaponData {
   type: "melee" | "ranged" | "thrown"; // Weapon type determines which stat is used for to-hit
   damage: string; // Damage rank (e.g., "Typical", "Good", "Excellent")
   stat: "fighting" | "agility"; // Stat used for to-hit rolls
-  applicableTalent?: string; // Name of talent that applies to this weapon
+  applicableTalents?: string[]; // Names of talents that apply to this weapon
   description?: string;
   equipped?: boolean; // Whether weapon is equipped
   armorPiercing?: string | null; // Armor-piercing rank (for damage calculation)

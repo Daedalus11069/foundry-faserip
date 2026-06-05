@@ -31,7 +31,7 @@ interface Weapon {
   type: "melee" | "ranged" | "thrown"; // Weapon type determines which stat is used for to-hit
   damage: string | number; // CS number for melee (+X), Rank string for ranged
   stat: "fighting" | "agility";
-  applicableTalent?: string;
+  applicableTalents?: string[];
   description?: string;
   equipped?: boolean;
   armorPiercing?: string | null; // Armor-piercing rank (optional)
@@ -91,7 +91,7 @@ const weapons = computed<Weapon[]>(() => {
     stat: item.system.weaponType === "melee" ? "fighting" : "agility",
     description: item.system.description || "",
     equipped: item.system.equipped,
-    applicableTalent: item.system.talent,
+    applicableTalents: item.system.talents || [],
     armorPiercing: item.system.armorPiercing || "" // Add armor piercing
   }));
 
@@ -562,18 +562,20 @@ async function rollWeapon(weapon: Weapon) {
     );
   }
 
-  // Find applicable talent for bonus
+  // Find applicable talents for bonuses
   const talentNames: string[] = [];
   let talentCS = 0;
-  if (weapon.applicableTalent) {
-    const talent = talents.value.find(
-      t =>
-        t.name.toLowerCase().replace(/[\s_-]+/g, "") ===
-        weapon.applicableTalent?.toLowerCase().replace(/[\s_-]+/g, "")
-    );
-    if (talent) {
-      talentNames.push(talent.name);
-      talentCS = talent.bonus || 0;
+  if (weapon.applicableTalents && weapon.applicableTalents.length > 0) {
+    for (const talentName of weapon.applicableTalents) {
+      const talent = talents.value.find(
+        t =>
+          t.name.toLowerCase().replace(/[\s_-]+/g, "") ===
+          talentName.toLowerCase().replace(/[\s_-]+/g, "")
+      );
+      if (talent) {
+        talentNames.push(talent.name);
+        talentCS += talent.bonus || 0;
+      }
     }
   }
 
@@ -1660,8 +1662,8 @@ async function rollPower(power: any) {
                 :title="
                   weapon.equipped
                     ? `${weapon.name} (${formatWeaponDamage(weapon)}) - ${weapon.stat.toUpperCase()}${
-                        weapon.applicableTalent
-                          ? ` + ${weapon.applicableTalent}`
+                        (weapon.applicableTalents?.length || 0) > 0
+                          ? ` + ${(weapon.applicableTalents || []).join(", ")}`
                           : ''
                       }${
                         weapon.armorPiercing

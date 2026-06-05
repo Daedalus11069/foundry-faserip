@@ -679,7 +679,9 @@ export class CharmanService {
             type: weapon.type,
             damage,
             stat: weapon.stat,
-            applicableTalent: weapon.applicableTalent || "",
+            applicableTalents: weapon.applicableTalent
+              ? [weapon.applicableTalent]
+              : [],
             description: weapon.description || "",
             equipped: weapon.equipped || false
           };
@@ -845,7 +847,9 @@ export class CharmanService {
             : Rank.Typical,
           equipped: charmanWeapon.equipped,
           description: charmanWeapon.description || "",
-          talent: charmanWeapon.applicableTalent || "",
+          talents: charmanWeapon.applicableTalent
+            ? [charmanWeapon.applicableTalent]
+            : [],
           multiHit: charmanWeapon.multiHit || false
         };
 
@@ -970,7 +974,7 @@ export class CharmanService {
                 : Rank.Typical,
               equipped: weapon.equipped,
               description: weapon.description || "",
-              talent: weapon.applicableTalent || ""
+              talents: weapon.applicableTalent ? [weapon.applicableTalent] : []
             }
           };
         });

@@ -548,9 +548,6 @@ const initHandler = () => {
     });
   }
 
-  // Register chat commands
-  registerChatCommands();
-
   // Hook: Ensure PC actors default to linked tokens
   Hooks.on(
     "preCreateActor",
@@ -873,6 +870,9 @@ Hooks.on(
 // Ready hook
 Hooks.once("ready", async () => {
   console.log("FASERIP | System ready");
+
+  // Register chat commands after system is fully ready
+  registerChatCommands();
 
   // Diagnostic: Log valid item types recognized by Foundry
   // @ts-expect-error - TypeScript doesn't recognize documentTypes on game
