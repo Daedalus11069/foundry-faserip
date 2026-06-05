@@ -274,7 +274,9 @@ async function handleDefensePrompt(
   let targetActor: FaseripActor | undefined;
   let targetToken: Token | undefined;
   if (data.targetTokenId) {
-    targetToken = canvas?.tokens?.get(data.targetTokenId);
+    targetToken = canvas?.tokens?.placeables.find(
+      (t: Token) => t.id === data.targetTokenId
+    );
     targetActor = targetToken?.actor as FaseripActor | undefined;
   } else {
     // @ts-expect-error - Foundry game.actors collection
@@ -288,25 +290,67 @@ async function handleDefensePrompt(
     return { defenseType: "takeHit" };
   }
 
-  // Check if target is stunned - stunned enemies cannot dodge
-  if (targetToken) {
-    const isStunned = targetToken.document.hasStatusEffect("stunned");
-    if (isStunned) {
-      console.log("FASERIP Combat | Target is stunned - cannot dodge");
-      // Create a chat message to inform that the target is stunned
-      ChatMessage.create({
-        content: `<div class="faserip-chat-card">
-          <div class="card-header">
-            <h3><i class="fas fa-dizzy"></i> Stunned!</h3>
-          </div>
-          <div class="card-body">
-            <p><strong>${targetActor.name}</strong> is stunned and cannot dodge the attack!</p>
-          </div>
-        </div>`,
-        speaker: ChatMessage.getSpeaker({ actor: targetActor })
-      });
-      return { defenseType: "takeHit" };
-    }
+  // Check if target is stunned - stunned enemies cannot defend
+  let isStunned = false;
+  if (targetToken && targetToken.actor) {
+    // For both linked and unlinked tokens, check the token's actor
+    // Note: Foundry uses "stun" as the status ID, not "stunned"
+    const hasStatusEffectResult =
+      // @ts-expect-error - hasStatusEffect may not be in types
+      targetToken.actor.hasStatusEffect?.("stun") || false;
+
+    // Also check statuses collection directly
+    const statusesArray = Array.from(targetToken.actor.statuses || []);
+    const effectsArray =
+      targetToken.actor.effects?.map((e: any) => ({
+        name: e.name,
+        id: e.id,
+        disabled: e.disabled,
+        statuses: Array.from(e.statuses || [])
+      })) || [];
+
+    isStunned = hasStatusEffectResult || statusesArray.includes("stun");
+
+    console.log(
+      `[FASERIP Socket] Checking stunned status for ${targetActor.name}:`,
+      {
+        hasToken: !!targetToken,
+        isLinked: targetToken?.document?.actorLink,
+        isStunned,
+        hasStatusEffectResult,
+        statusesArray,
+        effectsArray,
+        checkedOn: "token.actor"
+      }
+    );
+  } else if (targetActor) {
+    // Fallback: check actor directly if no token
+    // @ts-expect-error - hasStatusEffect may not be in types
+    isStunned = targetActor.hasStatusEffect?.("stun") || false;
+    console.log(
+      `[FASERIP Socket] Checking stunned status on actor (no token):`,
+      {
+        isStunned,
+        actorName: targetActor.name
+      }
+    );
+  }
+
+  if (isStunned) {
+    console.log("FASERIP Combat | Target is stunned - cannot defend");
+    // Create a chat message to inform that the target is stunned
+    ChatMessage.create({
+      content: `<div class="faserip-chat-card">
+        <div class="card-header">
+          <h3><i class="fas fa-dizzy"></i> Stunned!</h3>
+        </div>
+        <div class="card-body">
+          <p><strong>${targetActor.name}</strong> is stunned and cannot defend!</p>
+        </div>
+      </div>`,
+      speaker: ChatMessage.getSpeaker({ actor: targetActor })
+    });
+    return { defenseType: "takeHit" };
   }
 
   // Security check - verify this user owns the target

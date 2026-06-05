@@ -326,7 +326,7 @@ async function _rollPower(power: PowerData) {
         </div>`
       });
       // Apply stunned status effect
-      await actor.toggleStatusEffect("stunned", { active: true });
+      await actor.toggleStatusEffect("stun", { active: true });
     }
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
@@ -440,7 +440,7 @@ async function _rollPower(power: PowerData) {
             }
           }
 
-          await applyHealthHealingToTarget(targetActor, healAmount, power.name);
+          await applyHealthHealingToTarget(targetActor, healAmount, power.name, token);
         } else if (power.effectType === "heal-armor") {
           // Calculate armor repair based on roll result
           let repairAmount = power.value;
@@ -484,7 +484,8 @@ async function _rollPower(power: PowerData) {
           await applyArmorHealingToTarget(
             targetActor,
             repairAmount,
-            power.name
+            power.name,
+            token
           );
         }
       }
@@ -532,7 +533,9 @@ async function _rollPower(power: PowerData) {
           }
         }
 
-        await applyHealthHealingToTarget(actor, healAmount, power.name);
+        // Get actor's controlled token for self-healing
+        const selfToken = actor.getActiveTokens()[0];
+        await applyHealthHealingToTarget(actor, healAmount, power.name, selfToken);
       } else if (power.effectType === "heal-armor") {
         // Calculate armor repair based on roll result
         let repairAmount = power.value;
@@ -573,7 +576,9 @@ async function _rollPower(power: PowerData) {
           }
         }
 
-        await applyArmorHealingToTarget(actor, repairAmount, power.name);
+        // Get actor's controlled token for self-repair
+        const selfToken = actor.getActiveTokens()[0];
+        await applyArmorHealingToTarget(actor, repairAmount, power.name, selfToken);
       }
     }
   }
@@ -763,7 +768,8 @@ async function applyDamageToTarget(
 async function applyHealthHealingToTarget(
   targetActor: any,
   healAmount: number,
-  powerName: string
+  powerName: string,
+  targetToken?: any
 ) {
   const healthMax = targetActor.system.resources.health.max;
   const oldValue = targetActor.system.resources.health.value;
@@ -792,11 +798,20 @@ async function applyHealthHealingToTarget(
     });
   }
 
-  // NOW update the actor
+  // NOW update the actor (handle unlinked tokens)
   if (actualHealing > 0) {
-    await targetActor.update({
-      "system.resources.health.value": newValue
-    });
+    // Check if we have a token and it's unlinked
+    if (targetToken && !targetToken.document.actorLink) {
+      // Unlinked token - update token's delta
+      await targetToken.document.update({
+        "delta.system.resources.health.value": newValue
+      });
+    } else {
+      // Linked token or no token - update actor
+      await targetActor.update({
+        "system.resources.health.value": newValue
+      });
+    }
 
     ui.notifications?.info(
       `${powerName} → ${targetActor.name}: Healed ${actualHealing} health.`
@@ -812,7 +827,8 @@ async function applyHealthHealingToTarget(
 async function applyArmorHealingToTarget(
   targetActor: any,
   repairAmount: number,
-  powerName: string
+  powerName: string,
+  targetToken?: any
 ) {
   const bodyArmorPower = (targetActor.system.powers || []).find(
     (p: any) =>
@@ -849,7 +865,7 @@ async function applyArmorHealingToTarget(
       });
     }
 
-    // NOW update the actor
+    // NOW update the actor (handle unlinked tokens)
     if (actualRepair > 0) {
       // Find the power index
       const powerIndex = targetActor.system.powers.findIndex(
@@ -860,9 +876,19 @@ async function applyArmorHealingToTarget(
         // Clone the array, update the specific value, then overwrite
         const newPowers = [...targetActor.system.powers];
         newPowers[powerIndex].value = newValue;
-        await targetActor.update({
-          "system.powers": newPowers
-        });
+
+        // Check if we have a token and it's unlinked
+        if (targetToken && !targetToken.document.actorLink) {
+          // Unlinked token - update token's delta
+          await targetToken.document.update({
+            "delta.system.powers": newPowers
+          });
+        } else {
+          // Linked token or no token - update actor
+          await targetActor.update({
+            "system.powers": newPowers
+          });
+        }
 
         ui.notifications?.info(
           `${powerName} → ${targetActor.name}: Repaired ${actualRepair} Body Armor (now ${newValue}/${maxValue}).`

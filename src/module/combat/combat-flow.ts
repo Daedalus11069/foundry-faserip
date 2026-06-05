@@ -1006,6 +1006,14 @@ export async function executeCombatAttack(
     if (!defenseResponse || defenseResponse.defenseType === "takeHit") {
       // Target took the hit without defending
       attackHit = true;
+      console.log(
+        `[Combat Flow] Target taking hit without defense: ${targetActor.name}`,
+        {
+          defenseResponse,
+          attackHit,
+          effectType: attackData.effectType
+        }
+      );
 
       const attackResultText = attackRoll.getResultText();
       const attackResultClass = attackRoll.getResultClass();
@@ -1229,6 +1237,12 @@ export async function executeCombatAttack(
 
     // Brief delay before next target
     await new Promise(resolve => setTimeout(resolve, 300));
+
+    console.log(`[Combat Flow] Pre-damage check for ${targetActor.name}:`, {
+      attackHit,
+      effectType: attackData.effectType,
+      willCalculateDamage: attackHit && attackData.effectType === "damage"
+    });
 
     // Step 5: Calculate and apply damage using hybrid system (skip if power doesn't deal damage)
     if (attackHit && attackData.effectType === "damage") {
@@ -1781,7 +1795,13 @@ export async function applyPendingDamages(
   attacker: FaseripActor,
   pendingDamages: PendingDamage[]
 ): Promise<void> {
+  console.log(`[Combat Flow] applyPendingDamages called:`, {
+    pendingCount: pendingDamages?.length || 0,
+    pendingDamages
+  });
+
   if (!pendingDamages || pendingDamages.length === 0) {
+    console.log(`[Combat Flow] No pending damages to apply`);
     return;
   }
 

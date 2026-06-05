@@ -485,7 +485,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             </div>`
           });
           // Apply stunned status effect
-          await actor.toggleStatusEffect("stunned", { active: true });
+          await actor.toggleStatusEffect("stun", { active: true });
         }
       } else {
         // Single attack
@@ -580,7 +580,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         </div>`
       });
       // Apply stunned status effect
-      await actor.toggleStatusEffect("stunned", { active: true });
+      await actor.toggleStatusEffect("stun", { active: true });
     }
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
@@ -849,7 +849,7 @@ async function rollWeapon(weapon: Weapon) {
         </div>`
       });
       // Apply stunned status effect
-      await actor.toggleStatusEffect("stunned", { active: true });
+      await actor.toggleStatusEffect("stun", { active: true });
     }
   } else {
     // Single attack
@@ -1069,9 +1069,20 @@ async function rollPower(power: any) {
           const actualHealing = newValue - oldValue;
 
           if (actualHealing > 0) {
-            await targetActor.update({
-              "system.resources.health.value": newValue
-            });
+            // Check if token is unlinked and update accordingly
+            // @ts-expect-error - token.document.actorLink is a boolean
+            if (token && !token.document.actorLink) {
+              // Unlinked token - update token's delta
+              // @ts-expect-error - token.document.actorLink is a boolean
+              await token.document.update({
+                "delta.system.resources.health.value": newValue
+              });
+            } else {
+              // Linked token or no token - update actor
+              await targetActor.update({
+                "system.resources.health.value": newValue
+              });
+            }
             targetResult = `<div style="background: rgba(34, 197, 94, 0.15); border-left: 3px solid rgb(34, 197, 94); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
               <h4 style="color: rgb(34, 197, 94); margin: 0 0 0.25rem 0; font-size: 1em;">${targetActor.name} - Health Restored</h4>
               <p style="margin: 0.25rem 0;">Healed <strong>${actualHealing}</strong> health.</p>
