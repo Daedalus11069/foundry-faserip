@@ -111,14 +111,16 @@ const currentForm = computed(() => {
 // Computed property to recalculate health max based on current form
 // This ensures the display is always accurate even if reactive sync lags
 const healthMax = computed(() => {
+  void actorUpdateKey.value; // Force dependency tracking for external updates
   const form = currentForm.value;
   if (!form) return reactiveActor.system.resources.health.max || 0;
   return calculateHealth(form);
 });
 
-const healthValue = computed(
-  () => reactiveActor.system.resources.health.value ?? 0
-);
+const healthValue = computed(() => {
+  void actorUpdateKey.value; // Force dependency tracking for external updates
+  return reactiveActor.system.resources.health.value ?? 0;
+});
 
 const healthPercent = computed(() => {
   const max = healthMax.value;
