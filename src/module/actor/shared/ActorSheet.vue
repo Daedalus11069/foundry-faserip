@@ -240,13 +240,14 @@ function copyMovementPath() {
 const damageAmount = ref(0);
 
 async function applyDamage() {
-  if (damageAmount.value === 0) return;
+  if (damageAmount.value <= 0) return;
 
   const degradingMode =
     (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
 
-  // Use centralized damage application
+  // Apply damage directly to reactive system - watcher will persist changes
   const result = await applyDamageToActor({
+    reactiveSystem: reactiveActor.system,
     actor: actor,
     damage: damageAmount.value,
     degradingArmorMode: degradingMode
@@ -312,10 +313,10 @@ async function applyDamage() {
 }
 
 async function applyHealing() {
-  if (damageAmount.value === 0) return;
+  if (damageAmount.value <= 0) return;
 
-  // Use centralized healing application
-  applyHealingToActor(actor, damageAmount.value);
+  // Apply healing directly to reactive system - watcher will persist changes
+  applyHealingToActor(reactiveActor.system, damageAmount.value);
 
   damageAmount.value = 0;
 }

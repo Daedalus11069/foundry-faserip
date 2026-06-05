@@ -33,7 +33,8 @@ export interface DamageApplicationResult {
 }
 
 export interface DamageApplicationData {
-  actor: FaseripActor;
+  reactiveSystem?: any; // Optional reactive system data to modify directly (for sheets)
+  actor: FaseripActor; // The real actor (for accessing items collection, or extracting system if reactiveSystem not provided)
   damage: number;
   damageType?: string;
   degradingArmorMode?: string; // "none", "full", "per-hit"
@@ -43,15 +44,16 @@ export interface DamageApplicationData {
 
 /**
  * Apply damage to an actor with armor soak and overflow calculation
- * Updates healthByForm (source data) and armor items directly
- * Does NOT call actor.update() for health - caller must handle health persistence
- * DOES call item.update() for armor items (Item documents must be updated individually)
+ * If reactiveSystem is provided, modifies it directly (for sheets with watcher)
+ * If only actor is provided, modifies actor.system (caller must persist with actor.update)
+ * ALWAYS calls item.update() for armor items (Item documents must be updated individually)
  */
 export async function applyDamageToActor(
   data: DamageApplicationData
 ): Promise<DamageApplicationResult> {
   const { actor, degradingArmorMode = "none" } = data;
-  const system = actor.system as any;
+  // Use reactiveSystem if provided, otherwise extract from actor
+  const system = data.reactiveSystem || (actor.system as any);
 
   // Check for vulnerability powers (house rule)
   const vulnerabilityEnabled =
@@ -285,14 +287,13 @@ export async function applyDamageToActor(
 
 /**
  * Apply healing to an actor
- * Updates healthByForm (source data)
- * Does NOT call actor.update() - caller must handle persistence
+ * Modifies reactiveSystem.healthByForm directly
  */
 export function applyHealingToActor(
-  actor: FaseripActor,
+  reactiveSystem: any,
   healAmount: number
 ): number {
-  const system = actor.system as any;
+  const system = reactiveSystem;
 
   // Find correct form ID using same fallback logic as prepareDerivedData
   let currentFormId = system.currentFormId;
