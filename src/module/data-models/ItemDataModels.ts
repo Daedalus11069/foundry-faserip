@@ -1,6 +1,7 @@
 import { Rank } from "../enums";
 
-const { BooleanField, NumberField, StringField } = foundry.data.fields;
+const { ArrayField, BooleanField, NumberField, StringField } =
+  foundry.data.fields;
 
 const { TypeDataModel } = foundry.abstract;
 
