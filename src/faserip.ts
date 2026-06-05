@@ -713,7 +713,7 @@ Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
   // Add intuition button to left column
   const leftCol = html.querySelector(".col.left");
   if (!leftCol) {
-    console.warn("FASERIP | No left column found in token HUD");
+    // console.warn("FASERIP | No left column found in token HUD");
     return;
   }
 

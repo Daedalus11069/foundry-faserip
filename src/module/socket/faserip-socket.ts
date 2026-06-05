@@ -270,11 +270,12 @@ function findTokenControllers(actor: FaseripActor): User[] {
 async function handleDefensePrompt(
   data: DefensePromptData
 ): Promise<DefenseResponse | null> {
-  // Get the target actor
+  // Get the target actor and token
   let targetActor: FaseripActor | undefined;
+  let targetToken: Token | undefined;
   if (data.targetTokenId) {
-    const token = canvas?.tokens?.get(data.targetTokenId);
-    targetActor = token?.actor as FaseripActor | undefined;
+    targetToken = canvas?.tokens?.get(data.targetTokenId);
+    targetActor = targetToken?.actor as FaseripActor | undefined;
   } else {
     // @ts-expect-error - Foundry game.actors collection
     targetActor = game.actors?.find(
@@ -285,6 +286,27 @@ async function handleDefensePrompt(
   if (!targetActor) {
     console.error("FASERIP Socket | Target actor not found");
     return { defenseType: "takeHit" };
+  }
+
+  // Check if target is stunned - stunned enemies cannot dodge
+  if (targetToken) {
+    const isStunned = targetToken.document.hasStatusEffect("stunned");
+    if (isStunned) {
+      console.log("FASERIP Combat | Target is stunned - cannot dodge");
+      // Create a chat message to inform that the target is stunned
+      ChatMessage.create({
+        content: `<div class="faserip-chat-card">
+          <div class="card-header">
+            <h3><i class="fas fa-dizzy"></i> Stunned!</h3>
+          </div>
+          <div class="card-body">
+            <p><strong>${targetActor.name}</strong> is stunned and cannot dodge the attack!</p>
+          </div>
+        </div>`,
+        speaker: ChatMessage.getSpeaker({ actor: targetActor })
+      });
+      return { defenseType: "takeHit" };
+    }
   }
 
   // Security check - verify this user owns the target
@@ -648,6 +670,7 @@ interface ApplyDamageData {
   powerName?: string; // Name of attacking power for resistance messages
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
+  hitCount?: number; // Number of hits for per-hit armor degradation
   armorUpdates?: any[]; // Legacy: Deprecated - armor is now Item documents
   powerUpdates?: any[];
 }
@@ -663,7 +686,8 @@ export async function requestDamageApplication(
   powerName?: string,
   targetTokenId?: string,
   armorPiercing?: string | null,
-  armorRank?: string
+  armorRank?: string,
+  hitCount?: number
 ): Promise<{
   armorDamage: number;
   healthDamage: number;
@@ -683,7 +707,8 @@ export async function requestDamageApplication(
         damageType,
         powerName,
         armorPiercing,
-        armorRank
+        armorRank,
+        hitCount
       });
     }
     console.error("FASERIP Socket | Cannot apply damage locally");
@@ -700,7 +725,8 @@ export async function requestDamageApplication(
       damageType,
       powerName,
       armorPiercing,
-      armorRank
+      armorRank,
+      hitCount
     });
   }
 
@@ -712,7 +738,8 @@ export async function requestDamageApplication(
     damageType,
     powerName,
     armorPiercing,
-    armorRank
+    armorRank,
+    hitCount
   });
 
   return result;
@@ -728,11 +755,25 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   newArmorValue: number;
   newHealthValue: number;
 } | null> {
-  // Get the target actor
-  // @ts-expect-error - Foundry game.actors collection
-  const targetActor = game.actors?.find(
-    (a: FaseripActor) => a.id === data.targetActorId
-  ) as FaseripActor | undefined;
+  // Get the target actor - prioritize token actor for unlinked tokens
+  let targetActor: FaseripActor | undefined;
+
+  // First try to get actor from token (for unlinked tokens)
+  if (data.targetTokenId) {
+    // @ts-expect-error - Foundry canvas.tokens collection
+    const token = canvas.tokens?.get(data.targetTokenId);
+    if (token) {
+      targetActor = token.actor as FaseripActor;
+    }
+  }
+
+  // Fall back to world actor if no token found
+  if (!targetActor) {
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.targetActorId
+    ) as FaseripActor | undefined;
+  }
 
   if (!targetActor) {
     console.error("FASERIP Socket | Target actor not found");
@@ -766,7 +807,8 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     damageType: data.damageType,
     degradingArmorMode: degradingMode,
     armorPiercing: data.armorPiercing,
-    armorRank: data.armorRank
+    armorRank: data.armorRank,
+    hitCount: data.hitCount
   });
 
   // Show resistance chat messages if applicable

@@ -324,11 +324,10 @@ async function updateArmorDescription(itemId: string, newDescription: string) {
           <input
             type="text"
             :value="item.name"
-            @blur="
+            @input="
               e =>
                 updateArmorName(item.id!, (e.target as HTMLInputElement).value)
             "
-            @keyup.enter="e => (e.target as HTMLInputElement).blur()"
             class="basis-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
             placeholder="Armor name"
           />
@@ -382,14 +381,13 @@ async function updateArmorDescription(itemId: string, newDescription: string) {
             <input
               type="number"
               :value="item.system.value"
-              @blur="
+              @input="
                 e =>
                   updateArmorValue(
                     item.id!,
                     Number((e.target as HTMLInputElement).value)
                   )
               "
-              @keyup.enter="e => (e.target as HTMLInputElement).blur()"
               :min="0"
               :max="item.system.maxValue"
               class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
@@ -399,14 +397,13 @@ async function updateArmorDescription(itemId: string, newDescription: string) {
               v-if="degradingEnabled"
               type="number"
               :value="item.system.maxValue"
-              @blur="
+              @input="
                 e =>
                   updateArmorMaxValue(
                     item.id!,
                     Number((e.target as HTMLInputElement).value)
                   )
               "
-              @keyup.enter="e => (e.target as HTMLInputElement).blur()"
               :min="1"
               class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
             />
@@ -429,7 +426,7 @@ async function updateArmorDescription(itemId: string, newDescription: string) {
           <label class="text-xs text-gray-400 block mb-1">Description</label>
           <textarea
             :value="item.system.description || ''"
-            @blur="
+            @input="
               e =>
                 updateArmorDescription(
                   item.id!,

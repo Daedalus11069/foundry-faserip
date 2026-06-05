@@ -98,7 +98,14 @@ function addPower() {
   reactiveActor.system.powers.push(newPower);
 }
 
-function removePower(index: number) {
+async function removePower(index: number) {
+  // @ts-expect-error - DialogV2 path not fully typed
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Delete <strong>${reactiveActor.system.powers[index].name}</strong>? This cannot be undone.</p>`,
+    modal: true
+  });
+
+  if (!confirmed) return;
   reactiveActor.system.powers.splice(index, 1);
 }
 

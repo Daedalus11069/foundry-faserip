@@ -112,7 +112,7 @@ export const RANK_VALUES: Record<Rank, number> = {
   [Rank.Monstrous]: 75,
   [Rank.Unearthly]: 100,
   [Rank.ShiftX]: 150,
-  [Rank.ShiftY]: 200,
+  [Rank.ShiftY]: 250,
   [Rank.ShiftZ]: 500,
   [Rank.Class1000]: 1000,
   [Rank.Class3000]: 3000,

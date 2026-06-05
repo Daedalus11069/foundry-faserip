@@ -130,6 +130,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare equipped: boolean;
   declare talent?: string;
   declare armorPiercing?: string;
+  declare multiHit?: boolean;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -156,6 +157,11 @@ export class WeaponDataModel extends ItemDataModel {
         blank: true,
         initial: "",
         choices: ["", ...Object.values(Rank)]
+      }),
+      multiHit: new BooleanField({
+        required: false,
+        initial: false,
+        label: "Multi-Hit (AoE)"
       })
     };
   }

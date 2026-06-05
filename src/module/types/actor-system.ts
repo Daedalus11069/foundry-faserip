@@ -110,6 +110,7 @@ export interface WeaponData {
   description?: string;
   equipped?: boolean; // Whether weapon is equipped
   armorPiercing?: string | null; // Armor-piercing rank (for damage calculation)
+  multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
 }
 
 /**

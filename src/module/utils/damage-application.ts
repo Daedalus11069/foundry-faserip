@@ -11,7 +11,7 @@ import {
   type ArmorPiercingResult
 } from "./armor-piercing";
 import { rollResistance, type ResistanceRollResult } from "./resistance-roll";
-import { Rank } from "../enums";
+import { Rank, RANK_VALUES } from "../enums";
 
 export interface DamageApplicationResult {
   armorDamage: number;
@@ -40,6 +40,7 @@ export interface DamageApplicationData {
   degradingArmorMode?: string; // "none", "full", "per-hit"
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
+  hitCount?: number; // Number of hits that contributed to this damage (for per-hit degradation)
 }
 
 /**
@@ -73,7 +74,7 @@ export async function applyDamageToActor(
   // Get current health from healthByForm
   const healthByForm = system.healthByForm || {};
   const currentHealth =
-    healthByForm[currentFormId] ?? system.resources.health.max ?? 0;
+    healthByForm[currentFormId] ?? system.resources.health.value ?? 0;
 
   // Find armor sources (use Item documents for equipped armor)
   const bodyArmorPower = (system.powers || []).find(
@@ -108,6 +109,7 @@ export async function applyDamageToActor(
 
   // Calculate effective armor with piercing
   let effectiveArmor = totalArmor;
+
   if (data.armorPiercing && data.armorRank && totalArmor > 0) {
     piercingResult = calculateArmorPiercing(
       totalArmor,
@@ -182,25 +184,55 @@ export async function applyDamageToActor(
           bodyArmorDestroyed = true;
         }
       }
-    } else if (degradingArmorMode === "per-hit" && overflow > 0) {
-      // Per-hit degradation: Reduce armor by 1 only if damage penetrated
+    } else if (degradingArmorMode === "per-hit" && armorDamage > 0) {
+      // Per-hit degradation: Reduce armor by hitCount (default 1) when armor absorbs damage
+      const degradationAmount = data.hitCount || 1;
+
       // Prioritize equipped armor degradation first
       if (equippedArmorItems.length > 0) {
-        // Degrade the first equipped armor item with value > 0
-        const armorToDegrade = equippedArmorItems.find(
-          item => item.system.value > 0
-        );
-        if (armorToDegrade) {
-          const newValue = Math.max(0, armorToDegrade.system.value - 1);
-          await armorToDegrade.update({
+        let remainingDegradation = degradationAmount;
+
+        // Degrade equipped armor items until all degradation is applied
+        for (const armorItem of equippedArmorItems) {
+          if (remainingDegradation <= 0) break;
+          if (armorItem.system.value <= 0) continue;
+
+          const reduction = Math.min(
+            remainingDegradation,
+            armorItem.system.value
+          );
+          const newValue = armorItem.system.value - reduction;
+
+          await armorItem.update({
             "system.value": newValue
           } as Record<string, unknown>);
+
+          remainingDegradation -= reduction;
+
           if (newValue === 0) {
             armorDestroyed = true;
           }
         }
+
+        // If equipped armor couldn't absorb all degradation, apply remainder to body armor
+        if (
+          remainingDegradation > 0 &&
+          bodyArmorPower &&
+          bodyArmorPower.value > 0
+        ) {
+          const reduction = Math.min(
+            remainingDegradation,
+            bodyArmorPower.value
+          );
+          bodyArmorPower.value -= reduction;
+          if (bodyArmorPower.value === 0) {
+            bodyArmorDestroyed = true;
+          }
+        }
       } else if (bodyArmorPower && bodyArmorPower.value > 0) {
-        bodyArmorPower.value = Math.max(0, bodyArmorPower.value - 1);
+        // No equipped armor, degrade body armor power
+        const reduction = Math.min(degradationAmount, bodyArmorPower.value);
+        bodyArmorPower.value -= reduction;
         if (bodyArmorPower.value === 0) {
           bodyArmorDestroyed = true;
         }
@@ -258,11 +290,12 @@ export async function applyDamageToActor(
   system.healthByForm[currentFormId] = newHealthValue;
 
   // Calculate new armor value for display
+  const degradationAmount = data.hitCount || 1;
   const newArmorValue =
     degradingArmorMode === "full"
       ? totalArmor - armorDamage
-      : degradingArmorMode === "per-hit" && overflow > 0
-        ? totalArmor - 1
+      : degradingArmorMode === "per-hit" && armorDamage > 0
+        ? totalArmor - degradationAmount
         : totalArmor;
 
   const result = {

@@ -253,6 +253,10 @@ async function applyDamage() {
     degradingArmorMode: degradingMode
   });
 
+  // CRITICAL: Also update the derived resource value for immediate UI feedback
+  // The watcher will persist healthByForm, and prepareDerivedData will recalculate on next load
+  reactiveActor.system.resources.health.value = result.newHealthValue;
+
   // Show notifications for destroyed armor
   if (result.armorDestroyed) {
     const equippedArmor = (reactiveActor.system.armors || []).find(
@@ -316,7 +320,14 @@ async function applyHealing() {
   if (damageAmount.value <= 0) return;
 
   // Apply healing directly to reactive system - watcher will persist changes
-  applyHealingToActor(reactiveActor.system, damageAmount.value);
+  const newHealthValue = applyHealingToActor(
+    reactiveActor.system,
+    damageAmount.value
+  );
+
+  // CRITICAL: Also update the derived resource value for immediate UI feedback
+  // The watcher will persist healthByForm, and prepareDerivedData will recalculate on next load
+  reactiveActor.system.resources.health.value = newHealthValue;
 
   damageAmount.value = 0;
 }

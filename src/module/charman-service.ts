@@ -109,6 +109,7 @@ export interface CharmanWeapon {
   applicableTalent?: string; // Name of talent that applies to this weapon
   description?: string;
   equipped?: boolean;
+  multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
 }
 
 export interface CharmanContact {
@@ -844,7 +845,8 @@ export class CharmanService {
             : Rank.Typical,
           equipped: charmanWeapon.equipped,
           description: charmanWeapon.description || "",
-          talent: charmanWeapon.applicableTalent || ""
+          talent: charmanWeapon.applicableTalent || "",
+          multiHit: charmanWeapon.multiHit || false
         };
 
         const existingItem = existingWeaponItems.find(

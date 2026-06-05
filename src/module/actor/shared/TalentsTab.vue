@@ -53,7 +53,13 @@ function addTalent() {
   reactiveActor.system.talents.push(newTalent);
 }
 
-function removeTalent(index: number) {
+async function removeTalent(index: number) {
+  // @ts-expect-error - DialogV2 path not fully typed
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Delete <strong>${reactiveActor.system.talents[index].name}</strong>? This cannot be undone.</p>`,
+    modal: true
+  });
+  if (!confirmed) return;
   reactiveActor.system.talents.splice(index, 1);
 }
 </script>

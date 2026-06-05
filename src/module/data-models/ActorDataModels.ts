@@ -212,6 +212,11 @@ export function definePowerRefSchema() {
       required: false,
       initial: false,
       label: "Multi-Hit (AoE)"
+    }),
+    armorPiercing: new StringField({
+      required: false,
+      nullable: true,
+      initial: null
     })
   });
 }

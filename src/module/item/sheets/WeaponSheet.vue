@@ -87,6 +87,28 @@
         </div>
       </div>
 
+      <!-- Multi-Hit (AoE) Checkbox -->
+      <div class="fsr-form-group">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input
+            v-model="reactiveItem.system.multiHit"
+            type="checkbox"
+            class="w-4 h-4 rounded border-gray-600 text-red-500 focus:ring-2 focus:ring-red-500"
+          />
+          <span class="fsr-form-label mb-0">
+            Multi-Hit (AoE)
+            <i
+              class="fas fa-burst text-xs text-yellow-400 ml-1"
+              :title="'Area of effect - one roll for all targets, no combo penalty'"
+            ></i>
+          </span>
+        </label>
+        <div class="text-xs text-gray-400 mt-1">
+          For grenades, explosives, and other area-effect weapons. One attack
+          roll applies to all targets without combo penalty.
+        </div>
+      </div>
+
       <!-- Equipped Checkbox -->
       <div class="fsr-form-group">
         <label

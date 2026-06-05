@@ -32,6 +32,14 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
         _userId: string
       ) => void)
     | null = null;
+  #updateItemCallback:
+    | ((
+        item: Item,
+        _changed: unknown,
+        _options: unknown,
+        _userId: string
+      ) => void)
+    | null = null;
   #updateTokenCallback:
     | ((
         token: TokenDocument,
@@ -79,8 +87,11 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       const { ignoreUpdates, stop } = watchIgnorable(
         this.#reactiveActor,
         async () => {
+          console.log("[FsrBaseSheet] Watcher fired - change detected");
+
           // Prevent redundant updates if we're already in the middle of one
           if (this.#isUpdating) {
+            console.log("[FsrBaseSheet] Skipping - already updating");
             return;
           }
 
@@ -92,6 +103,7 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           // Skip updates if the sheet is not editable
           // @ts-expect-error - isEditable property exists on ActorSheetV2
           if (!this.isEditable) {
+            console.log("[FsrBaseSheet] Skipping - sheet not editable");
             return;
           }
 
@@ -123,6 +135,26 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           // Flatten to dot notation for reliable nested updates
           const updateData = foundry.utils.flattenObject(cleanDiff);
 
+          // CRITICAL: If powers array changed, we need to send the FULL array, not partial diffs
+          // diffObject creates partial arrays with only changed elements, but Foundry needs the complete array
+          const hasPowersChange = Object.keys(updateData).some(key =>
+            key.startsWith("system.powers")
+          );
+          if (hasPowersChange) {
+            // Remove all partial power keys
+            for (const key of Object.keys(updateData)) {
+              if (key.startsWith("system.powers")) {
+                // @ts-expect-error - reactiveActor is typed as any
+                delete updateData[key];
+              }
+            }
+            // Add the complete powers array
+            // @ts-expect-error - reactiveActor is typed as any
+            updateData["system.powers"] = JSON.parse(
+              JSON.stringify(this.#reactiveActor!.system.powers)
+            );
+          }
+
           // CRITICAL: Filter out derived data paths that are calculated by prepareDerivedData
           // These should NEVER be stored in actor/token data
           const derivedPaths = [
@@ -134,7 +166,10 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           const filteredUpdateData: Record<string, any> = {};
           for (const [key, value] of Object.entries(updateData)) {
             const isDerived = derivedPaths.some(pattern => pattern.test(key));
-            if (!isDerived) {
+            // Also filter out _id at any level
+            const isIdField = key === "_id" || key.endsWith("._id");
+
+            if (!isDerived && !isIdField) {
               filteredUpdateData[key] = value;
             }
           }
@@ -192,6 +227,8 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
               // For linked actors or base actors, update normally
               await actor.update(filteredUpdateData);
             }
+          } catch (error) {
+            console.error("[FsrBaseSheet] Update failed:", error);
           } finally {
             // Clear flag after update completes
             this.#isUpdating = false;
@@ -217,6 +254,34 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
 
       Hooks.on("updateActor", this.#updateActorCallback);
 
+      // Listen to item updates (for armor items being damaged)
+      this.#updateItemCallback = (
+        item: Item,
+        _changed: unknown,
+        _options: unknown,
+        _userId: string
+      ) => {
+        // @ts-expect-error - actor property exists on ActorSheetV2
+        if (item.parent?.id === this.actor.id) {
+          this.#syncReactiveActor();
+        }
+      };
+
+      Hooks.on("updateItem", this.#updateItemCallback);
+      // Listen to item updates (for armor items being damaged)
+      this.#updateItemCallback = (
+        item: Item,
+        _changed: unknown,
+        _options: unknown,
+        _userId: string
+      ) => {
+        // @ts-expect-error - actor property exists on ActorSheetV2
+        if (item.parent?.id === this.actor.id) {
+          this.#syncReactiveActor();
+        }
+      };
+
+      Hooks.on("updateItem", this.#updateItemCallback);
       // For unlinked token sheets, also listen to token updates
       // @ts-expect-error - token property exists on ActorSheetV2
       if (this.token && !this.token.actorLink) {
@@ -278,6 +343,12 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       this.#updateActorCallback = null;
     }
 
+    // Unregister item update hook
+    if (this.#updateItemCallback) {
+      Hooks.off("updateItem", this.#updateItemCallback);
+      this.#updateItemCallback = null;
+    }
+
     // Unregister token hook if registered
     if (this.#updateTokenCallback) {
       Hooks.off("updateToken", this.#updateTokenCallback);
@@ -292,6 +363,13 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
    */
   #syncReactiveActor(): void {
     if (!this.#reactiveActor) {
+      return;
+    }
+
+    // CRITICAL: Don't sync while we're in the middle of pushing changes to the database
+    // The updateActor hook will fire during our own update(), but we should ignore it
+    // and let our update complete before syncing back
+    if (this.#isUpdating) {
       return;
     }
 

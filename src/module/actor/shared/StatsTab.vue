@@ -14,7 +14,11 @@ import {
   showAttackOptionsDialog
 } from "../../applications/dialog-utils";
 import type { Talent } from "../../types";
-import { executeCombatAttack } from "../../combat/combat-flow";
+import {
+  executeCombatAttack,
+  applyPendingDamages,
+  type PendingDamage
+} from "../../combat/combat-flow";
 import type { ReactiveActorData, PowerData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 import { VueDialog } from "../../applications/vue-dialog";
@@ -31,6 +35,7 @@ interface Weapon {
   description?: string;
   equipped?: boolean;
   armorPiercing?: string | null; // Armor-piercing rank (optional)
+  multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
 }
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -305,10 +310,14 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       // Handle combo attacks
       if (comboResult.comboCount > 1) {
         // Execute multiple attacks with distributed karma
+        const allPendingDamages: PendingDamage[] = [];
+        let comboFailed = false;
+        let comboBotchCount = 0; // Track botches within this combo
+
         for (let i = 0; i < comboResult.comboCount; i++) {
           const attackKarma = comboResult.attackKarmaSettings[i];
 
-          const attackRollTotal = await executeCombatAttack({
+          const result = await executeCombatAttack({
             attacker: actor as any,
             attackAttribute: "fighting",
             attackType: "melee",
@@ -322,21 +331,37 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             karmaResultShift: attackKarma?.resultShift ?? 0,
             manualChartShift: comboResult.manualChartShift ?? 0,
             comboIndex: i + 1,
-            comboTotal: comboResult.comboCount
+            comboTotal: comboResult.comboCount,
+            deferDamageApplication: true, // Defer damage for cumulative application
+            comboBotchCount // Pass current botch count
           });
 
-          // Check for botch (1-5) - break combo immediately
+          // Check for botch (1-5) or cancellation - break combo immediately
           console.log("[StatsTab Combo] Attack roll result:", {
-            attackRollTotal,
+            attackRollTotal: result?.attackRollTotal,
             attackIndex: i + 1,
             totalAttacks: comboResult.comboCount,
-            isBotch: attackRollTotal !== null && attackRollTotal <= 5
+            isBotch:
+              result?.attackRollTotal !== null &&
+              result?.attackRollTotal !== undefined &&
+              result.attackRollTotal <= 5
           });
 
-          if (attackRollTotal !== null && attackRollTotal <= 5) {
+          if (result === null || result.attackRollTotal === null) {
+            console.log(
+              "[StatsTab Combo] Breaking combo - attack cancelled or failed"
+            );
+            comboFailed = true;
+            break;
+          }
+
+          // Update botch count from result
+          comboBotchCount = result.comboBotchCount;
+
+          if (result.attackRollTotal <= 5) {
             console.log(
               "[StatsTab Combo] Breaking combo - botch detected:",
-              attackRollTotal
+              result.attackRollTotal
             );
             // Show message about combo break
             await ChatMessage.create({
@@ -346,13 +371,25 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
                 <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s attack botched on attack ${i + 1} of ${comboResult.comboCount}. Remaining attacks cancelled.</p>
               </div>`
             });
+            comboFailed = true;
             break;
+          }
+
+          // Accumulate pending damages
+          if (result.pendingDamages && result.pendingDamages.length > 0) {
+            allPendingDamages.push(...result.pendingDamages);
           }
 
           // Brief delay between attacks for readability
           if (i < comboResult.comboCount - 1) {
             await new Promise(resolve => setTimeout(resolve, 500));
           }
+        }
+
+        // Apply all accumulated damage at the end (if combo completed)
+        if (!comboFailed && allPendingDamages.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          await applyPendingDamages(actor as any, allPendingDamages);
         }
 
         // Show exhaustion warning if combo reached Poor or below
@@ -562,10 +599,14 @@ async function rollWeapon(weapon: Weapon) {
   // Handle combo attacks
   if (comboResult.comboCount > 1) {
     // Execute multiple attacks with distributed karma
+    const allPendingDamages: PendingDamage[] = [];
+    let comboFailed = false;
+    let comboBotchCount = 0; // Track botches within this combo
+
     for (let i = 0; i < comboResult.comboCount; i++) {
       const attackKarma = comboResult.attackKarmaSettings[i];
 
-      const attackRollTotal = await executeCombatAttack({
+      const result = await executeCombatAttack({
         attacker: actor as any,
         attackAttribute,
         attackType,
@@ -580,11 +621,22 @@ async function rollWeapon(weapon: Weapon) {
         karmaResultShift: attackKarma?.resultShift ?? 0,
         manualChartShift: comboResult.manualChartShift ?? 0,
         comboIndex: i + 1,
-        comboTotal: comboResult.comboCount
+        comboTotal: comboResult.comboCount,
+        multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
+        deferDamageApplication: true, // Defer damage for cumulative application
+        comboBotchCount // Pass current botch count
       });
 
-      // Check for botch (1-5) - break combo immediately
-      if (attackRollTotal !== null && attackRollTotal <= 5) {
+      // Check for botch (1-5) or cancellation - break combo immediately
+      if (result === null || result.attackRollTotal === null) {
+        comboFailed = true;
+        break;
+      }
+
+      // Update botch count from result
+      comboBotchCount = result.comboBotchCount;
+
+      if (result.attackRollTotal <= 5) {
         // Show message about combo break
         await ChatMessage.create({
           speaker: ChatMessage.getSpeaker({ actor }),
@@ -593,13 +645,25 @@ async function rollWeapon(weapon: Weapon) {
             <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s attack botched on attack ${i + 1} of ${comboResult.comboCount}. Remaining attacks cancelled.</p>
           </div>`
         });
+        comboFailed = true;
         break;
+      }
+
+      // Accumulate pending damages
+      if (result.pendingDamages && result.pendingDamages.length > 0) {
+        allPendingDamages.push(...result.pendingDamages);
       }
 
       // Brief delay between attacks for readability
       if (i < comboResult.comboCount - 1) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
+    }
+
+    // Apply all accumulated damage at the end (if combo completed)
+    if (!comboFailed && allPendingDamages.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await applyPendingDamages(actor as any, allPendingDamages);
     }
 
     // Show exhaustion warning if combo reached Poor or below
@@ -629,7 +693,8 @@ async function rollWeapon(weapon: Weapon) {
       talentCS: talentCS > 0 ? talentCS : undefined,
       karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
       karmaResultShift: firstAttackKarma?.resultShift ?? 0,
-      manualChartShift: comboResult.manualChartShift ?? 0
+      manualChartShift: comboResult.manualChartShift ?? 0,
+      multiHit: weapon.multiHit || false // Add multiHit flag for AoE weapons
     });
   }
 }
@@ -719,6 +784,12 @@ async function rollPower(power: any) {
     // @ts-expect-error - game.user.targets is a Set
     const targets = Array.from(game.user?.targets || []);
     const hasTargets = targets.length > 0;
+
+    console.log("[StatsTab] Power data for healing/repair:", {
+      powerName: power.name,
+      armorPiercing: power.armorPiercing,
+      fullPower: power
+    });
 
     // Roll the power (skipMessage: true so we can combine with healing result)
     const faseripRoll = await FaseripRoll.rollAttribute(
@@ -1164,10 +1235,14 @@ async function rollPower(power: any) {
     // Handle combo attacks (multiple targets with same power)
     if (comboResult.comboCount > 1) {
       // Execute multiple attacks with distributed karma
+      const allPendingDamages: PendingDamage[] = [];
+      let comboFailed = false;
+      let comboBotchCount = 0; // Track botches within this combo
+
       for (let i = 0; i < comboResult.comboCount; i++) {
         const attackKarma = comboResult.attackKarmaSettings[i];
 
-        const attackRollTotal = await executeCombatAttack({
+        const result = await executeCombatAttack({
           attacker: actor as any,
           attackAttribute,
           attackType,
@@ -1185,11 +1260,22 @@ async function rollPower(power: any) {
           manualChartShift: comboResult.manualChartShift ?? 0,
           comboIndex: i + 1,
           comboTotal: comboResult.comboCount,
-          multiHit: power.multiHit || false
+          multiHit: power.multiHit || false,
+          armorPiercing: power.armorPiercing, // Add armor piercing
+          deferDamageApplication: true, // Defer damage for cumulative application
+          comboBotchCount // Pass current botch count
         });
 
-        // Check for botch (1-5) - break combo immediately
-        if (attackRollTotal !== null && attackRollTotal <= 5) {
+        // Check for botch (1-5) or cancellation - break combo immediately
+        if (result === null || result.attackRollTotal === null) {
+          comboFailed = true;
+          break;
+        }
+
+        // Update botch count from result
+        comboBotchCount = result.comboBotchCount;
+
+        if (result.attackRollTotal <= 5) {
           // Show message about combo break
           await ChatMessage.create({
             speaker: ChatMessage.getSpeaker({ actor }),
@@ -1198,13 +1284,25 @@ async function rollPower(power: any) {
               <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s attack botched on attack ${i + 1} of ${comboResult.comboCount}. Remaining attacks cancelled.</p>
             </div>`
           });
+          comboFailed = true;
           break;
+        }
+
+        // Accumulate pending damages
+        if (result.pendingDamages && result.pendingDamages.length > 0) {
+          allPendingDamages.push(...result.pendingDamages);
         }
 
         // Brief delay between attacks for readability
         if (i < comboResult.comboCount - 1) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
+      }
+
+      // Apply all accumulated damage at the end (if combo completed)
+      if (!comboFailed && allPendingDamages.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await applyPendingDamages(actor as any, allPendingDamages);
       }
     } else {
       // Single attack with karma from combo dialog
@@ -1225,7 +1323,8 @@ async function rollPower(power: any) {
         karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
         karmaResultShift: firstAttackKarma?.resultShift ?? 0,
         manualChartShift: comboResult.manualChartShift ?? 0,
-        multiHit: power.multiHit || false
+        multiHit: power.multiHit || false,
+        armorPiercing: power.armorPiercing // Add armor piercing
       });
     }
 

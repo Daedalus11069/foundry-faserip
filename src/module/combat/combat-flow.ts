@@ -45,6 +45,36 @@ interface AttackData {
   comboIndex?: number; // Optional: Current attack number in combo (1-based)
   comboTotal?: number; // Optional: Total number of attacks in combo
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
+  deferDamageApplication?: boolean; // True to accumulate damage without applying (for cumulative combo damage)
+  comboBotchCount?: number; // Optional: Number of botches so far in this combo (for cumulative penalty)
+}
+
+/**
+ * Pending damage data for cumulative combo attacks
+ */
+export interface PendingDamage {
+  targetActorId: string;
+  targetTokenId: string;
+  targetName: string;
+  totalDamage: number;
+  damageType?: string;
+  armorPiercing?: string | null;
+  armorRank?: string;
+  powerName?: string;
+  hits: Array<{
+    damage: number;
+    powerName?: string;
+    comboIndex: number;
+  }>;
+}
+
+/**
+ * Result from executeCombatAttack with optional pending damage
+ */
+export interface CombatAttackResult {
+  attackRollTotal: number | null;
+  pendingDamages?: PendingDamage[]; // Accumulated damage if deferDamageApplication was true
+  comboBotchCount: number; // Number of botches that have occurred in this combo
 }
 
 /**
@@ -426,11 +456,12 @@ async function applyDamageToActor(
 
 /**
  * Execute a full combat flow: attack → defense prompt → resolution → damage
- * Returns the attack roll total (for detecting botches in combo attacks)
+ * Returns CombatAttackResult with attack roll total and optional pending damages
+ * When deferDamageApplication is true, damage is accumulated but not applied
  */
 export async function executeCombatAttack(
   attackData: AttackData
-): Promise<number | null> {
+): Promise<CombatAttackResult | null> {
   const {
     attacker,
     attackAttribute,
@@ -445,6 +476,9 @@ export async function executeCombatAttack(
     comboTotal
   } = attackData;
 
+  // Initialize array for accumulating damage when deferDamageApplication is true
+  const pendingDamages: PendingDamage[] = [];
+
   // Get targeted tokens - use explicit targets if provided, otherwise use selected targets
   const targets = attackData.targets
     ? attackData.targets
@@ -456,32 +490,38 @@ export async function executeCombatAttack(
   // IMPORTANT: If comboIndex/comboTotal are already set (from combo dialog), preserve them
   // Only use multi-target indexing if NOT part of a combo attack
   if (!attackData.multiHit && targets.length > 1 && !attackData.comboIndex) {
+    let cumulativeBotches = attackData.comboBotchCount ?? 0;
+
     for (let i = 0; i < targets.length; i++) {
-      const attackRollTotal = await executeCombatAttack({
+      const result = await executeCombatAttack({
         ...attackData,
         targets: [targets[i]], // Single target
         comboIndex: i + 1, // 1-based index for combo penalty
-        comboTotal: targets.length // Total number of targets
+        comboTotal: targets.length, // Total number of targets
+        comboBotchCount: cumulativeBotches // Pass cumulative botch count
       });
 
       // Check for cancellation (null) - break combo immediately
       console.log("[Combo Multi-Target] Attack roll result:", {
-        attackRollTotal,
+        attackRollTotal: result?.attackRollTotal,
         targetIndex: i + 1,
         totalTargets: targets.length
       });
 
-      if (attackRollTotal === null) {
+      if (result === null) {
         console.log("[Combo Multi-Target] Breaking combo - roll cancelled");
         // Cancellation message already shown by executeCombatAttack
         break;
       }
 
+      // Update cumulative botch count from result
+      cumulativeBotches = result.comboBotchCount;
+
       // Check for botch (1-5) - break combo immediately
-      if (attackRollTotal <= 5) {
+      if (result.attackRollTotal !== null && result.attackRollTotal <= 5) {
         console.log(
           "[Combo Multi-Target] Breaking combo - botch detected:",
-          attackRollTotal
+          result.attackRollTotal
         );
         // Show message about combo break
         await ChatMessage.create({
@@ -559,13 +599,28 @@ export async function executeCombatAttack(
       manualChartShift = attackOptions.manualChartShift ?? 0;
     }
 
-    // Roll and show attack (no combat flow) - include talent bonus in chart shift
+    // Get consecutive botch penalty from combo (not from actor flags - this is per-combo)
+    const comboBotchCount = attackData.comboBotchCount ?? 0;
+    const botchPenalty = -comboBotchCount;
+
+    // Show botch penalty warning if active
+    if (comboBotchCount > 0) {
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor: attacker }),
+        content: `<div class="fsr-combat-message" style="background: #dc2626; color: #fca5a5; padding: 0.5rem; border-radius: 4px; margin-bottom: 0.5rem;">
+          <strong>⚠️ Combo Botch Penalty Active!</strong>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${attacker.name} has botched ${comboBotchCount} time${comboBotchCount > 1 ? "s" : ""} in this combo. Attack suffers -${comboBotchCount} CS penalty.</p>
+        </div>`
+      });
+    }
+
+    // Roll and show attack (no combat flow) - include talent bonus and botch penalty in chart shift
     const noTargetRoll = await FaseripRoll.rollAttribute(
       powerName ||
         attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
       attackRank,
       attackValue,
-      manualChartShift + (talentCS || 0),
+      manualChartShift + (talentCS || 0) + botchPenalty,
       attacker,
       talentNames,
       {
@@ -581,6 +636,16 @@ export async function executeCombatAttack(
     // Return attack total for combo botch detection
     const noTargetTotal =
       (noTargetRoll.modifiedTotal ?? noTargetRoll.roll.total) || 0;
+
+    // Track botches within this combo
+    const newBotchCount =
+      noTargetTotal <= 5 ? comboBotchCount + 1 : comboBotchCount;
+    if (noTargetTotal <= 5) {
+      console.log(
+        `[Combat Flow - No Targets] Botch detected! Combo botches: ${newBotchCount}`
+      );
+    }
+
     console.log("[Combat Flow - No Targets] Returning attack total:", {
       modifiedTotal: noTargetRoll.modifiedTotal,
       rollTotal: noTargetRoll.roll.total,
@@ -588,7 +653,11 @@ export async function executeCombatAttack(
       comboIndex,
       comboTotal
     });
-    return noTargetTotal;
+    return {
+      attackRollTotal: noTargetTotal,
+      pendingDamages: [],
+      comboBotchCount: newBotchCount
+    };
   }
 
   // Step 1: Roll attack (but don't show yet)
@@ -650,6 +719,18 @@ export async function executeCombatAttack(
     manualChartShift = attackOptions.manualChartShift ?? 0;
   }
 
+  // Get consecutive botch penalty from combo (not from actor flags - this is per-combo)
+  const comboBotchCount = attackData.comboBotchCount ?? 0;
+  const botchPenalty = -comboBotchCount;
+
+  // Debug armor piercing data
+  console.log("[Combat Flow] Armor piercing data:", {
+    armorPiercing: attackData.armorPiercing,
+    armorPiercingType: typeof attackData.armorPiercing,
+    powerName: attackData.powerName,
+    fullAttackData: attackData
+  });
+
   // Calculate combo penalty if this is part of a combo attack
   // Multi-hit powers (AoE) don't suffer combo penalty - one roll for all targets
   const comboPenalty =
@@ -657,8 +738,9 @@ export async function executeCombatAttack(
       ? -(comboIndex ?? 1)
       : 0;
 
-  // Calculate total chart shift (manual + talent bonuses + combo penalty)
-  const totalChartShift = manualChartShift + (talentCS || 0) + comboPenalty;
+  // Calculate total chart shift (manual + talent bonuses + combo penalty + botch penalty)
+  const totalChartShift =
+    manualChartShift + (talentCS || 0) + comboPenalty + botchPenalty;
 
   // Step 1: Roll attack with applied chart shifts
   // Pass karma shifts to rollAttribute - it will handle deduction and application
@@ -709,6 +791,15 @@ export async function executeCombatAttack(
     comboTotal
   });
 
+  // Track botches within this combo
+  const newBotchCount =
+    attackTotal <= 5 ? comboBotchCount + 1 : comboBotchCount;
+  if (attackTotal <= 5) {
+    console.log(
+      `[Combat Flow] Botch detected! Combo botches: ${newBotchCount}`
+    );
+  }
+
   // Show the attack roll to chat BEFORE defense dialogs
   // ChatMessage.create will handle the dice animation automatically
   const attackMetadata = (attackRoll as any).metadata || {};
@@ -717,6 +808,17 @@ export async function executeCombatAttack(
   const attackName = powerName
     ? `${powerName} Attack`
     : `${attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1)} Attack`;
+
+  // Show botch penalty warning if active
+  if (comboBotchCount > 0) {
+    await ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: attacker }),
+      content: `<div class="fsr-combat-message" style="background: #dc2626; color: #fca5a5; padding: 0.5rem; border-radius: 4px; margin-bottom: 0.5rem;">
+        <strong>⚠️ Combo Botch Penalty Active!</strong>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${attacker.name} has botched ${comboBotchCount} time${comboBotchCount > 1 ? "s" : ""} in this combo. Attack suffers -${comboBotchCount} CS penalty.</p>
+      </div>`
+    });
+  }
 
   const attackMessage = await attackRoll.toMessage(
     attackName,
@@ -1093,143 +1195,122 @@ export async function executeCombatAttack(
         }
       }
 
-      // Apply damage to target actor via socket (executes on target owner's client)
-      const damageApplication = await requestDamageApplication(
-        targetActor,
-        damageResult.damage,
-        attackData.damageType,
-        attackData.powerName,
-        target.id, // Pass token ID for unlinked tokens
-        attackData.armorPiercing, // Pass armor piercing rank
-        targetArmorRank // Pass target's armor rank
-      );
-
-      // Handle case where damage application failed
-      if (!damageApplication) {
-        console.error(
-          "FASERIP Combat | Damage application failed for:",
-          targetActor.name,
-          "| Damage was:",
-          damageResult.damage
+      // Check if damage should be deferred (for cumulative combo damage)
+      if (attackData.deferDamageApplication) {
+        // Accumulate damage instead of applying it immediately
+        const existingPendingDamage = pendingDamages.find(
+          pd =>
+            pd.targetActorId === targetActor.id &&
+            pd.targetTokenId === target.id
         );
+
+        if (existingPendingDamage) {
+          // Add to existing accumulated damage for this target
+          existingPendingDamage.totalDamage += damageResult.damage;
+          existingPendingDamage.hits.push({
+            damage: damageResult.damage,
+            powerName: attackData.powerName,
+            comboIndex: comboIndex || 1
+          });
+        } else {
+          // Create new pending damage entry
+          pendingDamages.push({
+            targetActorId: targetActor.id!,
+            targetTokenId: target.id,
+            targetName: targetActor.name!,
+            totalDamage: damageResult.damage,
+            damageType: attackData.damageType,
+            armorPiercing: attackData.armorPiercing,
+            armorRank: targetArmorRank,
+            powerName: attackData.powerName,
+            hits: [
+              {
+                damage: damageResult.damage,
+                powerName: attackData.powerName,
+                comboIndex: comboIndex || 1
+              }
+            ]
+          });
+        }
+
+        // Still show combat result message (but without damage application text)
+        console.log(
+          `[Combo Damage] Deferred ${damageResult.damage} damage to ${targetActor.name} (cumulative: ${existingPendingDamage ? existingPendingDamage.totalDamage : damageResult.damage})`
+        );
+
+        // Build damage deferred text
+        const damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0; font-style: italic;">⏳ Damage accumulated (will apply at end of combo)</div>`;
+
+        // Continue with combat message display (copied from below with damageApplicationText)
+        // Build compact defense info
+        let defenseInfo = "";
+        const isUltimateBotchDefense =
+          defenseResponse &&
+          defenseResponse.defenseType === "defend" &&
+          defenseResponse._isUltimateBotch === true;
+
+        const defendedWithRoll =
+          defenseResponse && defenseResponse.defenseType === "defend";
+
+        if (defendedWithRoll && defenseRoll) {
+          if (isUltimateBotchDefense) {
+            defenseInfo = `<span style="color: #dc2626; font-weight: 600;">ULTIMATE BOTCH! Attack +2 CS</span>`;
+          } else if (damageResult.rankReduction > 0) {
+            defenseInfo = `reduced ${damageResult.rankReduction} rank${damageResult.rankReduction > 1 ? "s" : ""}`;
+          } else if (damageResult.defenseTier === 0) {
+            defenseInfo = `no reduction (White defense)`;
+          } else {
+            defenseInfo = `no reduction`;
+          }
+        } else {
+          defenseInfo = `undefended`;
+        }
+
+        const resultText = attackRoll.getResultText();
+        const resultClass = attackRoll.getResultClass();
+
+        // Build comparison note if needed
+        let comparisonNote = "";
+        if (defendedWithRoll) {
+          if (combatComparison.attackTier !== combatComparison.defenseTier) {
+            comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">${combatComparison.attackTier > combatComparison.defenseTier ? "Attack" : "Defense"} wins (higher tier)</div>`;
+          } else if (
+            combatComparison.attackTotal === combatComparison.defenseTotal
+          ) {
+            comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">Tied - Defense succeeds</div>`;
+          }
+        }
+
+        // Get colors for attack and defense result badges
+        const attackColors = getResultColors(
+          combatComparison.attackResultClass
+        );
+        const defenseColors = getResultColors(
+          combatComparison.defenseResultClass
+        );
+
+        // Build flags object with proper typing
+        const combatFlags: FaseripCombatFlags = {
+          combatMessage: true,
+          damageMessage: true,
+          targetId: targetActor.id!,
+          damage: damageResult.damage,
+          baseRank: damageResult.baseRank,
+          reducedRank: damageResult.reducedRank,
+          attackTier: damageResult.attackTier,
+          defenseTier: damageResult.defenseTier,
+          rankReduction: damageResult.rankReduction,
+          attackRoll: combatComparison.attackTotal,
+          defenseRoll: defendedWithRoll ? combatComparison.defenseTotal : null,
+          resultText,
+          resultClass,
+          powerName,
+          damageType: attackData.damageType
+        };
+
         await ChatMessage.create({
           speaker: ChatMessage.getSpeaker({ actor: attacker }),
-          content: `<div class="fsr-combat-message" style="background: #fef3c7; border-color: #f59e0b;">
-            <p style="color: #92400e; font-weight: 600;">⚠️ Damage application failed for ${targetActor.name}</p>
-            <p style="font-size: 0.8rem; color: #78350f;">Check console for details.</p>
-          </div>`
-        });
-        // Continue with chat message even if application failed
-      }
-
-      // Build damage application text
-      let damageApplicationText = "";
-      if (damageApplication) {
-        // Check degrading armor setting for display
-        const degradingMode =
-          (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
-
-        if (
-          damageApplication.armorDamage > 0 &&
-          damageApplication.healthDamage > 0
-        ) {
-          // Show "remaining" for armor based on degradation mode
-          let armorText = "";
-          if (degradingMode === "none") {
-            armorText = `${damageApplication.armorDamage} absorbed by armor`;
-          } else if (degradingMode === "per-hit") {
-            armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining, -1 per hit)`;
-          } else {
-            // "full" mode
-            armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
-          }
-          damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
-        } else if (damageApplication.armorDamage > 0) {
-          // Show "remaining" based on degradation mode
-          let armorText = "";
-          if (degradingMode === "none") {
-            armorText = `${damageApplication.armorDamage} absorbed by armor`;
-          } else if (degradingMode === "per-hit") {
-            armorText = `${damageApplication.armorDamage} absorbed by armor (no penetration)`;
-          } else {
-            // "full" mode
-            armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
-          }
-          damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}</div>`;
-        } else if (damageApplication.healthDamage > 0) {
-          damageApplicationText = `<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
-        }
-      }
-
-      // Build compact defense info
-      let defenseInfo = "";
-      const isUltimateBotchDefense =
-        defenseResponse &&
-        defenseResponse.defenseType === "defend" &&
-        defenseResponse._isUltimateBotch === true;
-
-      // Check if defender actually rolled (not takeHit) rather than checking tier
-      // This handles botch cases where defenseTier is 0 but they still defended
-      const defendedWithRoll =
-        defenseResponse && defenseResponse.defenseType === "defend";
-
-      if (defendedWithRoll && defenseRoll) {
-        if (isUltimateBotchDefense) {
-          defenseInfo = `<span style="color: #dc2626; font-weight: 600;">ULTIMATE BOTCH! Attack +2 CS</span>`;
-        } else if (damageResult.rankReduction > 0) {
-          defenseInfo = `reduced ${damageResult.rankReduction} rank${damageResult.rankReduction > 1 ? "s" : ""}`;
-        } else if (damageResult.defenseTier === 0) {
-          defenseInfo = `no reduction (White defense)`;
-        } else {
-          defenseInfo = `no reduction`;
-        }
-      } else {
-        defenseInfo = `undefended`;
-      }
-
-      const resultText = attackRoll.getResultText();
-      const resultClass = attackRoll.getResultClass();
-
-      // Build comparison note if needed
-      let comparisonNote = "";
-      if (defendedWithRoll) {
-        if (combatComparison.attackTier !== combatComparison.defenseTier) {
-          comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">${combatComparison.attackTier > combatComparison.defenseTier ? "Attack" : "Defense"} wins (higher tier)</div>`;
-        } else if (
-          combatComparison.attackTotal === combatComparison.defenseTotal
-        ) {
-          comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">Tied - Defense succeeds</div>`;
-        }
-      }
-
-      // Get colors for attack and defense result badges
-      const attackColors = getResultColors(combatComparison.attackResultClass);
-      const defenseColors = getResultColors(
-        combatComparison.defenseResultClass
-      );
-
-      // Build flags object with proper typing
-      const combatFlags: FaseripCombatFlags = {
-        combatMessage: true,
-        damageMessage: true,
-        targetId: targetActor.id!,
-        damage: damageResult.damage,
-        baseRank: damageResult.baseRank,
-        reducedRank: damageResult.reducedRank,
-        attackTier: damageResult.attackTier,
-        defenseTier: damageResult.defenseTier,
-        rankReduction: damageResult.rankReduction,
-        attackRoll: combatComparison.attackTotal,
-        defenseRoll: defendedWithRoll ? combatComparison.defenseTotal : null,
-        resultText,
-        resultClass,
-        powerName,
-        damageType: attackData.damageType
-      };
-
-      await ChatMessage.create({
-        speaker: ChatMessage.getSpeaker({ actor: attacker }),
-        content: `<div class="fsr-combat-message result-${resultClass}">
+          content: `<div class="fsr-combat-message result-${resultClass}">
           <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">${powerName || "Attack"}${comboTotal && comboTotal > 1 ? ` (${comboIndex} of ${comboTotal})` : ""} → ${targetActor.name}</h3>
           
           ${
@@ -1259,18 +1340,202 @@ export async function executeCombatAttack(
           
           <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">${damageResult.description}${attackData.damageType ? ` • ${attackData.damageType}` : ""}</div>
         </div>`,
-        flags: {
-          faserip: combatFlags
-        } as Record<string, unknown>
-      });
-
-      // Show bonus damage roll if applicable (Red/Ultimate)
-      if (damageResult.bonusRoll) {
-        await damageResult.bonusRoll.toMessage({
-          speaker: ChatMessage.getSpeaker({ actor: attacker }),
-          flavor: `<strong>Bonus Damage Roll</strong> (${damageResult.attackTier === 4 ? "Ultimate +5d10" : "Critical +3d6"})`
+          flags: {
+            faserip: combatFlags
+          } as Record<string, unknown>
         });
-      }
+
+        // Show bonus damage roll if applicable (Red/Ultimate)
+        if (damageResult.bonusRoll) {
+          await damageResult.bonusRoll.toMessage({
+            speaker: ChatMessage.getSpeaker({ actor: attacker }),
+            flavor: `<strong>Bonus Damage Roll</strong> (${damageResult.attackTier === 4 ? "Ultimate +5d10" : "Critical +3d6"})`
+          });
+        }
+      } else {
+        // Apply damage immediately (normal flow)
+        // Apply damage to target actor via socket (executes on target owner's client)
+        const damageApplication = await requestDamageApplication(
+          targetActor,
+          damageResult.damage,
+          attackData.damageType,
+          attackData.powerName,
+          target.id, // Pass token ID for unlinked tokens
+          attackData.armorPiercing, // Pass armor piercing rank
+          targetArmorRank // Pass target's armor rank
+        );
+
+        // Handle case where damage application failed
+        if (!damageApplication) {
+          console.error(
+            "FASERIP Combat | Damage application failed for:",
+            targetActor.name,
+            "| Damage was:",
+            damageResult.damage
+          );
+          await ChatMessage.create({
+            speaker: ChatMessage.getSpeaker({ actor: attacker }),
+            content: `<div class="fsr-combat-message" style="background: #fef3c7; border-color: #f59e0b;">
+            <p style="color: #92400e; font-weight: 600;">⚠️ Damage application failed for ${targetActor.name}</p>
+            <p style="font-size: 0.8rem; color: #78350f;">Check console for details.</p>
+          </div>`
+          });
+          // Continue with chat message even if application failed
+        }
+
+        // Build damage application text
+        let damageApplicationText = "";
+        if (damageApplication) {
+          // Check degrading armor setting for display
+          const degradingMode =
+            (game.settings.get("faserip", "degradingArmor") as string) ??
+            "none";
+
+          if (
+            damageApplication.armorDamage > 0 &&
+            damageApplication.healthDamage > 0
+          ) {
+            // Show "remaining" for armor based on degradation mode
+            let armorText = "";
+            if (degradingMode === "none") {
+              armorText = `${damageApplication.armorDamage} absorbed by armor`;
+            } else if (degradingMode === "per-hit") {
+              armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining, -1 per hit)`;
+            } else {
+              // "full" mode
+              armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
+            }
+            damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+          } else if (damageApplication.armorDamage > 0) {
+            // Show "remaining" based on degradation mode
+            let armorText = "";
+            if (degradingMode === "none") {
+              armorText = `${damageApplication.armorDamage} absorbed by armor`;
+            } else if (degradingMode === "per-hit") {
+              armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining, -1 per hit)`;
+            } else {
+              // "full" mode
+              armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
+            }
+            damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}</div>`;
+          } else if (damageApplication.healthDamage > 0) {
+            damageApplicationText = `<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+          }
+        }
+
+        // Build compact defense info
+        let defenseInfo = "";
+        const isUltimateBotchDefense =
+          defenseResponse &&
+          defenseResponse.defenseType === "defend" &&
+          defenseResponse._isUltimateBotch === true;
+
+        // Check if defender actually rolled (not takeHit) rather than checking tier
+        // This handles botch cases where defenseTier is 0 but they still defended
+        const defendedWithRoll =
+          defenseResponse && defenseResponse.defenseType === "defend";
+
+        if (defendedWithRoll && defenseRoll) {
+          if (isUltimateBotchDefense) {
+            defenseInfo = `<span style="color: #dc2626; font-weight: 600;">ULTIMATE BOTCH! Attack +2 CS</span>`;
+          } else if (damageResult.rankReduction > 0) {
+            defenseInfo = `reduced ${damageResult.rankReduction} rank${damageResult.rankReduction > 1 ? "s" : ""}`;
+          } else if (damageResult.defenseTier === 0) {
+            defenseInfo = `no reduction (White defense)`;
+          } else {
+            defenseInfo = `no reduction`;
+          }
+        } else {
+          defenseInfo = `undefended`;
+        }
+
+        const resultText = attackRoll.getResultText();
+        const resultClass = attackRoll.getResultClass();
+
+        // Build comparison note if needed
+        let comparisonNote = "";
+        if (defendedWithRoll) {
+          if (combatComparison.attackTier !== combatComparison.defenseTier) {
+            comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">${combatComparison.attackTier > combatComparison.defenseTier ? "Attack" : "Defense"} wins (higher tier)</div>`;
+          } else if (
+            combatComparison.attackTotal === combatComparison.defenseTotal
+          ) {
+            comparisonNote = `<div style="font-size: 0.75rem; font-style: italic; margin: 0.25rem 0; background: #f3f4f6; color: #374151; padding: 0.15rem 0.4rem; border-radius: 3px;">Tied - Defense succeeds</div>`;
+          }
+        }
+
+        // Get colors for attack and defense result badges
+        const attackColors = getResultColors(
+          combatComparison.attackResultClass
+        );
+        const defenseColors = getResultColors(
+          combatComparison.defenseResultClass
+        );
+
+        // Build flags object with proper typing
+        const combatFlags: FaseripCombatFlags = {
+          combatMessage: true,
+          damageMessage: true,
+          targetId: targetActor.id!,
+          damage: damageResult.damage,
+          baseRank: damageResult.baseRank,
+          reducedRank: damageResult.reducedRank,
+          attackTier: damageResult.attackTier,
+          defenseTier: damageResult.defenseTier,
+          rankReduction: damageResult.rankReduction,
+          attackRoll: combatComparison.attackTotal,
+          defenseRoll: defendedWithRoll ? combatComparison.defenseTotal : null,
+          resultText,
+          resultClass,
+          powerName,
+          damageType: attackData.damageType
+        };
+
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor: attacker }),
+          content: `<div class="fsr-combat-message result-${resultClass}">
+          <h3 style="margin: 0 0 0.35rem 0; font-size: 0.95rem;">${powerName || "Attack"}${comboTotal && comboTotal > 1 ? ` (${comboIndex} of ${comboTotal})` : ""} → ${targetActor.name}</h3>
+          
+          ${
+            defendedWithRoll
+              ? `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; margin: 0 0 0.35rem 0; font-size: 0.8rem;">
+            <div style="text-align: center;">
+              <div style="font-weight: 600; background: ${attackColors.background}; color: ${attackColors.color}; padding: 0.15rem 0.4rem; border-radius: 3px;">Attack: ${combatComparison.attackTotal}</div>
+              <div class="result-badge ${combatComparison.attackResultClass}" style="padding: 0.15rem 0.4rem; font-size: 0.75rem;">${combatComparison.attackResultText} (T${combatComparison.attackTier})</div>
+            </div>
+            <div style="text-align: center;">
+              <div style="font-weight: 600; background: ${defenseColors.background}; color: ${defenseColors.color}; padding: 0.15rem 0.4rem; border-radius: 3px;">Defense: ${combatComparison.defenseTotal}</div>
+              <div class="result-badge ${combatComparison.defenseResultClass}" style="padding: 0.15rem 0.4rem; font-size: 0.75rem;">${combatComparison.defenseResultText} (T${combatComparison.defenseTier})</div>
+            </div>
+          </div>
+          ${comparisonNote}`
+              : `<div style="font-size: 0.8rem; background: #f3f4f6; color: #374151; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0 0 0.35rem 0; font-style: italic;">${targetActor.name} chose not to defend</div>`
+          }
+          
+          <div style="background: rgba(0,0,0,0.05); padding: 0.35rem; border-radius: 3px; margin: 0.35rem 0;">
+            <div style="font-size: 0.8rem; margin-bottom: 0.25rem;"><strong>Base:</strong> ${formatRankDisplay(damageResult.baseRank)} • <strong>Defense:</strong> ${defenseInfo}</div>
+            <div style="font-size: 0.8rem; margin-bottom: 0.25rem;"><strong>Final:</strong> ${formatRankDisplay(damageResult.reducedRank)} • <strong>Formula:</strong> ${damageResult.formula}</div>
+            <div style="font-size: 1.1rem; background: #fee2e2; color: #991b1b; font-weight: bold; margin-top: 0.25rem; padding: 0.25rem 0.5rem; border-radius: 3px;">
+              💥 <strong>${damageResult.damage}</strong> damage
+            </div>
+            ${damageApplicationText}
+          </div>
+          
+          <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">${damageResult.description}${attackData.damageType ? ` • ${attackData.damageType}` : ""}</div>
+        </div>`,
+          flags: {
+            faserip: combatFlags
+          } as Record<string, unknown>
+        });
+
+        // Show bonus damage roll if applicable (Red/Ultimate)
+        if (damageResult.bonusRoll) {
+          await damageResult.bonusRoll.toMessage({
+            speaker: ChatMessage.getSpeaker({ actor: attacker }),
+            flavor: `<strong>Bonus Damage Roll</strong> (${damageResult.attackTier === 4 ? "Ultimate +5d10" : "Critical +3d6"})`
+          });
+        }
+      } // End of else block for immediate damage application
     } else if (attackHit && attackData.effectType !== "damage") {
       // Non-damaging attack hit - show result message without damage
       const resultText = attackRoll.getResultText();
@@ -1339,8 +1604,129 @@ export async function executeCombatAttack(
     });
   }
 
-  // Return the attack roll total for botch detection in combo attacks
-  return attackTotal;
+  // Return the attack roll total and any pending damages (for combo accumulation)
+  return {
+    attackRollTotal: attackTotal,
+    pendingDamages: pendingDamages.length > 0 ? pendingDamages : undefined,
+    comboBotchCount: newBotchCount
+  };
+}
+
+/**
+ * Apply accumulated pending damages from a combo attack
+ * Call this after all combo attacks are complete to apply cumulative damage to armor
+ * @param attacker - The attacking actor
+ * @param pendingDamages - Array of pending damages accumulated during combo
+ */
+export async function applyPendingDamages(
+  attacker: FaseripActor,
+  pendingDamages: PendingDamage[]
+): Promise<void> {
+  if (!pendingDamages || pendingDamages.length === 0) {
+    return;
+  }
+
+  // Apply each target's accumulated damage
+  for (const pending of pendingDamages) {
+    // Find the target actor and token
+    // @ts-expect-error - Foundry game.actors collection
+    const targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === pending.targetActorId
+    ) as FaseripActor | undefined;
+
+    if (!targetActor) {
+      console.error(
+        "FASERIP Combat | Target actor not found for pending damage:",
+        pending.targetActorId
+      );
+      continue;
+    }
+
+    // Apply the total accumulated damage
+    const damageApplication = await requestDamageApplication(
+      targetActor,
+      pending.totalDamage,
+      pending.damageType,
+      pending.powerName,
+      pending.targetTokenId, // Pass token ID for unlinked tokens
+      pending.armorPiercing, // Pass armor piercing rank
+      pending.armorRank, // Pass target's armor rank
+      pending.hits.length // Pass hit count for per-hit degradation
+    );
+
+    // Build summary message showing all hits
+    const hitsText = pending.hits
+      .map(
+        hit =>
+          `<li>Hit ${hit.comboIndex}: ${hit.damage} damage${hit.powerName ? ` (${hit.powerName})` : ""}</li>`
+      )
+      .join("");
+
+    // Check degrading armor setting for display
+    const degradingMode =
+      (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
+    const hitCount = pending.hits.length;
+
+    let damageApplicationText = "";
+    if (damageApplication) {
+      if (
+        damageApplication.armorDamage > 0 &&
+        damageApplication.healthDamage > 0
+      ) {
+        // Show "remaining" for armor based on degradation mode
+        let armorText = "";
+        if (degradingMode === "none") {
+          armorText = `${damageApplication.armorDamage} absorbed by armor`;
+        } else if (degradingMode === "per-hit") {
+          armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining, -${hitCount} from ${hitCount} hit${hitCount !== 1 ? "s" : ""})`;
+        } else {
+          // "full" mode
+          armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
+        }
+        damageApplicationText = `<div style="font-size: 0.85rem; background: #fef3c7; color: #92400e; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+      } else if (damageApplication.armorDamage > 0) {
+        // Show "remaining" based on degradation mode
+        let armorText = "";
+        if (degradingMode === "none") {
+          armorText = `${damageApplication.armorDamage} absorbed by armor`;
+        } else if (degradingMode === "per-hit") {
+          armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining, -${hitCount} from ${hitCount} hit${hitCount !== 1 ? "s" : ""})`;
+        } else {
+          // "full" mode
+          armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
+        }
+        damageApplicationText = `<div style="font-size: 0.85rem; background: #fef3c7; color: #92400e; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${armorText}</div>`;
+      } else if (damageApplication.healthDamage > 0) {
+        damageApplicationText = `<div style="font-size: 0.85rem; background: #fee2e2; color: #991b1b; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+      }
+    }
+
+    // Show cumulative damage message
+    await ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: attacker }),
+      content: `<div class="fsr-combat-message" style="background: #fee2e2; border-color: #dc2626;">
+        <h3 style="margin: 0 0 0.5rem 0; color: #991b1b; font-size: 1rem;">💥 Cumulative Combo Damage → ${pending.targetName}</h3>
+        
+        <div style="background: rgba(0,0,0,0.05); padding: 0.5rem; border-radius: 3px; margin: 0.35rem 0;">
+          <div style="font-size: 0.85rem; margin-bottom: 0.35rem; font-weight: 600;">Individual Hits:</div>
+          <ul style="margin: 0; padding-left: 1.5rem; font-size: 0.85rem;">
+            ${hitsText}
+          </ul>
+          <div style="font-size: 1.2rem; background: #991b1b; color: #fca5a5; font-weight: bold; margin-top: 0.5rem; padding: 0.35rem 0.5rem; border-radius: 3px; text-align: center;">
+            TOTAL: <strong>${pending.totalDamage}</strong> damage to armor
+          </div>
+          ${damageApplicationText}
+        </div>
+        
+        <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 3px; margin-top: 0.35rem;">
+          All damage from combo attacks applied cumulatively to armor
+        </div>
+      </div>`
+    });
+
+    // Brief delay before next target
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
 }
 
 /**
