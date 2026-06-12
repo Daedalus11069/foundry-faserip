@@ -63,8 +63,18 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
     // Create the reactive actor clone once.
     if (!this.#reactiveActor) {
       // For unlinked token sheets, this.actor is already the synthetic actor (base + delta)
-      // @ts-expect-error - actor property exists on ActorSheetV2
-      this.#reactiveActor = reactive(JSON.parse(JSON.stringify(this.actor)));
+      this.#reactiveActor = reactive({
+        // @ts-expect-error - actor property exists on ActorSheetV2
+        ...this.actor.clone(),
+        // @ts-expect-error - actor property exists on ActorSheetV2
+        items: new foundry.abstract.EmbeddedCollection("Item", this.actor, []),
+        effects: new foundry.abstract.EmbeddedCollection(
+          "ActiveEffect",
+          // @ts-expect-error - actor property exists on ActorSheetV2
+          this.actor,
+          []
+        )
+      });
     }
 
     const container = document.createElement("div");
@@ -394,9 +404,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       ) as Record<string, unknown>;
 
       // CRITICAL: Don't overwrite derived resources - these are calculated by prepareDerivedData
-      // Store current derived values
-      const currentResources = (this.#reactiveActor!.system as any).resources;
-
       for (const key of Object.keys(freshSystem)) {
         if (key === "resources") {
           // Skip resources - keep current derived values

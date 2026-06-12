@@ -14,14 +14,15 @@
     "postinstall": "patch-package",
     "link-dev": "./linkDevEnv.bat",
     "link-dev-dist": "./linkDevEnvDist.bat",
-    "unlink-dev": "./unlinkDevEnv.bat"
+    "unlink-dev": "./unlinkDevEnv.bat",
+    "relink-dist": "npm run unlink-dev && npm run link-dev-dist"
   },
   "dependencies": {
-    "@vueuse/core": "^12.5.0",
+    "@vueuse/core": "^14.3.0",
     "lodash-es": "^4.17.21",
     "nanoid": "^5.0.9",
     "tailwindcss": "^4.0.4",
-    "vue": "^3.5.13"
+    "vue": "^3.5.38"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { inject, ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { computedWithControl } from "@vueuse/core";
 import StatsTab from "./StatsTab.vue";
 import EditTab from "./EditTab.vue";
 import PowersTab from "./PowersTab.vue";
@@ -110,62 +111,104 @@ const currentForm = computed(() => {
 
 // Computed property to recalculate health max based on current form
 // This ensures the display is always accurate even if reactive sync lags
-const healthMax = computed(() => {
-  void actorUpdateKey.value; // Force dependency tracking for external updates
-  const form = currentForm.value;
-  if (!form) return reactiveActor.system.resources.health.max || 0;
-  return calculateHealth(form);
-});
+const healthMax = computedWithControl(
+  () => reactiveActor,
+  () => {
+    // void actorUpdateKey.value; // Force dependency tracking for external updates
+    const form = currentForm.value;
+    if (!form) return reactiveActor.system.resources.health.max || 0;
+    return calculateHealth(form);
+  },
+  {
+    deep: true
+  }
+);
 
-const healthValue = computed(() => {
-  void actorUpdateKey.value; // Force dependency tracking for external updates
-  return reactiveActor.system.resources.health.value ?? 0;
-});
+const healthValue = computedWithControl(
+  () => reactiveActor,
+  () => {
+    // void actorUpdateKey.value; // Force dependency tracking for external updates
+    return reactiveActor.system.resources.health.value ?? 0;
+  },
+  {
+    deep: true
+  }
+);
 
-const healthPercent = computed(() => {
-  const max = healthMax.value;
-  const val = healthValue.value;
-  if (max === 0) return 0;
-  // Clamp bar percentage to 0-100%, but allow negative health values in display
-  return Math.min(100, Math.max(0, (val / max) * 100));
-});
+const healthPercent = computedWithControl(
+  () => reactiveActor,
+  () => {
+    const max = healthMax.value;
+    const val = healthValue.value;
+    if (max === 0) return 0;
+    // Clamp bar percentage to 0-100%, but allow negative health values in display
+    return Math.min(100, Math.max(0, (val / max) * 100));
+  },
+  {
+    deep: true
+  }
+);
 
 // Combined armor (Body Armor power + equipped armor)
-const bodyArmorPower = computed(() => {
-  void actorUpdateKey.value; // Force reactivity
-  const activeFormId = reactiveActor.system.currentFormId;
-  return (
-    (reactiveActor.system.powers || []).find(
-      (p: any) =>
-        p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
-        (!p.formIds?.length || p.formIds.includes(activeFormId))
-    ) ?? null
-  );
-});
+const bodyArmorPower = computedWithControl(
+  () => reactiveActor,
+  () => {
+    // void actorUpdateKey.value; // Force reactivity
+    const activeFormId = reactiveActor.system.currentFormId;
+    return (
+      (reactiveActor.system.powers || []).find(
+        (p: any) =>
+          p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+          (!p.formIds?.length || p.formIds.includes(activeFormId))
+      ) ?? null
+    );
+  },
+  {
+    deep: true
+  }
+);
 
-const equippedArmorItems = computed(() => {
-  void actorUpdateKey.value; // Force reactivity
-  if (!armorEnabled.value) return [];
-  return actor.items.filter(
-    (item: any) => item.type === "armor" && item.system.equipped
-  );
-});
+const equippedArmorItems = computedWithControl(
+  () => reactiveActor,
+  () => {
+    // void actorUpdateKey.value; // Force reactivity
+    if (!armorEnabled.value) return [];
+    return actor.items.filter(
+      (item: any) => item.type === "armor" && item.system.equipped
+    );
+  },
+  {
+    deep: true
+  }
+);
 
 const degradingEnabled = computed(
   () => game.settings.get("faserip", "degradingArmor") ?? false
 );
 
-const armorValue = computed(() => {
-  void actorUpdateKey.value; // Force reactivity
-  const system = actor.system as any;
-  return system.resources?.armor?.value || 0;
-});
+const armorValue = computedWithControl(
+  () => reactiveActor,
+  () => {
+    // void actorUpdateKey.value; // Force reactivity
+    const system = actor.system as any;
+    return system.resources?.armor?.value || 0;
+  },
+  {
+    deep: true
+  }
+);
 
-const armorMax = computed(() => {
-  void actorUpdateKey.value; // Force reactivity
-  const system = actor.system as any;
-  return system.resources?.armor?.max || 0;
-});
+const armorMax = computedWithControl(
+  () => reactiveActor,
+  () => {
+    // void actorUpdateKey.value; // Force reactivity
+    const system = actor.system as any;
+    return system.resources?.armor?.max || 0;
+  },
+  {
+    deep: true
+  }
+);
 
 const armorPercent = computed(() => {
   const max = armorMax.value;
@@ -176,36 +219,44 @@ const armorPercent = computed(() => {
 const forms = computed(() => reactiveActor.system.forms || []);
 
 // Computed armor list for compact display
-const armorList = computed(() => {
-  void actorUpdateKey.value; // Force reactivity
-  const armors: Array<{ icon: string; name: string; title: string }> = [];
+const armorList = computedWithControl<
+  { icon: string; name: string; title: string }[]
+>(
+  () => reactiveActor,
+  () => {
+    // void actorUpdateKey.value; // Force reactivity
+    const armors: Array<{ icon: string; name: string; title: string }> = [];
 
-  if (bodyArmorPower.value) {
-    const absorbs = degradingEnabled.value
-      ? `absorbs ${bodyArmorPower.value.value}/${bodyArmorPower.value.maxValue || bodyArmorPower.value.value}`
-      : `absorbs ${bodyArmorPower.value.value}`;
-    armors.push({
-      icon: "🦾",
-      name: bodyArmorPower.value.name,
-      title: `${bodyArmorPower.value.rank}, ${absorbs}`
-    });
+    if (bodyArmorPower.value) {
+      const absorbs = degradingEnabled.value
+        ? `absorbs ${bodyArmorPower.value.value}/${bodyArmorPower.value.maxValue || bodyArmorPower.value.value}`
+        : `absorbs ${bodyArmorPower.value.value}`;
+      armors.push({
+        icon: "🦾",
+        name: bodyArmorPower.value.name,
+        title: `${bodyArmorPower.value.rank}, ${absorbs}`
+      });
+    }
+
+    for (const armorItem of equippedArmorItems.value) {
+      if (!isArmorItem(armorItem)) continue;
+
+      const absorbs = degradingEnabled.value
+        ? `absorbs ${armorItem.system.value}/${armorItem.system.maxValue || armorItem.system.value}`
+        : `absorbs ${armorItem.system.value}`;
+      armors.push({
+        icon: "🛡️",
+        name: armorItem.name || "Unknown Armor",
+        title: `${armorItem.system.rank}, ${absorbs}`
+      });
+    }
+
+    return armors;
+  },
+  {
+    deep: true
   }
-
-  for (const armorItem of equippedArmorItems.value) {
-    if (!isArmorItem(armorItem)) continue;
-
-    const absorbs = degradingEnabled.value
-      ? `absorbs ${armorItem.system.value}/${armorItem.system.maxValue || armorItem.system.value}`
-      : `absorbs ${armorItem.system.value}`;
-    armors.push({
-      icon: "🛡️",
-      name: armorItem.name || "Unknown Armor",
-      title: `${armorItem.system.rank}, ${absorbs}`
-    });
-  }
-
-  return armors;
-});
+);
 
 async function switchForm(formId: string) {
   // Call the actor's switchForm method which handles token transformation
@@ -337,26 +388,40 @@ async function applyHealing() {
 // Hook callbacks to trigger reactivity when actor or items change
 const handleActorUpdate = (updatedActor: Actor) => {
   if (updatedActor._id === actor._id) {
-    actorUpdateKey.value++;
+    handleTokenUpdate();
   }
 };
 
 const handleItemCreate = (item: Item) => {
   if (item.parent?._id === actor._id) {
-    actorUpdateKey.value++;
+    handleTokenUpdate();
   }
 };
 
 const handleItemUpdate = (item: Item) => {
   if (item.parent?._id === actor._id) {
-    actorUpdateKey.value++;
+    handleTokenUpdate();
   }
 };
 
 const handleItemDelete = (item: Item) => {
   if (item.parent?._id === actor._id) {
-    actorUpdateKey.value++;
+    handleTokenUpdate();
   }
+};
+
+const handleTokenUpdate = () => {
+  [
+    healthMax,
+    healthValue,
+    bodyArmorPower,
+    equippedArmorItems,
+    armorValue,
+    armorMax,
+    armorList
+  ].forEach(computedProp => {
+    computedProp.trigger();
+  });
 };
 
 onMounted(() => {
