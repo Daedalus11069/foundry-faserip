@@ -63,18 +63,8 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
     // Create the reactive actor clone once.
     if (!this.#reactiveActor) {
       // For unlinked token sheets, this.actor is already the synthetic actor (base + delta)
-      this.#reactiveActor = reactive({
-        // @ts-expect-error - actor property exists on ActorSheetV2
-        ...this.actor.clone(),
-        // @ts-expect-error - actor property exists on ActorSheetV2
-        items: new foundry.abstract.EmbeddedCollection("Item", this.actor, []),
-        effects: new foundry.abstract.EmbeddedCollection(
-          "ActiveEffect",
-          // @ts-expect-error - actor property exists on ActorSheetV2
-          this.actor,
-          []
-        )
-      });
+      // @ts-expect-error - actor property exists on ActorSheetV2
+      this.#reactiveActor = reactive(JSON.parse(JSON.stringify(this.actor)));
     }
 
     const container = document.createElement("div");
