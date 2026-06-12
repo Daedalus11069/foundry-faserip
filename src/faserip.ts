@@ -838,7 +838,6 @@ Hooks.on(
         }
       }
     }
-    console.log("FASERIP | preUpdateToken changes:", changes);
   }
 );
 
