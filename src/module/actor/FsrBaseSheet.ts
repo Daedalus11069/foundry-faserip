@@ -1,4 +1,4 @@
-import { createApp, reactive, type App, type Component } from "vue";
+import { createApp, markRaw, reactive, type App, type Component } from "vue";
 import { watchIgnorable } from "@vueuse/core";
 import { getRankValue } from "../utils";
 
@@ -63,8 +63,22 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
     // Create the reactive actor clone once.
     if (!this.#reactiveActor) {
       // For unlinked token sheets, this.actor is already the synthetic actor (base + delta)
-      // @ts-expect-error - actor property exists on ActorSheetV2
-      this.#reactiveActor = reactive(JSON.parse(JSON.stringify(this.actor)));
+      this.#reactiveActor = reactive({
+        // @ts-expect-error - actor property exists on ActorSheetV2
+        ...this.actor.clone(),
+        items: markRaw(
+          // @ts-expect-error - actor property exists on ActorSheetV2
+          new foundry.abstract.EmbeddedCollection("Item", this.actor, [])
+        ),
+        effects: markRaw(
+          new foundry.abstract.EmbeddedCollection(
+            "ActiveEffect",
+            // @ts-expect-error - actor property exists on ActorSheetV2
+            this.actor,
+            []
+          )
+        )
+      });
     }
 
     const container = document.createElement("div");

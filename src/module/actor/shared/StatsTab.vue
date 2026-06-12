@@ -1842,6 +1842,7 @@ async function rollPower(power: any) {
               <button
                 @click="rollWeapon(weapon)"
                 :disabled="!weapon.equipped"
+                style="--button-size: auto"
                 :class="[
                   'fsr-btn text-xs px-3 py-1 text-left flex-1',
                   weapon.equipped
