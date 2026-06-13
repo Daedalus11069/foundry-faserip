@@ -1,6 +1,13 @@
-import { createApp, markRaw, reactive, type App, type Component } from "vue";
+import {
+  createApp,
+  reactive,
+  type App,
+  type Component,
+  type Reactive
+} from "vue";
 import { watchIgnorable } from "@vueuse/core";
 import { getRankValue } from "../utils";
+import type { FaseripActor } from "../documents";
 
 // @ts-expect-error - TypeScript doesn't recognize custom Actor subclass
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -14,13 +21,14 @@ type SystemActor = Actor & { system: Record<string, unknown> };
  * clone of actor.system in sync with Foundry's document model.
  */
 export abstract class FsrBaseSheet extends ActorSheetV2 {
+  declare actor: FaseripActor;
   static SHADOWROOT = false;
 
   /** The Vue component rendered by this sheet. Override in subclasses. */
   abstract get vueComponent(): Component;
 
   #vueApp: App | null = null;
-  #reactiveActor: any = null;
+  #reactiveActor: Reactive<FaseripActor> | null = null;
   #stopWatcher: (() => void) | null = null;
   #ignoreUpdates: ((cb: () => void) => void) | null = null;
   #isUpdating: boolean = false;
@@ -62,18 +70,10 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
   ): Promise<Record<string, HTMLElement>> {
     // Create the reactive actor clone once.
     if (!this.#reactiveActor) {
-      // @ts-expect-error - actor property exists on ActorSheetV2
-      const clone = markRaw(this.actor.clone());
+      const clone = this.actor.clone() as FaseripActor;
       // For unlinked token sheets, this.actor is already the synthetic actor (base + delta)
-      this.#reactiveActor = reactive({
-        ...clone,
-        items: markRaw(
-          new foundry.abstract.EmbeddedCollection("items", clone, [])
-        ),
-        effects: markRaw(
-          new foundry.abstract.EmbeddedCollection("effects", clone, [])
-        )
-      });
+      const reactiveClone = reactive(clone);
+      this.#reactiveActor = reactiveClone;
     }
 
     const container = document.createElement("div");
@@ -84,9 +84,8 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       // Provide reactive actor (for modifications)
       app.provide("reactiveActor", this.#reactiveActor);
       // Also provide as "reactiveSystem" for backwards compatibility
-      app.provide("reactiveSystem", this.#reactiveActor.system);
+      app.provide("reactiveSystem", this.#reactiveActor!.system);
       // Provide the real actor for calling methods, accessing collections, etc.
-      // @ts-expect-error - TypeScript doesn't recognize the actor property on ActorSheetV2
       app.provide("actor", this.actor);
       app.provide("sheet", this);
       app.mount(container);
@@ -94,7 +93,7 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
 
       // Set up watchIgnorable for automatic syncing
       const { ignoreUpdates, stop } = watchIgnorable(
-        this.#reactiveActor,
+        this.#reactiveActor!,
         async () => {
           console.log("[FsrBaseSheet] Watcher fired - change detected");
 
@@ -125,7 +124,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           };
 
           // Calculate diff between old and new data
-          // @ts-expect-error - actor property exists on ActorSheetV2
           const oldActorPlain = JSON.parse(JSON.stringify(this.actor));
           const newActorPlain = JSON.parse(JSON.stringify(newActorData));
 
@@ -160,6 +158,7 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
             // Add the complete powers array
             // @ts-expect-error - reactiveActor is typed as any
             updateData["system.powers"] = JSON.parse(
+              // @ts-expect-error - reactiveActor is typed as any
               JSON.stringify(this.#reactiveActor!.system.powers)
             );
           }
@@ -193,7 +192,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
 
           try {
             // Update the real actor or token
-            // @ts-expect-error - actor and token properties exist on ActorSheetV2
             const actor = this.actor;
             // @ts-expect-error - token property exists on ActorSheetV2
             const token = this.token;
@@ -255,7 +253,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
         _options: unknown,
         _userId: string
       ) => {
-        // @ts-expect-error - actor property exists on ActorSheetV2
         if (actor.id === this.actor.id) {
           this.#syncReactiveActor();
         }
@@ -270,7 +267,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
         _options: unknown,
         _userId: string
       ) => {
-        // @ts-expect-error - actor property exists on ActorSheetV2
         if (item.parent?.id === this.actor.id) {
           this.#syncReactiveActor();
         }
@@ -284,7 +280,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
         _options: unknown,
         _userId: string
       ) => {
-        // @ts-expect-error - actor property exists on ActorSheetV2
         if (item.parent?.id === this.actor.id) {
           this.#syncReactiveActor();
         }
@@ -390,7 +385,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       const isUnlinkedToken =
         // @ts-expect-error - token and actor properties exist on ActorSheetV2
         (this.actor as any).isToken && this.token && !this.token.actorLink;
-      // @ts-expect-error - token and actor properties exist on ActorSheetV2
       const sourceActor = this.actor; // Always use this.actor (it's already the synthetic actor for token sheets)
 
       // Update top-level properties
@@ -511,7 +505,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
     for (const [key, value] of Object.entries(data)) {
       prefixed[`system.${key}`] = value;
     }
-    // @ts-expect-error - actor property exists on ActorSheetV2
     await this.actor.update(prefixed);
   }
 }

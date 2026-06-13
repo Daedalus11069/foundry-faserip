@@ -1,3 +1,4 @@
+import { markRaw, toRaw } from "vue";
 import { ActorType } from "./enums";
 import { Rank } from "./enums";
 import { calculateHealth, calculateMentalPoints, stringToRank } from "./utils";
@@ -68,6 +69,14 @@ function getConfiguredMovementByRank(): Record<Rank, number> {
 export class FaseripActor<
   SubType extends Actor.SubType = Actor.SubType
 > extends Actor<SubType> {
+  constructor(
+    data: ConstructorParameters<typeof Actor>[0],
+    context: ConstructorParameters<typeof Actor>[1]
+  ) {
+    super(data, context);
+    markRaw(this.items);
+    markRaw(this.effects);
+  }
   /**
    * Pre-create hook to set default prototypeToken configuration and initialize data
    */
