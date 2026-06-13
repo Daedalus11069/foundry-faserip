@@ -66,7 +66,11 @@ export class FaseripRoll {
    * Get result CSS class for display
    */
   getResultClass(): string {
-    const rollValue = this.roll.total || 0;
+    return FaseripRoll.getResultClass(this.roll);
+  }
+
+  static getResultClass(roll: Roll): string {
+    const rollValue = roll.total || 0;
 
     // Check for ultimate botch (rolling 1)
     if (rollValue === 1) {
@@ -83,7 +87,7 @@ export class FaseripRoll {
       return "fsr-roll-perfect";
     }
 
-    switch (this.result) {
+    switch (roll.result) {
       case RollResult.Red:
         return "fsr-roll-red";
       case RollResult.Yellow:
@@ -100,7 +104,11 @@ export class FaseripRoll {
    * Get result text
    */
   getResultText(): string {
-    const rollValue = this.roll.total || 0;
+    return FaseripRoll.getResultText(this.roll);
+  }
+
+  static getResultText(roll: Roll): string {
+    const rollValue = roll.total || 0;
 
     // Check for ultimate botch (rolling 1)
     if (rollValue === 1) {
@@ -117,7 +125,7 @@ export class FaseripRoll {
       return "Ultimate Critical!";
     }
 
-    switch (this.result) {
+    switch (roll.result) {
       case RollResult.Red:
         return "Critical";
       case RollResult.Yellow:

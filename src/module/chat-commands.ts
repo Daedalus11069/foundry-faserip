@@ -17,7 +17,7 @@ import type { FaseripActor } from "./documents";
  * Result shift syntax: "@N" means spend up to N karma to shift die result (post-roll)
  * Reason syntax: "[reason text]" provides a label for the roll
  */
-function parseRankExpression(expr: string): {
+export function parseRankExpression(expr: string): {
   rank: Rank;
   chartShift: number;
   karmaShifts: number;
@@ -88,14 +88,18 @@ function parseRankExpression(expr: string): {
 export async function handleRollCommand(message: string): Promise<boolean> {
   const trimmed = message.trim();
 
-  // Check if message starts with /r (but not /roll)
-  if (!trimmed.startsWith("/r ") && trimmed !== "/r") {
+  // Check if message starts with /r or /roll
+  if (!trimmed.startsWith("/r ") && !trimmed.startsWith("/roll ")) {
     return false;
   }
 
-  // Extract the rank expressions after /r (only from first line for multi-line messages)
+  // Extract the rank expressions after /r or /roll (only from first line for multi-line messages)
   const firstLine = message.split(/\r?\n/)[0];
-  const afterCommand = firstLine.slice(3).trim();
+  let slice = 3;
+  if (trimmed.startsWith("/roll ")) {
+    slice = 6;
+  }
+  const afterCommand = firstLine.slice(slice).trim();
 
   // Check for global reason after #
   let globalReason: string | null = null;
@@ -222,6 +226,7 @@ export async function handleRollCommand(message: string): Promise<boolean> {
       rank,
       value,
       chartShift,
+      // @ts-expect-error - actor may be undefined, but rollAttribute accepts undefined
       actor,
       undefined,
       undefined,
@@ -239,10 +244,55 @@ export async function handleRollCommand(message: string): Promise<boolean> {
   if (rolls.length > 0) {
     await FaseripRoll.createCombinedRollMessage(
       rolls,
+      // @ts-expect-error - actor may be undefined, but createCombinedRollMessage accepts undefined
       actor,
       undefined,
       globalReason ?? ""
     );
+  }
+
+  // loop through the rolls and see if any are 5 or below. If so, roll a configured roll table and add the result to the chat message as a flavor text
+  for (const roll of rolls) {
+    // loop through the roll's dice and check if any d100 die is 5 or below (botch)
+    if (
+      roll.getResultText() === "Botch" ||
+      roll.getResultText() === "Ultimate Botch!"
+    ) {
+      const tableName = game.settings.get("faserip", "criticalBotchTable");
+      // @ts-expect-error - game.tables exists at runtime
+      const table = game.tables?.getName(tableName);
+      if (table) {
+        const rollResult = await table.roll();
+        if (rollResult) {
+          // Create the chat message with the critical botch effect as flavor text
+          await ChatMessage.create({
+            content: `<strong>Critical Botch Effect</strong><br>${rollResult.results.map((r: any) => r.description).join("<br>")}`,
+            // @ts-expect-error - actor may be undefined, but getSpeaker accepts undefined
+            speaker: ChatMessage.getSpeaker({ actor }),
+            flavor: `Critical Botch Effect: ${roll.modifiedTotal} or below`
+          });
+        }
+      }
+    } else if (
+      roll.getResultText() === "Critical" ||
+      roll.getResultText() === "Ultimate Critical!"
+    ) {
+      const tableName = game.settings.get("faserip", "criticalSuccessTable");
+      // @ts-expect-error - game.tables exists at runtime
+      const table = game.tables?.getName(tableName);
+      if (table) {
+        const rollResult = await table.roll();
+        if (rollResult) {
+          // Create the chat message with the critical success effect as flavor text
+          await ChatMessage.create({
+            content: `<strong>Critical Success Effect</strong><br>${rollResult.results.map((r: any) => r.description).join("<br>")}`,
+            // @ts-expect-error - actor may be undefined, but getSpeaker accepts undefined
+            speaker: ChatMessage.getSpeaker({ actor }),
+            flavor: `Critical Success Effect: ${roll.getResultText()}`
+          });
+        }
+      }
+    }
   }
 
   return true;
@@ -549,6 +599,7 @@ export async function handleCharacterRollCommand(
         rank,
         attr.value,
         parsed.chartShift,
+        // @ts-expect-error - actor exists at runtime
         actor as Actor,
         parsed.talentNames.length > 0 ? parsed.talentNames : undefined,
         undefined,
@@ -570,6 +621,7 @@ export async function handleCharacterRollCommand(
           rank,
           value,
           parsed.karmaShifts, // Use karma shifts as chart shift for powers
+          // @ts-expect-error - actor exists at runtime
           actor as Actor,
           undefined,
           undefined,
@@ -581,121 +633,4 @@ export async function handleCharacterRollCommand(
   }
 
   return true;
-}
-
-/**
- * Register chat command handlers
- */
-export function registerChatCommands(): void {
-  Hooks.on("chatMessage", (_chatLog: any, message: string, _chatData: any) => {
-    // Split message into lines and process each separately
-    const lines = message.split(/\r?\n/).filter(line => line.trim());
-
-    // Check if ANY line is our command or needs processing
-    let hasOurCommand = false;
-    const commandLines: string[] = [];
-    const diceLines: string[] = [];
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      // Check if it's a character roll command
-      if (trimmed.match(/^\/cr(?:oll)?\s+(.+)$/)) {
-        hasOurCommand = true;
-        commandLines.push(line);
-        continue;
-      }
-
-      // Check if it's a rank roll command
-      if (
-        (trimmed.startsWith("/r ") || trimmed === "/r") &&
-        !trimmed.startsWith("/roll")
-      ) {
-        const expressions = line.slice(3).trim().split(/\s+/);
-
-        if (expressions.length === 0 || expressions[0] === "") {
-          hasOurCommand = true;
-          commandLines.push(line);
-          continue;
-        }
-
-        // Check if it's a dice formula
-        let hasDiceFormula = false;
-        for (const expr of expressions) {
-          try {
-            if (Roll.validate(expr)) {
-              hasDiceFormula = true;
-              break;
-            }
-          } catch {
-            // Not a valid dice formula
-          }
-        }
-
-        if (hasDiceFormula) {
-          // It's a dice formula - collect it to roll manually
-          diceLines.push(line.slice(3).trim()); // Remove "/r " prefix
-        } else {
-          // Try to parse as rank
-          const parsed = expressions
-            .map(expr => parseRankExpression(expr))
-            .filter(p => p !== null);
-
-          if (parsed.length > 0) {
-            hasOurCommand = true;
-            commandLines.push(line);
-          }
-        }
-      }
-    }
-
-    // If we have commands or dice to process
-    if (hasOurCommand || diceLines.length > 0) {
-      // Process our custom commands
-      for (const commandLine of commandLines) {
-        const trimmed = commandLine.trim();
-
-        // Process character roll
-        if (trimmed.match(/^\/cr(?:oll)?\s+(.+)$/)) {
-          handleCharacterRollCommand(commandLine).catch(err => {
-            console.error("Error handling character roll command:", err);
-          });
-          continue;
-        }
-
-        // Process rank roll
-        if (
-          (trimmed.startsWith("/r ") || trimmed === "/r") &&
-          !trimmed.startsWith("/roll")
-        ) {
-          handleRollCommand(commandLine).catch(err => {
-            console.error("Error handling rank roll command:", err);
-          });
-        }
-      }
-
-      // If there are dice formulas, send them through Foundry's normal processing
-      if (diceLines.length > 0) {
-        // Reconstruct the dice message with /roll prefix and let Foundry process it normally
-        const diceMessage = diceLines.map(line => `/roll ${line}`).join("\n");
-
-        // Use setTimeout to process after this hook returns
-        setTimeout(() => {
-          // Manually process the dice formulas through Foundry
-          // @ts-expect-error - ui.chat exists at runtime
-          const chatLog = ui.chat;
-          if (chatLog) {
-            chatLog.processMessage(diceMessage).catch((err: any) => {
-              console.error("Error processing dice formulas:", err);
-            });
-          }
-        }, 0);
-      }
-
-      return false; // Prevent Foundry from processing original message
-    }
-
-    // Not our command, let Foundry handle it
-    return true;
-  });
 }

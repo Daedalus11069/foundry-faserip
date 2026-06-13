@@ -652,13 +652,6 @@ export async function executeCombatAttack(
       );
     }
 
-    console.log("[Combat Flow - No Targets] Returning attack total:", {
-      modifiedTotal: noTargetRoll.modifiedTotal,
-      rollTotal: noTargetRoll.roll.total,
-      finalTotal: noTargetTotal,
-      comboIndex,
-      comboTotal
-    });
     return {
       attackRollTotal: noTargetTotal,
       pendingDamages: [],

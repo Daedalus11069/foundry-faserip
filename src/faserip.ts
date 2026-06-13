@@ -20,7 +20,11 @@ import {
   GenericItemSheet
 } from "./module/item/ItemSheets";
 import { initCharmanService } from "./module/charman-service";
-import { registerChatCommands } from "./module/chat-commands";
+import {
+  handleCharacterRollCommand,
+  handleRollCommand,
+  parseRankExpression
+} from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
 import {
   showIntuitionOverlay,
@@ -213,6 +217,25 @@ const initHandler = () => {
         });
       }
     }
+  });
+
+  // Botch and Crit tables
+  game.settings.register("faserip", "criticalBotchTable", {
+    name: "FASERIP.Settings.criticalBotchTable.name",
+    hint: "FASERIP.Settings.criticalBotchTable.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    default: ""
+  });
+
+  game.settings.register("faserip", "criticalSuccessTable", {
+    name: "FASERIP.Settings.criticalSuccessTable.name",
+    hint: "FASERIP.Settings.criticalSuccessTable.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    default: ""
   });
 
   // House Rules: Mental Points (MP) system
@@ -845,9 +868,6 @@ Hooks.on(
 Hooks.once("ready", async () => {
   console.log("FASERIP | System ready");
 
-  // Register chat commands after system is fully ready
-  registerChatCommands();
-
   // Diagnostic: Log valid item types recognized by Foundry
   // @ts-expect-error - TypeScript doesn't recognize documentTypes on game
   const itemTypes = game.documentTypes?.Item || [];
@@ -866,6 +886,119 @@ Hooks.once("ready", async () => {
   game.faserip = {
     forceMigrateItems
   };
+});
+
+Hooks.on("chatMessage", (_chatLog: any, message: string, _chatData: any) => {
+  // Split message into lines and process each separately
+  const lines = message.split(/\r?\n/).filter(line => line.trim());
+
+  // Check if ANY line is our command or needs processing
+  let hasOurCommand = false;
+  const commandLines: string[] = [];
+  const diceLines: string[] = [];
+
+  for (const line of lines) {
+    const div = document.createElement("div");
+    div.innerHTML = line;
+    const trimmed = div.textContent?.trim() || "";
+
+    // Check if it's a character roll command
+    if (trimmed.match(/^\/cr(?:oll)?\s+(.+)$/)) {
+      hasOurCommand = true;
+      commandLines.push(trimmed);
+      continue;
+    }
+
+    // Check if it's a rank roll command
+    if (trimmed.startsWith("/r ") || trimmed.startsWith("/roll ")) {
+      let slice = 3;
+      if (trimmed.startsWith("/roll ")) {
+        slice = 6;
+      }
+
+      const expressions = trimmed.slice(slice).trim().split(/\s+/);
+
+      if (expressions.length === 0 || expressions[0] === "") {
+        hasOurCommand = true;
+        commandLines.push(trimmed);
+        continue;
+      }
+
+      // Check if it's a dice formula
+      let hasDiceFormula = false;
+      for (const expr of expressions) {
+        try {
+          if (Roll.validate(expr)) {
+            hasDiceFormula = true;
+            break;
+          }
+        } catch {
+          // Not a valid dice formula
+        }
+      }
+
+      if (hasDiceFormula) {
+        // It's a dice formula - collect it to roll manually
+        diceLines.push(trimmed.slice(slice).trim()); // Remove "/r " or "/roll " prefix
+      } else {
+        // Try to parse as rank
+        const parsed = expressions
+          .map(expr => parseRankExpression(expr))
+          .filter(p => p !== null);
+
+        if (parsed.length > 0) {
+          hasOurCommand = true;
+          commandLines.push(trimmed);
+        }
+      }
+    }
+  }
+
+  // If we have commands or dice to process
+  if (hasOurCommand || diceLines.length > 0) {
+    // Process our custom commands
+    for (const commandLine of commandLines) {
+      const trimmed = commandLine.trim();
+
+      // Process character roll
+      if (trimmed.match(/^\/cr(?:oll)?\s+(.+)$/)) {
+        handleCharacterRollCommand(commandLine).catch(err => {
+          console.error("Error handling character roll command:", err);
+        });
+        continue;
+      }
+
+      // Process rank roll
+      if (trimmed.startsWith("/r ") || trimmed.startsWith("/roll ")) {
+        handleRollCommand(commandLine).catch(err => {
+          console.error("Error handling rank roll command:", err);
+        });
+      }
+    }
+
+    // If there are dice formulas, send them through Foundry's normal processing
+    if (diceLines.length > 0) {
+      // Reconstruct the dice message with /roll prefix and let Foundry process it normally
+      const diceMessage = diceLines.map(line => `/roll ${line}`).join("\n");
+
+      // Use setTimeout to process after this hook returns
+      setTimeout(() => {
+        // Manually process the dice formulas through Foundry
+        // @ts-expect-error - ui.chat exists at runtime
+        const chatLog = ui.chat;
+        if (chatLog) {
+          chatLog.processMessage(diceMessage).catch((err: any) => {
+            console.error("Error processing dice formulas:", err);
+          });
+        }
+      }, 0);
+    }
+
+    return false; // Prevent Foundry from processing original message
+  }
+
+  // Not our command, let Foundry handle it
+  return true;
 });
 
 // Export for global access if needed

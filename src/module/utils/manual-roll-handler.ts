@@ -1,5 +1,6 @@
 import { VueDialog } from "../applications/vue-dialog";
 import ManualRollEntryModal from "../applications/ManualRollEntryModal.vue";
+import { FaseripRoll } from "../rolling/index.ts";
 
 /**
  * Interface for manual roll options
@@ -87,6 +88,8 @@ export async function createRoll(
     return null;
   }
 
+  let roll: Roll;
+
   if (isManualRollEnabled()) {
     const manualResult = await showManualRollDialog({
       formula,
@@ -97,13 +100,77 @@ export async function createRoll(
 
     if (!manualResult) return null; // User cancelled
 
-    return await createRollFromManualEntry(formula, manualResult, rollData);
+    roll = await createRollFromManualEntry(formula, manualResult, rollData);
   } else {
     // Normal automatic roll
-    const roll = await Roll.create(formula, rollData);
+    // @ts-expect-error - Roll class has a static create method that returns a Promise
+    roll = Roll.create(formula, rollData);
     await roll.evaluate();
-    return roll;
+
+    // loop through the rolls and see if any are 5 or below. If so, roll a configured roll table and add the result to the chat message as a flavor text
+    for (const term of roll.terms) {
+      if ((term as any).class === "Die") {
+        const dieTerm = term as any;
+        for (const result of dieTerm.results) {
+          if (result.result <= 5) {
+            const tableName = game.settings.get(
+              "faserip",
+              "criticalBotchTable"
+            );
+            // @ts-expect-error - game.tables?.getName is a valid method to get a RollTable by name
+            const table = game.tables?.getName(tableName);
+            if (table) {
+              const rollResult = await table.roll();
+              // Display the critical failure result in the chat message flavor text
+              await ChatMessage.create({
+                content: rollResult.results[0].text,
+                flavor: `${rollTitle} - Critical Botch`
+              });
+            }
+          }
+        }
+      }
+    }
   }
+
+  // loop through the rolls and see if any are 5 or below. If so, roll a configured roll table and add the result to the chat message as a flavor text
+  if (
+    FaseripRoll.getResultText(roll) === "Botch" ||
+    FaseripRoll.getResultText(roll) === "Ultimate Botch!"
+  ) {
+    const tableName = game.settings.get("faserip", "criticalBotchTable");
+    // @ts-expect-error - game.tables exists at runtime
+    const table = game.tables?.getName(tableName);
+    if (table) {
+      const rollResult = await table.roll();
+      if (rollResult) {
+        // Create the chat message with the critical botch effect as flavor text
+        await ChatMessage.create({
+          content: `<strong>Critical Botch Effect</strong><br>${rollResult.results.map((r: any) => r.description).join("<br>")}`,
+          flavor: `Critical Botch Effect: ${FaseripRoll.getResultText(roll)}`
+        });
+      }
+    }
+  } else if (
+    FaseripRoll.getResultText(roll) === "Critical" ||
+    FaseripRoll.getResultText(roll) === "Ultimate Critical!"
+  ) {
+    const tableName = game.settings.get("faserip", "criticalSuccessTable");
+    // @ts-expect-error - game.tables exists at runtime
+    const table = game.tables?.getName(tableName);
+    if (table) {
+      const rollResult = await table.roll();
+      if (rollResult) {
+        // Create the chat message with the critical success effect as flavor text
+        await ChatMessage.create({
+          content: `<strong>Critical Success Effect</strong><br>${rollResult.results.map((r: any) => r.description).join("<br>")}`,
+          flavor: `Critical Success Effect: ${FaseripRoll.getResultText(roll)}`
+        });
+      }
+    }
+  }
+
+  return roll;
 }
 
 /**
@@ -151,7 +218,8 @@ export async function createRollFromManualEntry(
   const finalJson = {
     ...templateJson,
     formula: templateJson.formula,
-    evaluated: true
+    evaluated: true,
+    results: [] // Will be populated with user's results
   };
 
   // Map user's results to template's dice terms
@@ -230,6 +298,8 @@ export async function createRollFromManualEntry(
   }
 
   // Create Roll from JSON
+  // @ts-expect-error - Roll.fromData is a valid method to create a Roll from JSON data
   const finalRoll = Roll.fromData(finalJson);
+  // @ts-expect-error - Roll class has an evaluate method that returns a Promise
   return finalRoll;
 }
