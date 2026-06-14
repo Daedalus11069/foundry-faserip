@@ -419,17 +419,6 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             comboBotchCount // Pass current botch count
           });
 
-          // Check for botch (1-5) or cancellation - break combo immediately
-          console.log("[StatsTab Combo] Attack roll result:", {
-            attackRollTotal: result?.attackRollTotal,
-            attackIndex: i + 1,
-            totalAttacks: comboResult.comboCount,
-            isBotch:
-              result?.attackRollTotal !== null &&
-              result?.attackRollTotal !== undefined &&
-              result.attackRollTotal <= 5
-          });
-
           if (result === null || result.attackRollTotal === null) {
             console.log(
               "[StatsTab Combo] Breaking combo - attack cancelled or failed"
