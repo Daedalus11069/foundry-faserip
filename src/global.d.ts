@@ -1,3 +1,4 @@
+import { ActorType } from "./module/enums";
 import type { PcDataModel } from "./module/data-models/ActorDataModels";
 import type { NpcDataModel } from "./module/data-models/ActorDataModels";
 
@@ -9,8 +10,8 @@ declare global {
 
   interface DataModelConfig {
     Actor: {
-      pc: typeof PcDataModel;
-      npc: typeof NpcDataModel;
+      [ActorType.Pc]: typeof PcDataModel;
+      [ActorType.Npc]: typeof NpcDataModel;
     };
   }
 

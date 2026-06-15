@@ -1,4 +1,4 @@
-import { markRaw, toRaw } from "vue";
+import { markRaw } from "vue";
 import { ActorType } from "./enums";
 import { Rank } from "./enums";
 import { calculateHealth, calculateMentalPoints, stringToRank } from "./utils";
