@@ -495,6 +495,11 @@ async function updateWeaponDescription(
     });
   }
 }
+
+const expandedItems = ref<string | null>(null);
+function toggleItem(id: string) {
+  expandedItems.value = expandedItems.value === id ? null : id;
+}
 </script>
 
 <template>
@@ -521,127 +526,226 @@ async function updateWeaponDescription(
         class="fsr-card p-3"
         :class="weapon.equipped ? 'border border-yellow-600' : ''"
       >
-        <!-- Row 1: name + type + equipped badge + sync badge + edit -->
-        <div class="flex items-center gap-2">
-          <!-- Name (inline editable) -->
-          <input
-            type="text"
-            :value="weapon.name"
-            @blur="
-              e =>
-                updateWeaponName(
-                  weapon.id,
-                  (e.target as HTMLInputElement).value,
-                  weapon.isItem,
-                  weapon.systemIndex
-                )
-            "
-            @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-            class="basis-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-            placeholder="Weapon name"
-          />
-
-          <!-- Weapon type selector (inline editable) -->
-          <select
-            :value="weapon.weaponType"
-            @change="
-              e =>
-                updateWeaponType(
-                  weapon.id,
-                  (e.target as HTMLSelectElement).value,
-                  weapon.isItem,
-                  weapon.systemIndex
-                )
-            "
-            class="basis-auto bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-          >
-            <option value="melee">⚔️ Melee</option>
-            <option value="ranged">🏹 Ranged</option>
-            <option value="thrown">🎯 Thrown</option>
-          </select>
-
-          <!-- Synced from Charman badge -->
-          <span
-            v-if="!weapon.isItem"
-            class="text-xs px-2 py-0.5 rounded bg-blue-900/60 text-blue-300"
-            title="This weapon was synced from Charman (editable here, will be overwritten on next sync)"
-          >
-            Synced
-          </span>
-
+        <!-- Accordion header: always visible -->
+        <div
+          class="flex items-center gap-2 cursor-pointer select-none"
+          @click="toggleItem(weapon.id)"
+        >
           <!-- Equipped badge -->
           <button
-            @click="toggleEquip(weapon.id, weapon.isItem, weapon.systemIndex)"
-            class="text-xs px-2 py-1 rounded"
+            @click.stop="toggleEquip(weapon.id, weapon.isItem, weapon.systemIndex)"
+            class="text-xs px-2 py-0.5 rounded shrink-0"
             :class="[
               weapon.equipped
                 ? 'bg-yellow-600 text-black font-bold'
                 : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
             ]"
             :title="weapon.equipped ? 'Unequip' : 'Equip'"
-          >
-            {{ weapon.equipped ? "Equipped" : "Equip" }}
-          </button>
-
-          <!-- Edit button (Items only) -->
+          >{{ weapon.equipped ? '★' : '○' }}</button>
+          <span class="text-gray-400 text-xs w-4 shrink-0">{{ expandedItems === weapon.id ? '▼' : '▶' }}</span>
+          <span class="font-semibold text-white flex-1 truncate">{{ weapon.name }}</span>
+          <span class="text-xs text-gray-400 shrink-0">
+            {{ weapon.weaponType === 'melee' ? '⚔️ Melee' : weapon.weaponType === 'ranged' ? '🏹 Ranged' : '🎯 Thrown' }}
+          </span>
+          <span class="text-xs text-gray-400 shrink-0">
+            {{ (weapon.weaponType === 'melee' || weapon.weaponType === 'thrown')
+              ? `STR${weapon.damage >= 0 ? '+' : ''}${weapon.damage} CS`
+              : formatRankDisplay(stringToRank(weapon.damageRank)) }}
+          </span>
+          <span
+            v-if="!weapon.isItem"
+            class="text-xs px-2 py-0.5 rounded bg-blue-900/60 text-blue-300 shrink-0"
+          >Synced</span>
           <button
             v-if="weapon.isItem"
-            @click="editWeapon(weapon.id, weapon.isItem)"
-            class="text-xs text-blue-400 hover:text-blue-300 px-2"
+            @click.stop="editWeapon(weapon.id, weapon.isItem)"
+            class="text-xs text-blue-400 hover:text-blue-300 px-2 shrink-0"
             :title="'Edit weapon'"
           >
             <i class="fas fa-edit"></i>
           </button>
-
-          <!-- Delete button -->
           <button
-            @click="deleteWeapon(weapon.id, weapon.isItem, weapon.systemIndex)"
-            class="text-xs text-red-400 hover:text-red-300"
+            @click.stop="deleteWeapon(weapon.id, weapon.isItem, weapon.systemIndex)"
+            class="text-xs text-red-400 hover:text-red-300 shrink-0"
             :title="'Delete weapon'"
           >
             <i class="fas fa-trash"></i>
           </button>
         </div>
 
-        <!-- Row 2: damage, talent, and armor piercing -->
-        <div class="grid grid-cols-3 gap-2 mt-2">
-          <!-- Damage (varies by weapon type) -->
-          <div>
-            <template
-              v-if="
-                weapon.weaponType === 'melee' || weapon.weaponType === 'thrown'
+        <!-- Accordion body: expanded form -->
+        <div v-if="expandedItems === weapon.id" class="mt-3 pt-3 border-t border-gray-700">
+          <!-- Row 1: name + type + equipped badge + sync badge + edit -->
+          <div class="flex items-center gap-2">
+            <!-- Name (inline editable) -->
+            <input
+              type="text"
+              :value="weapon.name"
+              @blur="
+                e =>
+                  updateWeaponName(
+                    weapon.id,
+                    (e.target as HTMLInputElement).value,
+                    weapon.isItem,
+                    weapon.systemIndex
+                  )
               "
+              @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+              class="basis-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              placeholder="Weapon name"
+            />
+
+            <!-- Weapon type selector (inline editable) -->
+            <select
+              :value="weapon.weaponType"
+              @change="
+                e =>
+                  updateWeaponType(
+                    weapon.id,
+                    (e.target as HTMLSelectElement).value,
+                    weapon.isItem,
+                    weapon.systemIndex
+                  )
+              "
+              class="basis-auto bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
             >
-              <label class="text-xs text-gray-400 block mb-1">Damage</label>
-              <div class="flex items-center gap-1">
-                <span class="text-xs text-gray-400">STR</span>
-                <input
-                  type="number"
-                  :value="weapon.damage"
-                  @blur="
+              <option value="melee">⚔️ Melee</option>
+              <option value="ranged">🏹 Ranged</option>
+              <option value="thrown">🎯 Thrown</option>
+            </select>
+
+            <!-- Synced from Charman badge -->
+            <span
+              v-if="!weapon.isItem"
+              class="text-xs px-2 py-0.5 rounded bg-blue-900/60 text-blue-300"
+              title="This weapon was synced from Charman (editable here, will be overwritten on next sync)"
+            >
+              Synced
+            </span>
+
+            <!-- Equipped badge -->
+            <button
+              @click="toggleEquip(weapon.id, weapon.isItem, weapon.systemIndex)"
+              class="text-xs px-2 py-1 rounded"
+              :class="[
+                weapon.equipped
+                  ? 'bg-yellow-600 text-black font-bold'
+                  : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+              ]"
+              :title="weapon.equipped ? 'Unequip' : 'Equip'"
+            >
+              {{ weapon.equipped ? "Equipped" : "Equip" }}
+            </button>
+
+            <!-- Edit button (Items only) -->
+            <button
+              v-if="weapon.isItem"
+              @click="editWeapon(weapon.id, weapon.isItem)"
+              class="text-xs text-blue-400 hover:text-blue-300 px-2"
+              :title="'Edit weapon'"
+            >
+              <i class="fas fa-edit"></i>
+            </button>
+
+            <!-- Delete button -->
+            <button
+              @click="deleteWeapon(weapon.id, weapon.isItem, weapon.systemIndex)"
+              class="text-xs text-red-400 hover:text-red-300"
+              :title="'Delete weapon'"
+            >
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+
+          <!-- Row 2: damage, talent, and armor piercing -->
+          <div class="grid grid-cols-3 gap-2 mt-2">
+            <!-- Damage (varies by weapon type) -->
+            <div>
+              <template
+                v-if="
+                  weapon.weaponType === 'melee' || weapon.weaponType === 'thrown'
+                "
+              >
+                <label class="text-xs text-gray-400 block mb-1">Damage</label>
+                <div class="flex items-center gap-1">
+                  <span class="text-xs text-gray-400">STR</span>
+                  <input
+                    type="number"
+                    :value="weapon.damage"
+                    @blur="
+                      e =>
+                        updateWeaponDamage(
+                          weapon.id,
+                          Number((e.target as HTMLInputElement).value),
+                          weapon.isItem,
+                          weapon.systemIndex
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  />
+                  <span class="text-xs text-gray-400">CS</span>
+                </div>
+              </template>
+              <template v-else>
+                <label class="text-xs text-gray-400 block mb-1"
+                  >Damage Rank</label
+                >
+                <select
+                  :value="weapon.damageRank"
+                  @change="
                     e =>
-                      updateWeaponDamage(
+                      updateWeaponDamageRank(
                         weapon.id,
-                        Number((e.target as HTMLInputElement).value),
+                        (e.target as HTMLSelectElement).value,
                         weapon.isItem,
                         weapon.systemIndex
                       )
                   "
-                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                  class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                />
-                <span class="text-xs text-gray-400">CS</span>
-              </div>
-            </template>
-            <template v-else>
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                >
+                  <option
+                    v-for="(label, value) in rankChoicesWithValues"
+                    :key="value"
+                    :value="value"
+                  >
+                    {{ label }}
+                  </option>
+                </select>
+              </template>
+            </div>
+
+            <!-- Talents -->
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Talents</label>
+              <input
+                type="text"
+                :value="(weapon.talents || []).join(', ')"
+                @blur="
+                  e =>
+                    updateWeaponTalents(
+                      weapon.id,
+                      (e.target as HTMLInputElement).value,
+                      weapon.isItem,
+                      weapon.systemIndex
+                    )
+                "
+                @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                placeholder="Martial Arts, Marksman, etc. (comma-separated)"
+              />
+            </div>
+
+            <!-- Armor Piercing -->
+            <div>
               <label class="text-xs text-gray-400 block mb-1"
-                >Damage Rank</label
+                >Armor Piercing</label
               >
               <select
-                :value="weapon.damageRank"
+                :value="weapon.armorPiercing || ''"
                 @change="
                   e =>
-                    updateWeaponDamageRank(
+                    updateWeaponArmorPiercing(
                       weapon.id,
                       (e.target as HTMLSelectElement).value,
                       weapon.isItem,
@@ -650,6 +754,7 @@ async function updateWeaponDescription(
                 "
                 class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
               >
+                <option value="">None</option>
                 <option
                   v-for="(label, value) in rankChoicesWithValues"
                   :key="value"
@@ -658,78 +763,28 @@ async function updateWeaponDescription(
                   {{ label }}
                 </option>
               </select>
-            </template>
+            </div>
           </div>
 
-          <!-- Talents -->
-          <div>
-            <label class="text-xs text-gray-400 block mb-1">Talents</label>
-            <input
-              type="text"
-              :value="(weapon.talents || []).join(', ')"
+          <!-- Description -->
+          <div class="mt-2">
+            <label class="text-xs text-gray-400 block mb-1">Description</label>
+            <textarea
+              :value="weapon.description || ''"
               @blur="
                 e =>
-                  updateWeaponTalents(
+                  updateWeaponDescription(
                     weapon.id,
-                    (e.target as HTMLInputElement).value,
+                    (e.target as HTMLTextAreaElement).value,
                     weapon.isItem,
                     weapon.systemIndex
                   )
               "
-              @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-              class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-              placeholder="Martial Arts, Marksman, etc. (comma-separated)"
-            />
+              class="w-full bg-gray-800 border border-gray-600 rounded px-2 p-2 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              rows="2"
+              placeholder="Weapon description or notes..."
+            ></textarea>
           </div>
-
-          <!-- Armor Piercing -->
-          <div>
-            <label class="text-xs text-gray-400 block mb-1"
-              >Armor Piercing</label
-            >
-            <select
-              :value="weapon.armorPiercing || ''"
-              @change="
-                e =>
-                  updateWeaponArmorPiercing(
-                    weapon.id,
-                    (e.target as HTMLSelectElement).value,
-                    weapon.isItem,
-                    weapon.systemIndex
-                  )
-              "
-              class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">None</option>
-              <option
-                v-for="(label, value) in rankChoicesWithValues"
-                :key="value"
-                :value="value"
-              >
-                {{ label }}
-              </option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Description -->
-        <div class="mt-2">
-          <label class="text-xs text-gray-400 block mb-1">Description</label>
-          <textarea
-            :value="weapon.description || ''"
-            @blur="
-              e =>
-                updateWeaponDescription(
-                  weapon.id,
-                  (e.target as HTMLTextAreaElement).value,
-                  weapon.isItem,
-                  weapon.systemIndex
-                )
-            "
-            class="w-full bg-gray-800 border border-gray-600 rounded px-2 p-2 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-            rows="2"
-            placeholder="Weapon description or notes..."
-          ></textarea>
         </div>
       </div>
     </div>

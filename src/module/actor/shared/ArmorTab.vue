@@ -232,6 +232,11 @@ async function updateArmorDescription(itemId: string, newDescription: string) {
     >);
   }
 }
+
+const expandedItems = ref<string | null>(null);
+function toggleItem(id: string) {
+  expandedItems.value = expandedItems.value === id ? null : id;
+}
 </script>
 
 <template>
@@ -246,11 +251,10 @@ async function updateArmorDescription(itemId: string, newDescription: string) {
     <!-- Equipped summary -->
     <div
       class="mb-4 p-3 rounded"
-      :class="
-        equippedArmor
-          ? 'bg-green-900/40 border border-green-600'
-          : 'bg-gray-800/40 border border-gray-600'
-      "
+      :class="equippedArmor
+        ? 'bg-green-900/40 border border-green-600'
+        : 'bg-gray-800/40 border border-gray-600'
+        "
     >
       <div class="text-sm font-semibold text-gray-300 mb-1">
         Equipped Protection
@@ -296,147 +300,192 @@ async function updateArmorDescription(itemId: string, newDescription: string) {
         class="fsr-card p-3"
         :class="item.system.equipped ? 'border border-green-600' : ''"
       >
-        <!-- Row 1: equip radio + name + rank + edit -->
-        <div class="flex items-center gap-2">
+        <!-- Accordion header: always visible -->
+        <div
+          class="flex items-center gap-2 cursor-pointer select-none"
+          @click="toggleItem(item.id!)"
+        >
           <!-- Equip toggle -->
           <button
-            @click="
+            @click.stop="
               item.system.equipped
                 ? unequipArmor(item.id!)
                 : equipArmor(item.id!)
-            "
+              "
             :title="item.system.equipped ? 'Unequip' : 'Equip'"
             class="w-5 h-5 rounded-full border-2 shrink-0 transition-colors"
-            :class="
-              item.system.equipped
-                ? 'bg-green-500 border-green-400'
-                : 'bg-transparent border-gray-500 hover:border-green-500'
-            "
+            :class="item.system.equipped
+              ? 'bg-green-500 border-green-400'
+              : 'bg-transparent border-gray-500 hover:border-green-500'
+              "
           >
-            <span
-              v-if="item.system.equipped"
-              class="text-white text-xs leading-none"
-              >✓</span
-            >
+            <span v-if="item.system.equipped" class="text-white text-xs leading-none">✓</span>
           </button>
-
-          <!-- Name (inline editable) -->
-          <input
-            type="text"
-            :value="item.name"
-            @input="
-              e =>
-                updateArmorName(item.id!, (e.target as HTMLInputElement).value)
-            "
-            class="basis-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-            placeholder="Armor name"
-          />
-
-          <!-- Rank selector (inline editable) -->
-          <select
-            :value="item.system.rank"
-            @change="
-              e =>
-                updateArmorRank(item.id!, (e.target as HTMLSelectElement).value)
-            "
-            class="basis-auto bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-          >
-            <option
-              v-for="(label, value) in rankChoicesWithValues"
-              :key="value"
-              :value="value"
-            >
-              {{ label }}
-            </option>
-          </select>
-
-          <!-- Old rank badge for reference -->
-          <span v-if="false" class="fsr-rank-badge">{{
-            formatRankDisplay(item.system.rank)
-          }}</span>
-
-          <!-- Edit button -->
+          <span class="text-gray-400 text-xs w-4 shrink-0">{{ expandedItems === item.id ? '▼' : '▶' }}</span>
+          <span class="font-semibold text-white flex-1 truncate">{{ item.name }}</span>
+          <span class="fsr-rank-badge shrink-0">{{ formatRankDisplay(item.system.rank) }}</span>
+          <span class="text-sm shrink-0" :class="item.system.equipped ? 'text-green-400' : 'text-gray-400'">
+            {{ degradingEnabled ? `${item.system.value}/${item.system.maxValue || item.system.value}` : item.system.value }} armor
+          </span>
           <button
-            @click="editArmor(item.id!)"
-            class="text-xs text-blue-400 hover:text-blue-300 px-2"
+            v-if="degradingEnabled && item.system.value < (item.system.maxValue || item.system.value)"
+            @click.stop="repairArmor(item)"
+            class="text-xs fsr-btn fsr-btn-primary py-0.5 px-2 shrink-0"
+          >🔧</button>
+          <button
+            @click.stop="editArmor(item.id!)"
+            class="text-xs text-blue-400 hover:text-blue-300 px-2 shrink-0"
             :title="'Edit armor'"
           >
             <i class="fas fa-edit"></i>
           </button>
-
-          <!-- Delete button -->
           <button
-            @click="deleteArmor(item.id!)"
-            class="text-xs text-red-400 hover:text-red-300"
+            @click.stop="deleteArmor(item.id!)"
+            class="text-xs text-red-400 hover:text-red-300 shrink-0"
             :title="'Delete armor'"
           >
             <i class="fas fa-trash"></i>
           </button>
         </div>
 
-        <!-- Row 2: armor value inputs + repair button -->
-        <div class="flex items-center gap-2 mt-2">
+        <!-- Accordion body: expanded form -->
+        <div v-if="expandedItems === item.id" class="mt-3 pt-3 border-t border-gray-700">
+          <!-- Row 1: equip radio + name + rank + edit -->
           <div class="flex items-center gap-2">
-            <label class="text-xs text-gray-400">Current:</label>
+            <!-- Equip toggle -->
+            <button
+              @click="
+                item.system.equipped
+                  ? unequipArmor(item.id!)
+                  : equipArmor(item.id!)
+                "
+              :title="item.system.equipped ? 'Unequip' : 'Equip'"
+              class="w-5 h-5 rounded-full border-2 shrink-0 transition-colors"
+              :class="item.system.equipped
+                ? 'bg-green-500 border-green-400'
+                : 'bg-transparent border-gray-500 hover:border-green-500'
+                "
+            >
+              <span
+                v-if="item.system.equipped"
+                class="text-white text-xs leading-none"
+                >✓</span
+              >
+            </button>
+
+            <!-- Name (inline editable) -->
             <input
-              type="number"
-              :value="item.system.value"
+              type="text"
+              :value="item.name"
               @input="
                 e =>
-                  updateArmorValue(
-                    item.id!,
-                    Number((e.target as HTMLInputElement).value)
-                  )
+                  updateArmorName(item.id!, (e.target as HTMLInputElement).value)
               "
-              :min="0"
-              :max="item.system.maxValue"
-              class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              class="basis-1/2 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              placeholder="Armor name"
             />
-            <span v-if="degradingEnabled" class="text-xs text-gray-400">/</span>
-            <input
-              v-if="degradingEnabled"
-              type="number"
-              :value="item.system.maxValue"
-              @input="
+
+            <!-- Rank selector (inline editable) -->
+            <select
+              :value="item.system.rank"
+              @change="
                 e =>
-                  updateArmorMaxValue(
-                    item.id!,
-                    Number((e.target as HTMLInputElement).value)
-                  )
+                  updateArmorRank(item.id!, (e.target as HTMLSelectElement).value)
               "
-              :min="1"
-              class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-            />
-            <span class="text-xs text-gray-400">{{
-              degradingEnabled ? "armor" : "armor value"
-            }}</span>
+              class="basis-auto bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs font-semibold hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+            >
+              <option
+                v-for="(label, value) in rankChoicesWithValues"
+                :key="value"
+                :value="value"
+              >
+                {{ label }}
+              </option>
+            </select>
+
+            <!-- Edit button -->
+            <button
+              @click="editArmor(item.id!)"
+              class="text-xs text-blue-400 hover:text-blue-300 px-2"
+              :title="'Edit armor'"
+            >
+              <i class="fas fa-edit"></i>
+            </button>
+
+            <!-- Delete button -->
+            <button
+              @click="deleteArmor(item.id!)"
+              class="text-xs text-red-400 hover:text-red-300"
+              :title="'Delete armor'"
+            >
+              <i class="fas fa-trash"></i>
+            </button>
           </div>
 
-          <button
-            v-if="degradingEnabled && item.system.value < item.system.maxValue"
-            @click="repairArmor(item)"
-            class="ml-auto text-xs fsr-btn fsr-btn-primary py-0.5 px-2"
-          >
-            🔧 Repair
-          </button>
-        </div>
+          <!-- Row 2: armor value inputs + repair button -->
+          <div class="flex items-center gap-2 mt-2">
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-gray-400">Current:</label>
+              <input
+                type="number"
+                :value="item.system.value"
+                @input="
+                  e =>
+                    updateArmorValue(
+                      item.id!,
+                      Number((e.target as HTMLInputElement).value)
+                    )
+                "
+                :min="0"
+                :max="item.system.maxValue"
+                class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              />
+              <span v-if="degradingEnabled" class="text-xs text-gray-400">/</span>
+              <input
+                v-if="degradingEnabled"
+                type="number"
+                :value="item.system.maxValue"
+                @input="
+                  e =>
+                    updateArmorMaxValue(
+                      item.id!,
+                      Number((e.target as HTMLInputElement).value)
+                    )
+                "
+                :min="1"
+                class="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              />
+              <span class="text-xs text-gray-400">{{
+                degradingEnabled ? "armor" : "armor value"
+              }}</span>
+            </div>
 
-        <!-- Description -->
-        <div class="mt-2">
-          <label class="text-xs text-gray-400 block mb-1">Description</label>
-          <textarea
-            :value="item.system.description || ''"
-            @input="
-              e =>
-                updateArmorDescription(
-                  item.id!,
-                  (e.target as HTMLTextAreaElement).value
-                )
-            "
-            class="w-full bg-gray-800 border border-gray-600 rounded px-2 p-2 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-            rows="2"
-            placeholder="Armor description or notes..."
-          ></textarea>
+            <button
+              v-if="degradingEnabled && item.system.value < item.system.maxValue"
+              @click="repairArmor(item)"
+              class="ml-auto text-xs fsr-btn fsr-btn-primary py-0.5 px-2"
+            >
+              🔧 Repair
+            </button>
+          </div>
+
+          <!-- Description -->
+          <div class="mt-2">
+            <label class="text-xs text-gray-400 block mb-1">Description</label>
+            <textarea
+              :value="item.system.description || ''"
+              @input="
+                e =>
+                  updateArmorDescription(
+                    item.id!,
+                    (e.target as HTMLTextAreaElement).value
+                  )
+              "
+              class="w-full bg-gray-800 border border-gray-600 rounded px-2 p-2 text-white text-xs hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              rows="2"
+              placeholder="Armor description or notes..."
+            ></textarea>
+          </div>
         </div>
       </div>
     </div>
