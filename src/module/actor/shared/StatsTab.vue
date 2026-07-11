@@ -32,6 +32,7 @@ import {
   getActionsThisTurn,
   addActionsThisTurn
 } from "../../utils/turn-actions-tracker";
+import { applyHealingToActor } from "../../utils/damage-application";
 import { isWeaponItem, type WeaponItem } from "../../types/items";
 import {
   getEffectiveAttributeData,
@@ -1705,7 +1706,10 @@ async function rollPower(power: any) {
 
       // NOW apply the healing/repair after chat message is posted
       if (healthToApply > 0) {
-        reactiveActor.system.resources.health.value = healthToApply;
+        // Update healthByForm (source of truth) so the watcher persists it correctly
+        const newHealthValue = applyHealingToActor(reactiveActor.system, actualHealingAmount);
+        // Also update the derived value for immediate UI feedback
+        reactiveActor.system.resources.health.value = newHealthValue;
         ui.notifications?.info(
           `${power.name}: Healed ${actualHealingAmount} health.`
         );
