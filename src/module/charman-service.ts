@@ -415,9 +415,6 @@ export class CharmanService {
                   if (uploadedPath) {
                     tokenImagePath = uploadedPath;
                     syncDetails.imagesUploaded++;
-                    console.log(
-                      `Uploaded token image for form "${form.name}" to Foundry`
-                    );
                   }
                 } catch (error) {
                   console.warn(
@@ -466,7 +463,6 @@ export class CharmanService {
                 if (uploadedPath) {
                   baseTokenImagePath = uploadedPath;
                   syncDetails.imagesUploaded++;
-                  console.log(`Uploaded base form token image to Foundry`);
                 }
               } catch (error) {
                 console.warn(`Failed to upload base form token image:`, error);

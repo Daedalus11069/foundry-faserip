@@ -67,6 +67,7 @@ async function migrateActorItems(
       armorCount = armorItemsToCreate.length;
 
       // Clear the old array (keep the field for backwards compatibility, just empty it)
+      // @ts-expect-error
       await actor.update({ "system.armors": [] });
     } catch (error) {
       console.error(
@@ -110,6 +111,7 @@ async function migrateActorItems(
       weaponCount = weaponItemsToCreate.length;
 
       // Clear the old array
+      // @ts-expect-error
       await actor.update({ "system.weapons": [] });
     } catch (error) {
       console.error(
@@ -144,6 +146,7 @@ export async function migrateEmbeddedItemsToDocuments(): Promise<void> {
   let totalWeapons = 0;
 
   // Migrate all actors in the world
+  // @ts-expect-error - game.actors is iterable
   for (const actor of game.actors) {
     const result = await migrateActorItems(actor);
 

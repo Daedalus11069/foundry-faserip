@@ -8,6 +8,7 @@ import DefenseResponseModal from "../applications/DefenseResponseModal.vue";
 import CounterAttackModal from "../applications/CounterAttackModal.vue";
 import { VueDialog } from "../applications/vue-dialog";
 import { formatRankDisplay } from "../enums";
+import type { BaseActorSystemData } from "../types/actor-system";
 import { applyDamageToActor } from "../utils/damage-application";
 
 /**
@@ -940,13 +941,6 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     system.healthByForm = {};
   }
   updates["system.healthByForm"] = system.healthByForm;
-  // CRITICAL: Update health resources directly
-  // prepareDerivedData() will recalculate health from healthByForm, but we need immediate update
-  // for unlinked tokens where the delta must contain complete resource data
-  updates["system.resources.health.value"] = result.newHealthValue;
-  updates["system.resources.health.max"] = system.resources.health.max;
-  // NOTE: Armor resources are NOT set here - they're derived values recalculated by prepareDerivedData
-  // from armor items (which were already updated directly by applyDamageToActor)
 
   // Update actor with new values
   try {
@@ -960,53 +954,41 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
 
     // Update the token document if it exists and is unlinked, otherwise update the actor
     if (targetToken && !targetToken.actorLink) {
-      // Unlinked token - update token's delta (actor overrides)
-      // CRITICAL: Need to prepend "delta." to all update keys
-      const tokenUpdates: Record<string, any> = {};
-      for (const [key, value] of Object.entries(updates)) {
-        tokenUpdates[`delta.${key}`] = value;
+      // Unlinked token: call update() on the SYNTHETIC ACTOR (not the token document).
+      // In Foundry v13, the synthetic actor's update() routes to the token's ActorDelta
+      // internally AND fires updateActor hooks, which triggers the complete bar refresh
+      // pipeline — the same path that makes sheet-initiated damage work correctly.
+      if (currentFormId) {
+        updates["system.currentFormId"] = currentFormId;
       }
 
-      // CRITICAL: Ensure currentFormId is set in token delta so prepareDerivedData can load correct health
-      if (currentFormId && !tokenUpdates["delta.system.currentFormId"]) {
-        tokenUpdates["delta.system.currentFormId"] = currentFormId;
+      await targetToken.actor!.update(updates);
+
+      // After the actor update, refresh bar caches and redraw
+      const updatedActor = targetToken.actor;
+      if (updatedActor && targetToken.object) {
+        const actorSystem =
+          // @ts-expect-error - drawBars not in Foundry type declarations for Token
+          updatedActor.system as BaseActorSystemData;
+        const healthResource = actorSystem.resources?.health;
+        const armorResource = actorSystem.resources?.armor;
+        const tokenDoc = targetToken as unknown as {
+          bar1: { value: number; max: number };
+          bar2: { value: number; max: number };
+        };
+        if (healthResource !== undefined) {
+          tokenDoc.bar1.value = healthResource.value;
+          tokenDoc.bar1.max = healthResource.max;
+        }
+        if (armorResource !== undefined) {
+          tokenDoc.bar2.value = armorResource.value;
+          tokenDoc.bar2.max = armorResource.max;
+        }
+        targetToken.object.drawBars();
       }
 
-      await targetToken.update(tokenUpdates);
-
-      // Get fresh reference to the token's synthetic actor after delta update
-      const updatedTokenActor = targetToken.actor;
-      if (updatedTokenActor) {
-        // CRITICAL: After delta update, explicitly refresh bar values AND max
-        // The token bars cache values and need to be told to recalculate from actor resources
-        if (targetToken.object) {
-          const healthResource = (updatedTokenActor.system as any).resources
-            ?.health;
-          const armorResource = (updatedTokenActor.system as any).resources
-            ?.armor;
-
-          // Update bar value and max cache directly
-          if (healthResource !== undefined && targetToken.bar1) {
-            // @ts-expect-error - Token bar property assignment
-            targetToken.bar1.value = healthResource.value;
-            // @ts-expect-error - Token bar property assignment
-            targetToken.bar1.max = healthResource.max;
-          }
-          if (armorResource !== undefined && targetToken.bar2) {
-            // @ts-expect-error - Token bar property assignment
-            targetToken.bar2.value = armorResource.value;
-            // @ts-expect-error - Token bar property assignment
-            targetToken.bar2.max = armorResource.max;
-          }
-
-          // Trigger visual refresh
-          targetToken.object.drawBars();
-        }
-
-        // Force sheet refresh if open
-        if (updatedTokenActor.sheet && updatedTokenActor.sheet.rendered) {
-          updatedTokenActor.sheet.render(false);
-        }
+      if (updatedActor?.sheet?.rendered) {
+        updatedActor.sheet.render(false);
       }
     } else {
       // Linked actor or no token - update the base actor

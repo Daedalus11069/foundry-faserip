@@ -95,11 +95,8 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       const { ignoreUpdates, stop } = watchIgnorable(
         this.#reactiveActor!,
         async () => {
-          console.log("[FsrBaseSheet] Watcher fired - change detected");
-
           // Prevent redundant updates if we're already in the middle of one
           if (this.#isUpdating) {
-            console.log("[FsrBaseSheet] Skipping - already updating");
             return;
           }
 
@@ -111,7 +108,6 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           // Skip updates if the sheet is not editable
           // @ts-expect-error - isEditable property exists on ActorSheetV2
           if (!this.isEditable) {
-            console.log("[FsrBaseSheet] Skipping - sheet not editable");
             return;
           }
 

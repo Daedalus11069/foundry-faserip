@@ -505,14 +505,7 @@ export async function executeCombatAttack(
       });
 
       // Check for cancellation (null) - break combo immediately
-      console.log("[Combo Multi-Target] Attack roll result:", {
-        attackRollTotal: result?.attackRollTotal,
-        targetIndex: i + 1,
-        totalTargets: targets.length
-      });
-
       if (result === null) {
-        console.log("[Combo Multi-Target] Breaking combo - roll cancelled");
         // Cancellation message already shown by executeCombatAttack
         break;
       }
@@ -522,10 +515,6 @@ export async function executeCombatAttack(
 
       // Check for botch (1-5) - break combo immediately
       if (result.attackRollTotal !== null && result.attackRollTotal <= 5) {
-        console.log(
-          "[Combo Multi-Target] Breaking combo - botch detected:",
-          result.attackRollTotal
-        );
         // Show message about combo break
         await ChatMessage.create({
           speaker: ChatMessage.getSpeaker({ actor: attacker }),
@@ -646,11 +635,6 @@ export async function executeCombatAttack(
     // Track botches within this combo
     const newBotchCount =
       noTargetTotal <= 5 ? comboBotchCount + 1 : comboBotchCount;
-    if (noTargetTotal <= 5) {
-      console.log(
-        `[Combat Flow - No Targets] Botch detected! Combo botches: ${newBotchCount}`
-      );
-    }
 
     return {
       attackRollTotal: noTargetTotal,
@@ -719,10 +703,6 @@ export async function executeCombatAttack(
     karmaResultShift = firstAttackKarma?.resultShift ?? 0;
     manualChartShift = attackOptions.manualChartShift ?? 0;
     damageRankBump = attackOptions.damageRankBump ?? 0;
-
-    console.log(
-      `[Combat Flow] Attack options extracted: damageRankBump=${damageRankBump}, manualChartShift=${manualChartShift}`
-    );
   }
 
   // Get consecutive botch penalty from combo (not from actor flags - this is per-combo)
@@ -1777,8 +1757,36 @@ export async function applyPendingDamages(
     return;
   }
 
-  // Apply each target's accumulated damage
+  // Merge deferred entries for the same target so combo damage is applied once.
+  // This prevents duplicate "cumulative" chat cards when each combo strike
+  // contributes its own pending entry.
+  const mergedByTarget = new Map<string, PendingDamage>();
   for (const pending of pendingDamages) {
+    const key = [
+      pending.targetActorId,
+      pending.targetTokenId || "",
+      pending.damageType || "",
+      pending.armorPiercing || "",
+      pending.armorRank || ""
+    ].join("::");
+
+    const existing = mergedByTarget.get(key);
+    if (!existing) {
+      mergedByTarget.set(key, {
+        ...pending,
+        hits: [...pending.hits]
+      });
+      continue;
+    }
+
+    existing.totalDamage += pending.totalDamage;
+    existing.hits.push(...pending.hits);
+  }
+
+  const mergedPendingDamages = Array.from(mergedByTarget.values());
+
+  // Apply each target's accumulated damage
+  for (const pending of mergedPendingDamages) {
     // Find the target actor and token
     // @ts-expect-error - Foundry game.actors collection
     const targetActor = game.actors?.find(

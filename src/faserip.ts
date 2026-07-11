@@ -658,9 +658,26 @@ Hooks.on("preUpdateActor", (actor: any, changes: any, _options: any) => {
   }
 });
 
+function refreshTokenBarsForActor(actor: any): void {
+  const activeTokens = actor?.getActiveTokens?.() || [];
+  for (const token of activeTokens) {
+    token.drawBars();
+  }
+}
+
 // ─── Actor Update Hook: Sync name changes to PC tokens ──────────────────────────
 
 Hooks.on("updateActor", async (actor: any, changes: any, _options: any) => {
+  // Keep token bars in sync when actor resources/health form data change.
+  const resourcesChanged =
+    changes.system?.resources?.health !== undefined ||
+    changes.system?.resources?.armor !== undefined ||
+    changes.system?.healthByForm !== undefined;
+
+  if (resourcesChanged) {
+    refreshTokenBarsForActor(actor);
+  }
+
   // Only handle name changes for PC actors
   if (actor.type !== ActorType.Pc || changes.name === undefined) {
     return;
@@ -692,6 +709,28 @@ Hooks.on("updateActor", async (actor: any, changes: any, _options: any) => {
 // ─── Token Update Hook: Sync delta name changes to token name (unlinked) ────────
 
 Hooks.on("updateToken", async (token: any, changes: any, _options: any) => {
+  // Redraw bars for token delta resource updates (important for unlinked tokens).
+  // Token updates may arrive as nested objects OR dotted paths.
+  const hasProperty = foundry.utils.hasProperty;
+  const dottedResourceChange = Object.keys(changes).some(
+    key =>
+      key.startsWith("delta.system.resources.health") ||
+      key.startsWith("delta.system.resources.armor") ||
+      key.startsWith("delta.system.healthByForm")
+  );
+
+  const deltaResourcesChanged =
+    dottedResourceChange ||
+    hasProperty(changes, "delta.system.resources.health") ||
+    hasProperty(changes, "delta.system.resources.armor") ||
+    hasProperty(changes, "delta.system.healthByForm");
+
+  if (deltaResourcesChanged) {
+    // Safety net drawBars in case Foundry doesn't automatically refresh bars
+    // from delta resource changes on this client.
+    (token.object as any)?.drawBars?.();
+  }
+
   // Only handle delta name changes for PC unlinked tokens
   if (!token.actor || token.actor.type !== ActorType.Pc || token.actorLink) {
     return;

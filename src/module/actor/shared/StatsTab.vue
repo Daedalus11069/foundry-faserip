@@ -420,9 +420,6 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           });
 
           if (result === null || result.attackRollTotal === null) {
-            console.log(
-              "[StatsTab Combo] Breaking combo - attack cancelled or failed"
-            );
             comboFailed = true;
             break;
           }
@@ -431,10 +428,6 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           comboBotchCount = result.comboBotchCount;
 
           if (result.attackRollTotal <= 5) {
-            console.log(
-              "[StatsTab Combo] Breaking combo - botch detected:",
-              result.attackRollTotal
-            );
             // Show message about combo break
             await ChatMessage.create({
               speaker: ChatMessage.getSpeaker({ actor }),
@@ -953,12 +946,6 @@ async function rollPower(power: any) {
     // @ts-expect-error - game.user.targets is a Set
     const targets = Array.from(game.user?.targets || []);
     const hasTargets = targets.length > 0;
-
-    console.log("[StatsTab] Power data for healing/repair:", {
-      powerName: power.name,
-      armorPiercing: power.armorPiercing,
-      fullPower: power
-    });
 
     // Roll the power (skipMessage: true so we can combine with healing result)
     const faseripRoll = await FaseripRoll.rollAttribute(
@@ -1838,21 +1825,20 @@ async function rollPower(power: any) {
                     ? 'fsr-btn-secondary'
                     : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-60'
                 ]"
-                :title="
-                  weapon.equipped
-                    ? weapon.name +
-                      ' (' +
-                      formatWeaponDamage(weapon) +
-                      ') - ' +
-                      weapon.stat.toUpperCase() +
-                      ((weapon.applicableTalents?.length || 0) > 0
-                        ? ' + ' + (weapon.applicableTalents || []).join(', ')
-                        : '') +
-                      (weapon.armorPiercing
-                        ? ' | AP: ' + formatRankDisplay(weapon.armorPiercing)
-                        : '')
-                    : 'Weapon must be equipped to attack'
-                "
+                :title="weapon.equipped
+                  ? weapon.name +
+                  ' (' +
+                  formatWeaponDamage(weapon) +
+                  ') - ' +
+                  weapon.stat.toUpperCase() +
+                  ((weapon.applicableTalents?.length || 0) > 0
+                    ? ' + ' + (weapon.applicableTalents || []).join(', ')
+                    : '') +
+                  (weapon.armorPiercing
+                    ? ' | AP: ' + formatRankDisplay(weapon.armorPiercing)
+                    : '')
+                  : 'Weapon must be equipped to attack'
+                  "
               >
                 {{ weapon.type === "melee" ? "⚔️" : "🏹" }} {{ weapon.name }}
                 <span class="ml-1 fsr-rank-badge text-xs">{{
@@ -1895,9 +1881,8 @@ async function rollPower(power: any) {
               :key="power.id"
               @click="rollPower(power)"
               class="fsr-btn fsr-btn-secondary text-xs px-3 py-1 text-left"
-              :title="`${power.name} (${formatRankDisplay(power.rank)})${
-                mpEnabled && power.mpCost ? ` - MP Cost: ${power.mpCost}` : ''
-              }`"
+              :title="`${power.name} (${formatRankDisplay(power.rank)})${mpEnabled && power.mpCost ? ` - MP Cost: ${power.mpCost}` : ''
+                }`"
             >
               ⚡ {{ power.name }}
               <span
