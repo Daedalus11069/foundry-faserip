@@ -83,9 +83,13 @@ export async function applyDamageToActor(
       (!p.formIds?.length || p.formIds.includes(currentFormId))
   );
 
-  // Find equipped armor items from actor.items collection
+  // Find equipped armor items from actor.items collection that apply to the active form
   const equippedArmorItems = actor.items.filter(
-    (item): item is ArmorItem => isArmorItem(item) && item.system.equipped
+    (item): item is ArmorItem =>
+      isArmorItem(item) &&
+      item.system.equipped &&
+      (!item.system.formIds?.length ||
+        item.system.formIds.includes(currentFormId))
   );
 
   // Calculate total armor from body armor power + all equipped armor items

@@ -269,9 +269,13 @@ export class FaseripActor<
         (!p.formIds?.length || p.formIds.includes(activeFormId))
     );
 
-    // Find equipped armor items (from actor.items collection)
+    // Find equipped armor items (from actor.items collection) that apply to the active form
     const equippedArmorItems = this.items.filter(
-      (item: any) => item.type === "armor" && item.system.equipped
+      (item: any) =>
+        item.type === "armor" &&
+        item.system.equipped &&
+        (!item.system.formIds?.length ||
+          item.system.formIds.includes(activeFormId))
     );
 
     // Calculate current and max armor values

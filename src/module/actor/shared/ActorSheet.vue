@@ -173,8 +173,13 @@ const equippedArmorItems = computedWithControl(
   () => {
     // void actorUpdateKey.value; // Force reactivity
     if (!armorEnabled.value) return [];
+    const activeFormId = (actor.system as any).currentFormId;
     return actor.items.filter(
-      (item: any) => item.type === "armor" && item.system.equipped
+      (item: any) =>
+        item.type === "armor" &&
+        item.system.equipped &&
+        (!item.system.formIds?.length ||
+          item.system.formIds.includes(activeFormId))
     );
   },
   {

@@ -95,6 +95,7 @@ export class ArmorDataModel extends ItemDataModel {
   declare value: number;
   declare maxValue: number;
   declare equipped: boolean;
+  declare formIds: string[];
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -116,7 +117,11 @@ export class ArmorDataModel extends ItemDataModel {
         min: 0,
         initial: 6
       }),
-      equipped: new BooleanField({ required: true, initial: false })
+      equipped: new BooleanField({ required: true, initial: false }),
+      formIds: new ArrayField(new StringField(), {
+        required: false,
+        initial: []
+      })
     };
   }
 }

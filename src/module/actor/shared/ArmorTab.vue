@@ -5,8 +5,12 @@ import { stringToRank } from "../../utils";
 import type { FaseripActor } from "../../documents";
 import type { ArmorItem } from "../../types/items";
 import { isArmorItem } from "../../types/items";
+import type { ReactiveActorData } from "../../types/actor-system";
 
 const actor = inject("actor") as FaseripActor;
+const reactiveActor = inject("reactiveActor") as ReactiveActorData;
+
+const forms = computed(() => reactiveActor.system.forms || []);
 
 // Reactive key to force computed updates when items change
 const itemsUpdateKey = ref(0);
@@ -236,6 +240,19 @@ async function updateArmorDescription(itemId: string, newDescription: string) {
 const expandedItems = ref<string | null>(null);
 function toggleItem(id: string) {
   expandedItems.value = expandedItems.value === id ? null : id;
+}
+
+async function toggleArmorForm(item: ArmorItem, formId: string) {
+  const current: string[] = Array.isArray(item.system.formIds)
+    ? [...item.system.formIds]
+    : [];
+  const idx = current.indexOf(formId);
+  if (idx === -1) {
+    current.push(formId);
+  } else {
+    current.splice(idx, 1);
+  }
+  await item.update({ "system.formIds": current } as Record<string, unknown>);
 }
 </script>
 
@@ -485,6 +502,35 @@ function toggleItem(id: string) {
               rows="2"
               placeholder="Armor description or notes..."
             ></textarea>
+          </div>
+
+          <!-- Form assignment (only shown when actor has multiple forms) -->
+          <div v-if="forms.length > 1" class="mt-2 pt-2 border-t border-gray-700">
+            <div class="flex items-center gap-2 mb-1">
+              <label class="text-xs text-gray-400">Active in forms:</label>
+              <span
+                v-if="!item.system.formIds?.length"
+                class="text-xs text-gray-500 italic"
+              >All forms</span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <label
+                v-for="form in forms"
+                :key="form.id"
+                class="flex items-center gap-1 cursor-pointer text-xs"
+                :title="'Toggle this armor for ' + form.name"
+              >
+                <input
+                  type="checkbox"
+                  :checked="!!item.system.formIds?.includes(form.id)"
+                  @change="toggleArmorForm(item, form.id)"
+                  class="accent-blue-500"
+                />
+                <span
+                  :class="item.system.formIds?.includes(form.id) ? 'text-blue-300' : 'text-gray-400'"
+                >{{ form.name }}</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
