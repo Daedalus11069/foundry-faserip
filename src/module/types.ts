@@ -93,6 +93,8 @@ export interface Form {
   tokenHeight?: number;
   tokenScale?: number;
 
+  weaponSlots?: number; // Per-form override; undefined = use actor default
+
   attributes: {
     fighting: AttributeData;
     agility: AttributeData;

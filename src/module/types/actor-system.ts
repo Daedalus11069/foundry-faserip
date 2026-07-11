@@ -60,6 +60,8 @@ export interface FormData {
   tokenHeight?: number;
   tokenScale?: number;
 
+  weaponSlots?: number; // Per-form override for weapon-bearing arms; falls back to system.weaponSlots
+
   attributes: FormAttributeSet;
 }
 

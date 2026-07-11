@@ -457,6 +457,7 @@ export class CharmanService {
                 tokenWidth: form.tokenWidth || 1,
                 tokenHeight: form.tokenHeight || 1,
                 tokenScale: form.tokenScale || 1,
+                weaponSlots: form.weaponSlots ?? undefined,
                 attributes: {
                   fighting: parseRankFromCharman(attrs.fighting),
                   agility: parseRankFromCharman(attrs.agility),

@@ -154,6 +154,13 @@ export function defineFormSchema() {
       initial: 1
     }),
 
+    weaponSlots: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: undefined
+    }),
+
     attributes: new SchemaField({
       fighting: defineAttributeSchema(),
       agility: defineAttributeSchema(),

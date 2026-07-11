@@ -60,6 +60,7 @@ function ensureTokenProperties(form: Form) {
   if (form.tokenScale === undefined) {
     form.tokenScale = 1;
   }
+  // weaponSlots intentionally not defaulted — undefined means use the actor default
 }
 
 // When editForm changes, ensure it has token properties
@@ -82,6 +83,7 @@ function addForm() {
     tokenWidth: 1,
     tokenHeight: 1,
     tokenScale: 1,
+    weaponSlots: undefined,
     attributes: {
       fighting: { rank: "typical", value: 6 },
       agility: { rank: "typical", value: 6 },
@@ -361,7 +363,7 @@ async function browseTokenImage() {
 
     <!-- Weapon Slots -->
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
-      <h3 class="text-sm font-bold text-yellow-400 mb-2">Weapon Slots</h3>
+      <h3 class="text-sm font-bold text-yellow-400 mb-2">Weapon Slots (Default)</h3>
       <div class="flex items-center gap-3">
         <input
           v-model.number="reactiveActor.system.weaponSlots"
@@ -370,8 +372,8 @@ async function browseTokenImage() {
           class="fsr-input w-20 text-center"
         />
         <p class="text-xs text-gray-500">
-          Number of weapon-bearing arms. 2 = normal humanoid.
-          With Dual-Wield talent: can equip &amp; attack with all arms.
+          Default weapon-bearing arms for all forms. 2 = normal humanoid.
+          Per-form overrides are set in Charman. With Dual-Wield talent: can equip all arms.
           Without it: floor(arms / 2) — e.g. 4 arms → 2 weapons naturally.
         </p>
       </div>
@@ -662,7 +664,25 @@ async function browseTokenImage() {
         </p>
       </div>
 
-      <!-- PHYSICAL Group -->
+      <!-- Weapon Slots override for this form -->
+      <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+        <h3 class="text-sm font-bold text-yellow-400 mb-2">Weapon Slots</h3>
+        <div class="flex items-center gap-3">
+          <input
+            v-model.number="editForm.weaponSlots"
+            type="number"
+            class="fsr-input w-20 text-center"
+            :placeholder="String(reactiveActor.system.weaponSlots ?? 2)"
+            min="0"
+            max="20"
+            :disabled="!canEditStats"
+          />
+          <p class="text-xs text-gray-500">
+            Arms for this form. Leave blank to use the actor default
+            ({{ reactiveActor.system.weaponSlots ?? 2 }}).
+          </p>
+        </div>
+      </div>
       <div class="mb-3">
         <h3
           class="text-sm font-bold text-red-400 mb-2 uppercase tracking-wider"

@@ -281,7 +281,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       // Without dual-wield talent: floor(weaponSlots / 2) weapons (natural pairing)
       // With dual-wield talent: full weaponSlots
       if (attrKey === "fighting") {
-        const slots = reactiveActor.system.weaponSlots ?? 1;
+        const slots = (currentForm.value?.weaponSlots ?? reactiveActor.system.weaponSlots) ?? 1;
         const hasDualWield = talents.value.some(t => t.grantsDualWield);
         const maxWeaponSlots = hasDualWield
           ? slots
@@ -1193,7 +1193,7 @@ async function toggleEquip(weapon: Weapon) {
 
     if (newEquipped && weaponType === "melee") {
       // Without dual-wield talent: floor(weaponSlots / 2); with talent: full weaponSlots
-      const slots = (reactiveActor.system.weaponSlots as number) ?? 1;
+      const slots = (currentForm.value?.weaponSlots ?? (reactiveActor.system.weaponSlots as number)) ?? 1;
       const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
         (t: any) => t.grantsDualWield
       );
@@ -1259,7 +1259,7 @@ async function toggleEquip(weapon: Weapon) {
 
     // If equipping, enforce weapon slot limit for melee weapons
     if (newEquippedState && weapon.type === "melee") {
-      const slots = (reactiveActor.system.weaponSlots as number) ?? 1;
+      const slots = (currentForm.value?.weaponSlots ?? (reactiveActor.system.weaponSlots as number)) ?? 1;
       const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
         (t: any) => t.grantsDualWield
       );
