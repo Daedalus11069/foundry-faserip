@@ -220,6 +220,15 @@ export function definePowerRefSchema() {
       required: false,
       nullable: true,
       initial: null
+    }),
+    targetType: new StringField({
+      required: false,
+      initial: "any",
+      choices: ["any", "others", "self"]
+    }),
+    skipDialogs: new BooleanField({
+      required: false,
+      initial: false
     })
   });
 }

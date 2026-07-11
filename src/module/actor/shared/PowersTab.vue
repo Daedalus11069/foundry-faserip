@@ -90,6 +90,7 @@ function addPower() {
     formIds: [],
     effectType: "none",
     attackType: "none",
+    targetType: "any",
     damageType: "none",
     resistanceType: undefined,
     vulnerabilityType: undefined,
@@ -1008,16 +1009,15 @@ async function applyArmorHealingToTarget(
             v-for="fid in power.formIds"
             :key="fid"
             class="text-xs bg-yellow-900/60 text-yellow-300 rounded px-2 py-0.5"
-            >{{ forms.find(f => f.id === fid)?.name ?? fid }}</span
+            >{{forms.find(f => f.id === fid)?.name ?? fid}}</span
           >
           <button
             @click="toggleFormPanel(power.id)"
             class="fsr-btn fsr-btn-sm text-xs bg-gray-600 hover:bg-gray-500 text-white px-2 py-0.5 ml-auto"
-            :title="
-              expandedFormPanel === power.id
+            :title="expandedFormPanel === power.id
                 ? 'Close form assignment'
                 : 'Assign to forms'
-            "
+              "
           >
             {{ expandedFormPanel === power.id ? "▲ Forms" : "▼ Forms" }}
           </button>
@@ -1121,6 +1121,16 @@ async function applyArmorHealingToTarget(
           </div>
         </div>
 
+        <!-- Target Type -->
+        <div class="mb-2">
+          <label class="fsr-label">Targets</label>
+          <select v-model="power.targetType" class="fsr-select text-sm">
+            <option value="any">Self or Others</option>
+            <option value="others">Others Only</option>
+            <option value="self">Self Only</option>
+          </select>
+        </div>
+
         <!-- Multi-Hit checkbox (for AoE/multi-target attacks) -->
         <div
           v-if="power.attackType && power.attackType !== 'none'"
@@ -1144,13 +1154,12 @@ async function applyArmorHealingToTarget(
         <!-- Damage Type, Armor Piercing, Resistance Type, and Vulnerability Type -->
         <div
           class="grid gap-2 mb-2"
-          :class="
-            power.effectType === 'damage' ||
-            power.resistanceType ||
-            power.vulnerabilityType
+          :class="power.effectType === 'damage' ||
+              power.resistanceType ||
+              power.vulnerabilityType
               ? 'grid-cols-2'
               : 'grid-cols-1'
-          "
+            "
         >
           <div v-if="power.effectType === 'damage'">
             <label class="fsr-label">Damage Type</label>

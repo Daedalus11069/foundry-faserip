@@ -78,6 +78,7 @@ export interface PowerData {
   attackType?: "none" | "melee" | "ranged" | "psyche"; // Attack type for defense attribute selection
   damageType?: string; // Damage type (fire, cold, energy, etc.)
   formIds?: string[]; // Form IDs this power is active in
+  targetType?: "any" | "others" | "self"; // Who this power can target: others only, self only, or either
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   armorPiercing?: string | null; // Armor-piercing rank (for damage powers that pierce armor)

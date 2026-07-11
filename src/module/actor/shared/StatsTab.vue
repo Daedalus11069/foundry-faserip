@@ -1236,6 +1236,19 @@ async function rollPower(power: any) {
   const rank = stringToRank(power.rank);
   const rankValue = power.value || 6;
 
+  // Enforce target type restrictions
+  // @ts-expect-error - game.user.targets is a Set
+  const currentTargets = Array.from(game.user?.targets || []);
+  const targetType = power.targetType ?? "any";
+  if (targetType === "others" && currentTargets.length === 0) {
+    ui.notifications?.error(
+      `${power.name} can only target others. Select a target token first.`
+    );
+    return;
+  }
+  // For self-only powers, ignore selected targets and apply to self
+  const effectiveTargets = targetType === "self" ? [] : currentTargets;
+
   // Check MP cost if enabled
   const mpCost = mpEnabled.value && power.mpCost ? power.mpCost : 0;
   if (mpCost > 0) {
@@ -1254,9 +1267,8 @@ async function rollPower(power: any) {
 
   // Route healing powers - must be rolled first
   if (power.effectType === "heal-health" || power.effectType === "heal-armor") {
-    // Check for targeted tokens
-    // @ts-expect-error - game.user.targets is a Set
-    const targets = Array.from(game.user?.targets || []);
+    // Check for targeted tokens (effectiveTargets respects power.targetType)
+    const targets = effectiveTargets;
     const hasTargets = targets.length > 0;
 
     // Roll the power (skipMessage: true so we can combine with healing result)
@@ -1305,13 +1317,6 @@ async function rollPower(power: any) {
     } else {
       // White result - healing failed
       amount = 0;
-      await ChatMessage.create({
-        content: `<div class="fsr-chat-card fsr-fail">
-          <h3>${power.effectType === "heal-health" ? "Healing" : "Repair"} Failed</h3>
-          <p><strong>${power.name}</strong> roll failed (White result)!</p>
-        </div>`,
-        speaker: ChatMessage.getSpeaker({ actor })
-      });
     }
 
     // Build combined roll + healing result card
@@ -1342,7 +1347,17 @@ async function rollPower(power: any) {
       // Apply to each targeted token
       let healingResultsHtml = "";
 
+      if (amount === 0) {
+        // Roll failed — show single failure result instead of per-target loop
+        const failLabel = power.effectType === "heal-health" ? "Healing Failed" : "Repair Failed";
+        healingResultsHtml = `<div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid rgb(239, 68, 68); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+          <h4 style="color: rgb(239, 68, 68); margin: 0 0 0.25rem 0; font-size: 1em;">${failLabel}</h4>
+          <p style="margin: 0.25rem 0;"><strong>${power.name}</strong> roll failed (White result)!</p>
+        </div>`;
+      }
+
       for (const token of targets) {
+        if (amount === 0) break; // Skip loop entirely on failure
         // @ts-expect-error - token.actor can be null
         const targetActor = token.actor;
         if (!targetActor) continue;
@@ -1503,7 +1518,14 @@ async function rollPower(power: any) {
       let actualRepairAmount = 0;
 
       // Calculate healing/repair (but don't apply yet)
-      if (power.effectType === "heal-health" && amount > 0) {
+      if (amount === 0) {
+        // Roll failed — show failure result in the combined card
+        const failLabel = power.effectType === "heal-health" ? "Healing Failed" : "Repair Failed";
+        healingResultHtml = `<div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid rgb(239, 68, 68); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+          <h4 style="color: rgb(239, 68, 68); margin: 0 0 0.25rem 0; font-size: 1em;">${failLabel}</h4>
+          <p style="margin: 0.25rem 0;"><strong>${power.name}</strong> roll failed (White result)!</p>
+        </div>`;
+      } else if (power.effectType === "heal-health" && amount > 0) {
         const healthMax = reactiveActor.system.resources.health.max;
         const oldValue = reactiveActor.system.resources.health.value;
         const newValue = Math.min(healthMax, oldValue + amount);
@@ -1654,10 +1676,11 @@ async function rollPower(power: any) {
           }
         }
       } else if (
-        power.effectType === "heal-health" ||
-        power.effectType === "heal-armor"
+        amount > 0 &&
+        (power.effectType === "heal-health" ||
+          power.effectType === "heal-armor")
       ) {
-        // Show appropriate warning for failed healing
+        // Roll succeeded but nothing to heal — show appropriate warning
         if (power.effectType === "heal-health") {
           ui.notifications?.warn(`${power.name}: Already at full health.`);
         } else {
