@@ -46,6 +46,7 @@ export interface CharmanCharacter {
   notes?: string;
   karma?: number;
   mentalpoints?: number; // Mental Points for psionics, etc.
+  weaponSlots?: number; // Number of weapon-bearing arms (default: 2)
 }
 
 export interface CharmanForm {
@@ -64,6 +65,22 @@ export interface CharmanForm {
   psyche: any;
 }
 
+export interface CharmanPowerStatDebuff {
+  enabled: boolean;
+  attribute:
+    | "fighting"
+    | "agility"
+    | "strength"
+    | "endurance"
+    | "reasoning"
+    | "intuition"
+    | "psyche";
+  greenShift: number;
+  yellowShift: number;
+  redShift: number;
+  durationFormula: string;
+}
+
 export interface CharmanPower {
   name: string;
   rank: string | number | Record<string, string | number>; // Can be simple rank, numeric value, or form-specific ranks
@@ -78,12 +95,16 @@ export interface CharmanPower {
   resistanceType?: string; // Type of damage this power resists (for resistance powers)
   vulnerabilityType?: string; // Type of damage this power is weak to (for vulnerability/weakness powers)
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
+  armorPiercing?: string | null; // Armor-piercing rank (optional)
+  targetType?: "any" | "others" | "self"; // Who this power can target
+  statDebuff?: CharmanPowerStatDebuff; // Temporary stat debuff applied on hit
 }
 
 export interface CharmanTalent {
   name: string;
   bonus: number;
   description?: string;
+  grantsDualWield?: boolean; // Grants the ability to wield two weapons simultaneously
 }
 
 export interface CharmanEquipment {
@@ -99,6 +120,7 @@ export interface CharmanArmor {
   maxValue: number; // Maximum armor value (used when degrading enabled)
   equipped: boolean;
   description?: string;
+  formNames?: string[]; // Form names this armor is active in; empty = all forms
 }
 
 export interface CharmanWeapon {
@@ -110,6 +132,7 @@ export interface CharmanWeapon {
   description?: string;
   equipped?: boolean;
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
+  statDebuff?: CharmanPowerStatDebuff; // Temporary stat debuff applied on hit
 }
 
 export interface CharmanContact {
@@ -546,6 +569,18 @@ export class CharmanService {
         resistanceType: power.resistanceType || undefined,
         vulnerabilityType: power.vulnerabilityType || undefined,
         multiHit: power.multiHit || false,
+        armorPiercing: power.armorPiercing || null,
+        targetType: power.targetType || "any",
+        statDebuff: power.statDebuff
+          ? {
+              enabled: power.statDebuff.enabled ?? false,
+              attribute: power.statDebuff.attribute,
+              greenShift: power.statDebuff.greenShift ?? 0,
+              yellowShift: power.statDebuff.yellowShift ?? 0,
+              redShift: power.statDebuff.redShift ?? 0,
+              durationFormula: power.statDebuff.durationFormula ?? ""
+            }
+          : undefined,
         value: power.value || getRankValue(rankName),
         maxValue: power.maxValue || getRankValue(rankName)
       };
@@ -557,7 +592,8 @@ export class CharmanService {
         id: nanoid(),
         name: talent.name,
         bonus: Number(talent.bonus) || 0,
-        description: talent.description || ""
+        description: talent.description || "",
+        grantsDualWield: talent.grantsDualWield || false
       })
     );
 
@@ -628,6 +664,7 @@ export class CharmanService {
         notes: charmanChar.notes || "",
         publicNotes: "",
         gmNotes: "",
+        weaponSlots: charmanChar.weaponSlots ?? 2,
         powers,
         talents,
         armors: (charmanChar.armors || []).map((armor: CharmanArmor) => ({
@@ -637,7 +674,13 @@ export class CharmanService {
           value: armor.value,
           maxValue: armor.maxValue,
           equipped: armor.equipped,
-          description: armor.description || ""
+          description: armor.description || "",
+          formIds: (armor.formNames || [])
+            .map(formName => {
+              const form = forms.find(f => f.name === formName);
+              return form?.id;
+            })
+            .filter((id): id is string => id !== undefined)
         })),
         weapons: (charmanChar.weapons || []).map((weapon: CharmanWeapon) => {
           let damage: string | number;
@@ -679,7 +722,18 @@ export class CharmanService {
               ? [weapon.applicableTalent]
               : [],
             description: weapon.description || "",
-            equipped: weapon.equipped || false
+            equipped: weapon.equipped || false,
+            multiHit: weapon.multiHit || false,
+            statDebuff: weapon.statDebuff
+              ? {
+                  enabled: weapon.statDebuff.enabled ?? false,
+                  attribute: weapon.statDebuff.attribute,
+                  greenShift: weapon.statDebuff.greenShift ?? 0,
+                  yellowShift: weapon.statDebuff.yellowShift ?? 0,
+                  redShift: weapon.statDebuff.redShift ?? 0,
+                  durationFormula: weapon.statDebuff.durationFormula ?? ""
+                }
+              : undefined
           };
         }),
         charman: {
