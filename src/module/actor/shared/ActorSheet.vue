@@ -7,6 +7,7 @@ import PowersTab from "./PowersTab.vue";
 import TalentsTab from "./TalentsTab.vue";
 import BiographyTab from "./BiographyTab.vue";
 import ArmorTab from "./ArmorTab.vue";
+import EffectsTab from "./EffectsTab.vue";
 import WeaponsTab from "./WeaponsTab.vue";
 import { calculateHealth, stringToRank } from "../../utils";
 import { Rank } from "../../enums";
@@ -97,6 +98,7 @@ const tabs = computed(() => [
   { id: "talents", label: "Talents" },
   ...(weaponsEnabled.value ? [{ id: "weapons", label: "Weapons" }] : []),
   ...(armorEnabled.value ? [{ id: "armor", label: "Armor" }] : []),
+  { id: "effects", label: "Effects" },
   { id: "biography", label: "Notes" },
   { id: "edit", label: "Edit" }
 ]);
@@ -602,6 +604,7 @@ onUnmounted(() => {
       <TalentsTab v-if="activeTab === 'talents'" />
       <WeaponsTab v-if="activeTab === 'weapons'" />
       <ArmorTab v-if="activeTab === 'armor'" />
+      <EffectsTab v-if="activeTab === 'effects'" />
       <BiographyTab v-if="activeTab === 'biography'" />
       <EditTab v-if="activeTab === 'edit'" />
     </div>

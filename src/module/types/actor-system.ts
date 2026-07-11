@@ -63,6 +63,33 @@ export interface FormData {
   attributes: FormAttributeSet;
 }
 
+export interface PowerStatDebuffData {
+  enabled: boolean;
+  attribute:
+    | "fighting"
+    | "agility"
+    | "strength"
+    | "endurance"
+    | "reasoning"
+    | "intuition"
+    | "psyche";
+  greenShift: number;
+  yellowShift: number;
+  redShift: number;
+  durationFormula: string;
+}
+
+export interface TemporaryStatModifierData {
+  id: string;
+  attribute: PowerStatDebuffData["attribute"];
+  chartShift: number;
+  roundsRemaining: number;
+  sourcePowerId?: string;
+  sourcePowerName?: string;
+  durationFormula?: string;
+  combatId?: string | null;
+}
+
 export interface PowerData {
   id: string;
   name: string;
@@ -82,6 +109,7 @@ export interface PowerData {
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   armorPiercing?: string | null; // Armor-piercing rank (for damage powers that pierce armor)
+  statDebuff?: PowerStatDebuffData;
 }
 
 export interface TalentData {
@@ -133,6 +161,7 @@ export interface BaseActorSystemData {
   talents: TalentData[];
   armors: ArmorData[];
   weapons: WeaponData[];
+  temporaryStatModifiers?: TemporaryStatModifierData[];
   charman: CharmanData;
 }
 

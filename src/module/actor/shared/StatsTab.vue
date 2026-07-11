@@ -3,7 +3,7 @@ import { inject, computed, ref, watch, onMounted, onUnmounted } from "vue";
 import {
   formatRankDisplay,
   applyChartShift,
-  type Rank,
+  Rank,
   RollResult,
   RANK_VALUES
 } from "../../enums";
@@ -20,11 +20,19 @@ import {
   applyPendingDamages,
   type PendingDamage
 } from "../../combat/combat-flow";
-import type { ReactiveActorData, PowerData } from "../../types/actor-system";
+import type {
+  ReactiveActorData,
+  PowerData,
+  PowerStatDebuffData
+} from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 import { VueDialog } from "../../applications/vue-dialog";
 import ArmorSelectionDialog from "../../applications/dialogs/ArmorSelectionDialog.vue";
 import { isWeaponItem, type WeaponItem } from "../../types/items";
+import {
+  getEffectiveAttributeData,
+  type AttributeKey
+} from "../../utils/stat-debuffs";
 
 interface Weapon {
   id: string;
@@ -37,6 +45,7 @@ interface Weapon {
   equipped?: boolean;
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
+  statDebuff?: PowerData["statDebuff"];
 }
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -93,7 +102,9 @@ const weapons = computed<Weapon[]>(() => {
     description: item.system.description || "",
     equipped: item.system.equipped,
     applicableTalents: item.system.talents || [],
-    armorPiercing: item.system.armorPiercing || "" // Add armor piercing
+    armorPiercing: item.system.armorPiercing || "", // Add armor piercing
+    multiHit: item.system.multiHit || false,
+    statDebuff: item.system.statDebuff as PowerStatDebuffData | undefined
   }));
 
   // Merge both sources
@@ -247,9 +258,10 @@ function getArmorOptions(targetActor: any) {
 async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
   if (!currentForm.value) return;
 
-  const attr = currentForm.value.attributes[attrKey];
+  const attr = getEffectiveAttributeData(actor, attrKey as AttributeKey);
+  if (!attr) return;
   const attrLabel = attributes.find(a => a.key === attrKey)?.label || attrKey;
-  const rank = stringToRank(attr.rank);
+  const rank = attr.rank;
 
   // For Fighting and Agility, check for equipped weapon
   if (attrKey === "fighting" || attrKey === "agility") {
@@ -312,9 +324,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       }
 
       // Show attack options dialog for unarmed strike
-      const fightingRank = stringToRank(
-        currentForm.value.attributes.fighting.rank
-      );
+      const fightingRank =
+        getEffectiveAttributeData(actor, "fighting")?.rank || Rank.Typical;
       const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
 
       const comboResult = await showAttackOptionsDialog(
@@ -1019,6 +1030,7 @@ async function rollWeapon(weapon: Weapon) {
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount,
         multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
+        statDebuff: weapon.statDebuff,
         deferDamageApplication: true, // Defer damage for cumulative application
         comboBotchCount // Pass current botch count
       });
@@ -1097,7 +1109,8 @@ async function rollWeapon(weapon: Weapon) {
         damageRankShift: firstAttackKarma?.damageRankShift ?? 0,
         damageBonus: firstAttackKarma?.damageBonus ?? 0
       },
-      multiHit: weapon.multiHit || false // Add multiHit flag for AoE weapons
+      multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
+      statDebuff: weapon.statDebuff
     });
   }
 }
@@ -1700,8 +1713,8 @@ async function rollPower(power: any) {
     return;
   }
 
-  // Route ALL damage powers through combat flow
-  if (power.effectType === "damage") {
+  // Route all contested powers through combat flow
+  if (power.attackType && power.attackType !== "none") {
     // Determine attack attribute and type based on power settings
     let attackAttribute: "fighting" | "agility" | "psyche";
     let attackType: "melee" | "ranged" | "psyche";
@@ -1764,6 +1777,7 @@ async function rollPower(power: any) {
           comboTotal: comboResult.comboCount,
           multiHit: power.multiHit || false,
           armorPiercing: power.armorPiercing, // Add armor piercing
+          statDebuff: power.statDebuff,
           deferDamageApplication: true, // Defer damage for cumulative application
           comboBotchCount // Pass current botch count
         });
@@ -1826,7 +1840,8 @@ async function rollPower(power: any) {
         karmaResultShift: firstAttackKarma?.resultShift ?? 0,
         manualChartShift: comboResult.manualChartShift ?? 0,
         multiHit: power.multiHit || false,
-        armorPiercing: power.armorPiercing // Add armor piercing
+        armorPiercing: power.armorPiercing, // Add armor piercing
+        statDebuff: power.statDebuff
       });
     }
 

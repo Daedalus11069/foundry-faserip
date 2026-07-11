@@ -4,14 +4,16 @@ import {
   Rank,
   ItemType,
   RANK_VALUES,
-  RANK_ORDER,
   formatRankDisplay
 } from "../../enums";
 import { stringToRank } from "../../utils";
 import type { FaseripActor } from "../../documents";
 import type { WeaponItem } from "../../types/items";
 import { isWeaponItem } from "../../types/items";
-import type { ReactiveActorData } from "../../types/actor-system";
+import type {
+  ReactiveActorData,
+  PowerStatDebuffData
+} from "../../types/actor-system";
 
 interface DisplayWeapon {
   id: string;
@@ -23,6 +25,7 @@ interface DisplayWeapon {
   description?: string;
   talents?: string[];
   armorPiercing?: string;
+  statDebuff?: PowerStatDebuffData;
   isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
   itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
   systemIndex?: number; // Array index in system.weapons for synced weapons
@@ -30,6 +33,16 @@ interface DisplayWeapon {
 
 const actor = inject("actor") as FaseripActor;
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
+
+const attributeChoices = [
+  { value: "fighting", label: "Fighting" },
+  { value: "agility", label: "Agility" },
+  { value: "strength", label: "Strength" },
+  { value: "endurance", label: "Endurance" },
+  { value: "reasoning", label: "Reasoning" },
+  { value: "intuition", label: "Intuition" },
+  { value: "psyche", label: "Psyche" }
+] as const;
 
 // Reactive key to force computed updates when items change
 const itemsUpdateKey = ref(0);
@@ -53,6 +66,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       description: item.system.description,
       talents: item.system.talents || [],
       armorPiercing: item.system.armorPiercing,
+      statDebuff: item.system.statDebuff,
       isItem: true,
       itemRef: item
     });
@@ -259,6 +273,23 @@ function editWeapon(weaponId: string, isItem: boolean) {
   }
 }
 
+function ensureWeaponStatDebuff(weapon: DisplayWeapon) {
+  if (!weapon.itemRef) return null;
+
+  if (!weapon.itemRef.system.statDebuff) {
+    weapon.itemRef.system.statDebuff = {
+      enabled: false,
+      attribute: "fighting",
+      greenShift: 0,
+      yellowShift: 0,
+      redShift: 0,
+      durationFormula: "1d3"
+    } as PowerStatDebuffData;
+  }
+
+  return weapon.itemRef.system.statDebuff as PowerStatDebuffData;
+}
+
 async function updateWeaponName(
   weaponId: string,
   newName: string,
@@ -463,6 +494,25 @@ async function updateWeaponArmorPiercing(
   }
 }
 
+async function updateWeaponStatDebuff(
+  weaponId: string,
+  field:
+    | "enabled"
+    | "attribute"
+    | "greenShift"
+    | "yellowShift"
+    | "redShift"
+    | "durationFormula",
+  value: boolean | number | string
+) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+
+  await item.update({
+    [`system.statDebuff.${field}`]: value
+  } as Record<string, unknown>);
+}
+
 async function updateWeaponDescription(
   weaponId: string,
   newDescription: string,
@@ -560,7 +610,7 @@ function toggleItem(id: string) {
             v-if="weapon.isItem"
             @click.stop="editWeapon(weapon.id, weapon.isItem)"
             class="text-xs text-blue-400 hover:text-blue-300 px-2 shrink-0"
-            :title="'Edit weapon'"
+            :title="'Open full weapon editor for armor piercing, talents, and stat (de)buffs'"
           >
             <i class="fas fa-edit"></i>
           </button>
@@ -642,7 +692,7 @@ function toggleItem(id: string) {
               v-if="weapon.isItem"
               @click="editWeapon(weapon.id, weapon.isItem)"
               class="text-xs text-blue-400 hover:text-blue-300 px-2"
-              :title="'Edit weapon'"
+              :title="'Open full weapon editor for armor piercing, talents, and stat (de)buffs'"
             >
               <i class="fas fa-edit"></i>
             </button>
@@ -763,6 +813,137 @@ function toggleItem(id: string) {
                   {{ label }}
                 </option>
               </select>
+            </div>
+          </div>
+
+          <div
+            v-if="weapon.isItem && ensureWeaponStatDebuff(weapon)"
+            class="mt-3 p-3 bg-indigo-950/30 border border-indigo-800 rounded"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                :checked="ensureWeaponStatDebuff(weapon)?.enabled"
+                @change="
+                  e =>
+                    updateWeaponStatDebuff(
+                      weapon.id,
+                      'enabled',
+                      (e.target as HTMLInputElement).checked
+                    )
+                "
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
+              />
+              <span class="text-sm font-medium text-indigo-200">Temporary Stat (De)buff</span>
+            </label>
+
+            <div
+              v-if="ensureWeaponStatDebuff(weapon)?.enabled"
+              class="space-y-3"
+            >
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">Target Attribute</label>
+                <select
+                  :value="ensureWeaponStatDebuff(weapon)?.attribute"
+                  @change="
+                    e =>
+                      updateWeaponStatDebuff(
+                        weapon.id,
+                        'attribute',
+                        (e.target as HTMLSelectElement).value
+                      )
+                  "
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                >
+                  <option
+                    v-for="option in attributeChoices"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="grid grid-cols-3 gap-2">
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Half Success</label>
+                  <input
+                    type="number"
+                    :value="ensureWeaponStatDebuff(weapon)?.greenShift"
+                    @blur="
+                      e =>
+                        updateWeaponStatDebuff(
+                          weapon.id,
+                          'greenShift',
+                          Number((e.target as HTMLInputElement).value)
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="-1"
+                  />
+                </div>
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Yellow</label>
+                  <input
+                    type="number"
+                    :value="ensureWeaponStatDebuff(weapon)?.yellowShift"
+                    @blur="
+                      e =>
+                        updateWeaponStatDebuff(
+                          weapon.id,
+                          'yellowShift',
+                          Number((e.target as HTMLInputElement).value)
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="-2"
+                  />
+                </div>
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Red</label>
+                  <input
+                    type="number"
+                    :value="ensureWeaponStatDebuff(weapon)?.redShift"
+                    @blur="
+                      e =>
+                        updateWeaponStatDebuff(
+                          weapon.id,
+                          'redShift',
+                          Number((e.target as HTMLInputElement).value)
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="-3"
+                  />
+                </div>
+              </div>
+
+              <div class="text-xs text-gray-400">
+                Positive values apply a buff. Negative values apply a debuff.
+              </div>
+
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
+                <input
+                  type="text"
+                  :value="ensureWeaponStatDebuff(weapon)?.durationFormula"
+                  @blur="
+                    e =>
+                      updateWeaponStatDebuff(
+                        weapon.id,
+                        'durationFormula',
+                        (e.target as HTMLInputElement).value
+                      )
+                  "
+                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  placeholder="1d3"
+                />
+              </div>
             </div>
           </div>
 

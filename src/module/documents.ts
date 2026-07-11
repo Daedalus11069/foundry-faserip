@@ -194,6 +194,10 @@ export class FaseripActor<
       system.healthByForm = {};
     }
 
+    if (!system.temporaryStatModifiers) {
+      system.temporaryStatModifiers = [];
+    }
+
     // Get current form
     const currentForm = system.forms.find(
       (f: any) => f.id === system.currentFormId

@@ -10,11 +10,24 @@ import { VueDialog } from "../applications/vue-dialog";
 import { formatRankDisplay } from "../enums";
 import type { BaseActorSystemData } from "../types/actor-system";
 import { applyDamageToActor } from "../utils/damage-application";
+import { getEffectiveAttributeData } from "../utils/stat-debuffs";
 
 /**
  * Socket module instance
  */
 let socket: any = null;
+
+interface ApplyStatDebuffData {
+  targetActorId: string;
+  targetTokenId?: string;
+  attribute: string;
+  chartShift: number;
+  roundsRemaining: number;
+  sourcePowerId?: string;
+  sourcePowerName?: string;
+  durationFormula?: string;
+  combatId?: string | null;
+}
 
 /**
  * Data structure for defense prompt sent to defender
@@ -118,6 +131,7 @@ export function initializeSocket(): void {
   socket.register("promptCounterAttack", handleCounterAttackPrompt);
   socket.register("cancelCounterAttackPrompt", handleCancelCounterAttackPrompt);
   socket.register("applyDamage", handleApplyDamage);
+  socket.register("applyStatDebuff", handleApplyStatDebuff);
 }
 
 /**
@@ -342,16 +356,10 @@ async function handleDefensePrompt(
 
   // Get defender's attribute value
   const system = targetActor.system as any;
-  const currentForm =
-    system.forms?.find((f: any) => f.id === system.currentFormId) ||
-    system.forms?.[0];
-
-  if (!currentForm) {
-    console.error("FASERIP Socket | No form found for actor");
-    return { defenseType: "takeHit" };
-  }
-
-  const defenseAttr = currentForm.attributes?.[defenseAttribute.toLowerCase()];
+  const defenseAttr = getEffectiveAttributeData(
+    targetActor,
+    defenseAttribute.toLowerCase() as any
+  );
   if (!defenseAttr) {
     console.error("FASERIP Socket | Defense attribute not found");
     return { defenseType: "takeHit" };
@@ -751,6 +759,26 @@ export async function requestDamageApplication(
   return result;
 }
 
+export async function requestStatDebuffApplication(
+  targetActor: FaseripActor,
+  data: ApplyStatDebuffData
+): Promise<ApplyStatDebuffData | null> {
+  if (!socket) {
+    // @ts-expect-error - Foundry game.user global
+    if (game.user?.isGM || targetActor.isOwner) {
+      return await handleApplyStatDebuff(data);
+    }
+    return null;
+  }
+
+  const owner = findTokenControllers(targetActor)[0];
+  if (!owner) {
+    return await handleApplyStatDebuff(data);
+  }
+
+  return await socket.executeAsUser("applyStatDebuff", owner.id, data);
+}
+
 /**
  * Handle applying damage to an actor on the owner's client
  * This function is called remotely via socketlib
@@ -1013,4 +1041,58 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   };
 
   return returnResult;
+}
+
+async function handleApplyStatDebuff(
+  data: ApplyStatDebuffData
+): Promise<ApplyStatDebuffData | null> {
+  let targetActor: FaseripActor | undefined;
+
+  if (data.targetTokenId) {
+    const token = canvas?.tokens?.placeables.find(
+      (t: Token) => t.id === data.targetTokenId
+    );
+    if (token) {
+      targetActor = token.actor as FaseripActor;
+    }
+  }
+
+  if (!targetActor) {
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.targetActorId
+    ) as FaseripActor | undefined;
+  }
+
+  if (!targetActor) {
+    console.error("FASERIP Socket | Target actor not found for stat debuff");
+    return null;
+  }
+
+  // @ts-expect-error - Foundry game.user global
+  if (!game.user?.isGM && !targetActor.isOwner) {
+    console.warn(
+      "FASERIP Socket | User doesn't own target - cannot apply stat debuff"
+    );
+    return null;
+  }
+
+  const system = targetActor.system as any;
+  const modifiers = [...(system.temporaryStatModifiers || [])];
+  modifiers.push({
+    id: foundry.utils.randomID(),
+    attribute: data.attribute,
+    chartShift: data.chartShift,
+    roundsRemaining: Math.max(1, Math.floor(data.roundsRemaining)),
+    sourcePowerId: data.sourcePowerId,
+    sourcePowerName: data.sourcePowerName,
+    durationFormula: data.durationFormula,
+    combatId: data.combatId ?? null
+  });
+
+  await targetActor.update({
+    "system.temporaryStatModifiers": modifiers
+  } as Record<string, unknown>);
+
+  return data;
 }

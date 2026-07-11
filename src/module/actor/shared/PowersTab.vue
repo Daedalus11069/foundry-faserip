@@ -30,12 +30,38 @@ const rankChoicesWithValues = computed(() => {
   return choices;
 });
 
+const attributeChoices = [
+  { value: "fighting", label: "Fighting" },
+  { value: "agility", label: "Agility" },
+  { value: "strength", label: "Strength" },
+  { value: "endurance", label: "Endurance" },
+  { value: "reasoning", label: "Reasoning" },
+  { value: "intuition", label: "Intuition" },
+  { value: "psyche", label: "Psyche" }
+];
+
+function ensureStatDebuff(power: PowerData) {
+  if (!power.statDebuff) {
+    power.statDebuff = {
+      enabled: false,
+      attribute: "intuition",
+      greenShift: 0,
+      yellowShift: 0,
+      redShift: 0,
+      durationFormula: "1d3"
+    };
+  }
+
+  return power.statDebuff;
+}
+
 const filteredPowers = computed(() => {
   const all = powers.value.map(power => {
     // Ensure powers without armor piercing have it set to null for consistency
     if (!power.armorPiercing) {
       power.armorPiercing = null;
     }
+    ensureStatDebuff(power);
     return power;
   });
   if (!filterFormId.value) return all;
@@ -94,7 +120,15 @@ function addPower() {
     damageType: "none",
     resistanceType: undefined,
     vulnerabilityType: undefined,
-    armorPiercing: null
+    armorPiercing: null,
+    statDebuff: {
+      enabled: false,
+      attribute: "intuition",
+      greenShift: 0,
+      yellowShift: 0,
+      redShift: 0,
+      durationFormula: "1d3"
+    }
   };
   reactiveActor.system.powers.push(newPower);
 }
@@ -1162,6 +1196,85 @@ function toggleItem(id: string) {
               <option value="others">Others Only</option>
               <option value="self">Self Only</option>
             </select>
+          </div>
+
+          <div
+            v-if="power.attackType && power.attackType !== 'none'"
+            class="mb-2 p-2 bg-indigo-950/30 border border-indigo-800 rounded"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                v-model="ensureStatDebuff(power).enabled"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
+              />
+              <span class="fsr-label mb-0">Temporary Stat (De)buff</span>
+            </label>
+
+            <div v-if="ensureStatDebuff(power).enabled" class="space-y-2">
+              <div>
+                <label class="fsr-label">Target Attribute</label>
+                <select
+                  v-model="ensureStatDebuff(power).attribute"
+                  class="fsr-select text-sm"
+                >
+                  <option
+                    v-for="option in attributeChoices"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="grid grid-cols-3 gap-2">
+                <div>
+                  <label class="fsr-label">Half Success</label>
+                  <input
+                    v-model.number="ensureStatDebuff(power).greenShift"
+                    type="number"
+                    class="fsr-input"
+                    placeholder="-1"
+                  />
+                </div>
+                <div>
+                  <label class="fsr-label">Yellow</label>
+                  <input
+                    v-model.number="ensureStatDebuff(power).yellowShift"
+                    type="number"
+                    class="fsr-input"
+                    placeholder="-2"
+                  />
+                </div>
+                <div>
+                  <label class="fsr-label">Red</label>
+                  <input
+                    v-model.number="ensureStatDebuff(power).redShift"
+                    type="number"
+                    class="fsr-input"
+                    placeholder="-3"
+                  />
+                </div>
+              </div>
+
+              <div class="text-xs text-gray-400">
+                Positive values apply a buff. Negative values apply a debuff.
+              </div>
+
+              <div>
+                <label class="fsr-label">Duration Formula</label>
+                <input
+                  v-model="ensureStatDebuff(power).durationFormula"
+                  type="text"
+                  class="fsr-input"
+                  placeholder="1d3"
+                />
+                <div class="text-xs text-gray-400 mt-1">
+                  Rolled when the effect lands, in rounds.
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Multi-Hit checkbox (for AoE/multi-target attacks) -->

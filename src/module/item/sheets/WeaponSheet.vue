@@ -151,6 +151,72 @@
         </div>
       </div>
 
+      <div class="fsr-form-group border border-indigo-800 rounded p-4 bg-indigo-950/20">
+        <label class="flex items-center gap-2 cursor-pointer mb-3">
+          <input
+            v-model="reactiveItem.system.statDebuff.enabled"
+            type="checkbox"
+            class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
+          />
+          <span class="fsr-form-label mb-0">Temporary Stat (De)buff</span>
+        </label>
+
+        <div v-if="reactiveItem.system.statDebuff.enabled" class="space-y-3">
+          <div>
+            <label class="fsr-form-label">Target Attribute</label>
+            <select v-model="reactiveItem.system.statDebuff.attribute" class="fsr-select">
+              <option v-for="option in attributeChoices" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="fsr-form-label">Half Success</label>
+              <input
+                v-model.number="reactiveItem.system.statDebuff.greenShift"
+                type="number"
+                class="fsr-input"
+                placeholder="-1"
+              />
+            </div>
+            <div>
+              <label class="fsr-form-label">Yellow</label>
+              <input
+                v-model.number="reactiveItem.system.statDebuff.yellowShift"
+                type="number"
+                class="fsr-input"
+                placeholder="-2"
+              />
+            </div>
+            <div>
+              <label class="fsr-form-label">Red</label>
+              <input
+                v-model.number="reactiveItem.system.statDebuff.redShift"
+                type="number"
+                class="fsr-input"
+                placeholder="-3"
+              />
+            </div>
+          </div>
+
+          <div class="text-xs text-gray-400">
+            Positive values apply a buff. Negative values apply a debuff.
+          </div>
+
+          <div>
+            <label class="fsr-form-label">Duration Formula</label>
+            <input
+              v-model="reactiveItem.system.statDebuff.durationFormula"
+              type="text"
+              class="fsr-input"
+              placeholder="1d3"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- Equipped Checkbox -->
       <div class="fsr-form-group">
         <label
@@ -194,6 +260,16 @@ const reactiveItem = inject("reactiveItem") as any;
 const item = inject("item") as Item;
 const sheet = inject("sheet") as any;
 
+const attributeChoices = [
+  { value: "fighting", label: "Fighting" },
+  { value: "agility", label: "Agility" },
+  { value: "strength", label: "Strength" },
+  { value: "endurance", label: "Endurance" },
+  { value: "reasoning", label: "Reasoning" },
+  { value: "intuition", label: "Intuition" },
+  { value: "psyche", label: "Psyche" }
+];
+
 // Check if item is owned by an actor
 const isOwned = computed(() => {
   return item.parent !== null && item.parent !== undefined;
@@ -213,6 +289,17 @@ const rankChoicesWithValues = computed(() => {
   });
   return choices;
 });
+
+if (!reactiveItem.system.statDebuff) {
+  reactiveItem.system.statDebuff = {
+    enabled: false,
+    attribute: "intuition",
+    greenShift: 0,
+    yellowShift: 0,
+    redShift: 0,
+    durationFormula: "1d3"
+  };
+}
 
 // Watch for damage rank changes and auto-update to reflect new value
 watch(

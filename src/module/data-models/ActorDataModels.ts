@@ -229,6 +229,44 @@ export function definePowerRefSchema() {
     skipDialogs: new BooleanField({
       required: false,
       initial: false
+    }),
+    statDebuff: new SchemaField({
+      enabled: new BooleanField({
+        required: false,
+        initial: false
+      }),
+      attribute: new StringField({
+        required: false,
+        initial: "intuition",
+        choices: [
+          "fighting",
+          "agility",
+          "strength",
+          "endurance",
+          "reasoning",
+          "intuition",
+          "psyche"
+        ]
+      }),
+      greenShift: new NumberField({
+        required: false,
+        integer: true,
+        initial: 0
+      }),
+      yellowShift: new NumberField({
+        required: false,
+        integer: true,
+        initial: 0
+      }),
+      redShift: new NumberField({
+        required: false,
+        integer: true,
+        initial: 0
+      }),
+      durationFormula: new StringField({
+        required: false,
+        initial: "1d3"
+      })
     })
   });
 }
@@ -278,6 +316,7 @@ export class ActorDataModel extends TypeDataModel<
   declare weaponSlots: number;
   declare powers: PowerData[];
   declare talents: TalentData[];
+  declare temporaryStatModifiers: any[];
   declare charman: CharmanData;
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -355,6 +394,49 @@ export class ActorDataModel extends TypeDataModel<
 
       // Talents (stored as references)
       talents: new ArrayField(defineTalentRefSchema()),
+
+      temporaryStatModifiers: new ArrayField(
+        new SchemaField({
+          id: new StringField({ required: true }),
+          attribute: new StringField({
+            required: true,
+            choices: [
+              "fighting",
+              "agility",
+              "strength",
+              "endurance",
+              "reasoning",
+              "intuition",
+              "psyche"
+            ]
+          }),
+          chartShift: new NumberField({
+            required: true,
+            integer: true,
+            initial: 0
+          }),
+          roundsRemaining: new NumberField({
+            required: true,
+            integer: true,
+            min: 0,
+            initial: 0
+          }),
+          sourcePowerId: new StringField({ required: false, nullable: true }),
+          sourcePowerName: new StringField({
+            required: false,
+            nullable: true
+          }),
+          durationFormula: new StringField({
+            required: false,
+            nullable: true
+          }),
+          combatId: new StringField({ required: false, nullable: true })
+        }),
+        {
+          required: false,
+          initial: () => []
+        }
+      ),
 
       // DEPRECATED: Armor items - use Item documents (type: "armor") instead
       // Kept for backwards compatibility with existing actors

@@ -1,4 +1,5 @@
 import { Rank } from "../enums";
+import type { PowerStatDebuffData } from "../types/actor-system";
 
 const { ArrayField, BooleanField, NumberField, StringField } =
   foundry.data.fields;
@@ -137,6 +138,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare talents?: string[];
   declare armorPiercing?: string;
   declare multiHit?: boolean;
+  declare statDebuff?: PowerStatDebuffData;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -171,6 +173,44 @@ export class WeaponDataModel extends ItemDataModel {
         required: false,
         initial: false,
         label: "Multi-Hit (AoE)"
+      }),
+      statDebuff: new foundry.data.fields.SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        attribute: new StringField({
+          required: false,
+          initial: "intuition",
+          choices: [
+            "fighting",
+            "agility",
+            "strength",
+            "endurance",
+            "reasoning",
+            "intuition",
+            "psyche"
+          ]
+        }),
+        greenShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        yellowShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        redShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
       })
     };
   }

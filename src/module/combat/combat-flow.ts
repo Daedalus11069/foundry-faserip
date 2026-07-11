@@ -8,10 +8,10 @@ import { FaseripRoll } from "../rolling/FaseripRoll";
 import {
   requestDefenseResponse,
   requestDamageApplication,
-  requestCounterAttackResponse
+  requestCounterAttackResponse,
+  requestStatDebuffApplication
 } from "../socket/faserip-socket";
 import { showAttackOptionsDialog } from "../applications/dialog-utils";
-import { stringToRank } from "../utils";
 import {
   type Rank,
   RollResult,
@@ -22,6 +22,12 @@ import {
 import { type ArmorItem, isArmorItem } from "../types/items";
 import { createRoll } from "../utils/manual-roll-handler";
 import { getCharmanService } from "../charman-service";
+import {
+  getEffectiveAttributeData,
+  getStatDebuffShiftForResult,
+  type AttributeKey
+} from "../utils/stat-debuffs";
+import type { PowerStatDebuffData } from "../types/actor-system";
 
 /**
  * Data for an attack attempt
@@ -48,6 +54,7 @@ interface AttackData {
   comboIndex?: number; // Optional: Current attack number in combo (1-based)
   comboTotal?: number; // Optional: Total number of attacks in combo
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
+  statDebuff?: PowerStatDebuffData; // Optional temporary stat debuff to apply on hit
   deferDamageApplication?: boolean; // True to accumulate damage without applying (for cumulative combo damage)
   comboBotchCount?: number; // Optional: Number of botches so far in this combo (for cumulative penalty)
 }
@@ -123,6 +130,115 @@ interface DamageResult {
   formula: string;
   description: string;
   bonusRoll?: Roll; // The 3d6 or 5d10 roll for Red/Ultimate results
+}
+
+interface AppliedStatDebuffResult {
+  attribute: string;
+  chartShift: number;
+  roundsRemaining: number;
+  durationFormula: string;
+}
+
+function getStatModifierLabel(chartShift: number): string {
+  if (chartShift > 0) {
+    return "Buff applied";
+  }
+
+  if (chartShift < 0) {
+    return "Debuff applied";
+  }
+
+  return "Modifier applied";
+}
+
+function getStatModifierStyle(chartShift: number): {
+  background: string;
+  color: string;
+} {
+  if (chartShift > 0) {
+    return {
+      background: "#dcfce7",
+      color: "#166534"
+    };
+  }
+
+  if (chartShift < 0) {
+    return {
+      background: "#e0e7ff",
+      color: "#3730a3"
+    };
+  }
+
+  return {
+    background: "#f3f4f6",
+    color: "#374151"
+  };
+}
+
+async function applyHitStatDebuff(
+  targetActor: FaseripActor,
+  targetTokenId: string,
+  attackData: AttackData,
+  attackRoll: FaseripRoll
+): Promise<AppliedStatDebuffResult | null> {
+  const chartShift = getStatDebuffShiftForResult(
+    attackData.statDebuff,
+    attackRoll.result,
+    attackRoll.roll.total || 0
+  );
+
+  if (!attackData.statDebuff?.enabled || chartShift === 0) {
+    return null;
+  }
+
+  const durationFormula =
+    attackData.statDebuff.durationFormula?.trim() || "1d3";
+  const diceType = durationFormula.includes("d10")
+    ? "d10"
+    : durationFormula.includes("d6")
+      ? "d6"
+      : "d100";
+  const durationRoll = await createRoll(
+    durationFormula,
+    `${attackData.powerName || "Stat Debuff"} Duration`,
+    diceType
+  );
+
+  if (!durationRoll) {
+    return null;
+  }
+
+  await durationRoll.toMessage({
+    speaker: ChatMessage.getSpeaker({ actor: targetActor }),
+    flavor: `<strong>${attackData.powerName || "Stat Debuff"}</strong> Duration Roll (${durationFormula})`
+  });
+
+  const roundsRemaining = Math.max(
+    1,
+    Math.floor(Number(durationRoll.total || 0))
+  );
+  const applied = await requestStatDebuffApplication(targetActor, {
+    targetActorId: targetActor.id!,
+    targetTokenId,
+    attribute: attackData.statDebuff.attribute,
+    chartShift,
+    roundsRemaining,
+    sourcePowerId: attackData.powerName,
+    sourcePowerName: attackData.powerName,
+    durationFormula,
+    combatId: (game as any).combat?.id ?? null
+  });
+
+  if (!applied) {
+    return null;
+  }
+
+  return {
+    attribute: attackData.statDebuff.attribute,
+    chartShift,
+    roundsRemaining,
+    durationFormula
+  };
 }
 
 /**
@@ -319,7 +435,7 @@ async function calculateDamage(
  * @param damage Amount of damage to apply
  * @returns Object with armor damage, health damage, and remaining values
  */
-async function applyDamageToActor(
+export async function applyDamageToActor(
   actor: FaseripActor,
   damage: number
 ): Promise<{
@@ -537,22 +653,16 @@ export async function executeCombatAttack(
   // If no targets, show warning and just roll the attack without combat flow
   if (targets.length === 0) {
     const system = attacker.system as any;
-    const currentForm =
-      system.forms?.find((f: any) => f.id === system.currentFormId) ||
-      system.forms?.[0];
-
-    if (!currentForm) {
-      ui.notifications?.error("No form found for attacker!");
-      return null;
-    }
-
-    const attackAttr = currentForm.attributes?.[attackAttribute];
+    const attackAttr = getEffectiveAttributeData(
+      attacker,
+      attackAttribute as AttributeKey
+    );
     if (!attackAttr) {
       ui.notifications?.error(`${attackAttribute} attribute not found!`);
       return null;
     }
 
-    const attackRank = stringToRank(attackAttr.rank) as Rank;
+    const attackRank = attackAttr.rank as Rank;
     const attackValue = attackAttr.value;
     const currentKarma = system.resources?.karma?.value ?? 0;
 
@@ -560,8 +670,6 @@ export async function executeCombatAttack(
     let karmaColumnShifts: number;
     let karmaResultShift: number;
     let manualChartShift: number;
-    let damageRankBump: number = 0;
-
     if (
       presetKarmaColumnShifts !== undefined ||
       presetKarmaResultShift !== undefined ||
@@ -570,7 +678,6 @@ export async function executeCombatAttack(
       karmaColumnShifts = presetKarmaColumnShifts ?? 0;
       karmaResultShift = presetKarmaResultShift ?? 0;
       manualChartShift = presetManualChartShift ?? 0;
-      damageRankBump = attackData.damageRankBump ?? 0;
     } else {
       // Show attack options dialog
       const attackOptions = await showAttackOptionsDialog(
@@ -591,7 +698,6 @@ export async function executeCombatAttack(
       karmaColumnShifts = firstAttackKarma?.columnShifts ?? 0;
       karmaResultShift = firstAttackKarma?.resultShift ?? 0;
       manualChartShift = attackOptions.manualChartShift ?? 0;
-      damageRankBump = attackOptions.damageRankBump ?? 0;
     }
 
     // Get consecutive botch penalty from combo (not from actor flags - this is per-combo)
@@ -645,22 +751,16 @@ export async function executeCombatAttack(
 
   // Step 1: Roll attack (but don't show yet)
   const system = attacker.system as any;
-  const currentForm =
-    system.forms?.find((f: any) => f.id === system.currentFormId) ||
-    system.forms?.[0];
-
-  if (!currentForm) {
-    ui.notifications?.error("No form found for attacker!");
-    return null;
-  }
-
-  const attackAttr = currentForm.attributes?.[attackAttribute];
+  const attackAttr = getEffectiveAttributeData(
+    attacker,
+    attackAttribute as AttributeKey
+  );
   if (!attackAttr) {
     ui.notifications?.error(`${attackAttribute} attribute not found!`);
     return null;
   }
 
-  const attackRank = stringToRank(attackAttr.rank) as Rank;
+  const attackRank = attackAttr.rank as Rank;
   const attackValue = attackAttr.value;
 
   // Step 0.5: Get attack options (either preset from caller or show options dialog)
@@ -1264,6 +1364,16 @@ export async function executeCombatAttack(
         damageResult.damage += perAttackDamageBonus;
       }
 
+      const appliedStatDebuff = await applyHitStatDebuff(
+        targetActor,
+        target.id,
+        attackData,
+        attackRoll
+      );
+      const statModifierStyle = appliedStatDebuff
+        ? getStatModifierStyle(appliedStatDebuff.chartShift)
+        : null;
+
       // Build damage modifier display text
       let damageModifiersText = "";
       const modifiers: string[] = [];
@@ -1346,7 +1456,10 @@ export async function executeCombatAttack(
         }
 
         // Build damage deferred text
-        const damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0; font-style: italic;">⏳ Damage accumulated (will apply at end of combo)</div>`;
+        let damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0; font-style: italic;">⏳ Damage accumulated (will apply at end of combo)</div>`;
+        if (appliedStatDebuff) {
+          damageApplicationText += `<div style="font-size: 0.8rem; background: ${statModifierStyle?.background}; color: ${statModifierStyle?.color}; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${getStatModifierLabel(appliedStatDebuff.chartShift)}: <strong>${appliedStatDebuff.chartShift > 0 ? "+" : ""}${appliedStatDebuff.chartShift} CS ${appliedStatDebuff.attribute}</strong> for <strong>${appliedStatDebuff.roundsRemaining}</strong> rounds (${appliedStatDebuff.durationFormula})</div>`;
+        }
 
         // Build damage modifier display text (for deferred damage)
         let damageModifiersText = "";
@@ -1552,6 +1665,10 @@ export async function executeCombatAttack(
           }
         }
 
+        if (appliedStatDebuff) {
+          damageApplicationText += `<div style="font-size: 0.8rem; background: ${statModifierStyle?.background}; color: ${statModifierStyle?.color}; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${getStatModifierLabel(appliedStatDebuff.chartShift)}: <strong>${appliedStatDebuff.chartShift > 0 ? "+" : ""}${appliedStatDebuff.chartShift} CS ${appliedStatDebuff.attribute}</strong> for <strong>${appliedStatDebuff.roundsRemaining}</strong> rounds (${appliedStatDebuff.durationFormula})</div>`;
+        }
+
         // Build compact defense info
         let defenseInfo = "";
         const isUltimateBotchDefense =
@@ -1668,6 +1785,16 @@ export async function executeCombatAttack(
         }
       } // End of else block for immediate damage application
     } else if (attackHit && attackData.effectType !== "damage") {
+      const appliedStatDebuff = await applyHitStatDebuff(
+        targetActor,
+        target.id,
+        attackData,
+        attackRoll
+      );
+      const statModifierStyle = appliedStatDebuff
+        ? getStatModifierStyle(appliedStatDebuff.chartShift)
+        : null;
+
       // Non-damaging attack hit - show result message without damage
       const resultText = attackRoll.getResultText();
       const resultClass = attackRoll.getResultClass();
@@ -1717,8 +1844,13 @@ export async function executeCombatAttack(
           
           <div style="background: rgba(0,0,0,0.05); padding: 0.35rem; border-radius: 3px; margin: 0.35rem 0;">
             <div style="font-size: 1rem; background: #dcfce7; color: #166534; font-weight: bold; padding: 0.25rem 0.5rem; border-radius: 3px; text-align: center;">
-              ✅ <strong>${resultText} Success!</strong>
+              ✅ <strong>${resultText}</strong>
             </div>
+            ${
+              appliedStatDebuff
+                ? `<div style="font-size: 0.8rem; background: ${statModifierStyle?.background}; color: ${statModifierStyle?.color}; padding: 0.25rem 0.5rem; border-radius: 3px; margin-top: 0.35rem;">${getStatModifierLabel(appliedStatDebuff.chartShift)}: <strong>${appliedStatDebuff.chartShift > 0 ? "+" : ""}${appliedStatDebuff.chartShift} CS ${appliedStatDebuff.attribute}</strong> for <strong>${appliedStatDebuff.roundsRemaining}</strong> rounds (${appliedStatDebuff.durationFormula})</div>`
+                : ""
+            }
           </div>
           
           <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">Contested roll - no damage dealt</div>

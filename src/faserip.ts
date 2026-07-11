@@ -860,6 +860,60 @@ Hooks.on("deleteToken", (_scene: any, tokenDoc: any) => {
   if (tokenDoc?.id) removeIntuitionOverlay(tokenDoc.id);
 });
 
+Hooks.on("updateCombat", async (combat: any, changes: any) => {
+  if (changes.round === undefined) {
+    return;
+  }
+
+  // @ts-expect-error - Foundry game.user global
+  if (!game.user?.isGM) {
+    return;
+  }
+
+  const processedActors = new Set<string>();
+
+  for (const combatant of combat.combatants ?? []) {
+    const combatantActor = combatant.token?.actor || combatant.actor;
+    if (!combatantActor) {
+      continue;
+    }
+
+    const actorKey = combatantActor.uuid || combatantActor.id || combatant.id;
+    if (processedActors.has(actorKey)) {
+      continue;
+    }
+    processedActors.add(actorKey);
+
+    const system = combatantActor.system as any;
+    const modifiers = system.temporaryStatModifiers || [];
+    if (!modifiers.length) {
+      continue;
+    }
+
+    const updatedModifiers = modifiers
+      .map((modifier: any) => {
+        if (modifier.combatId !== combat.id) {
+          return modifier;
+        }
+
+        return {
+          ...modifier,
+          roundsRemaining: Math.max(
+            0,
+            Number(modifier.roundsRemaining || 0) - 1
+          )
+        };
+      })
+      .filter((modifier: any) => Number(modifier.roundsRemaining || 0) > 0);
+
+    if (JSON.stringify(updatedModifiers) !== JSON.stringify(modifiers)) {
+      await combatantActor.update({
+        "system.temporaryStatModifiers": updatedModifiers
+      });
+    }
+  }
+});
+
 // Hook: Ensure bars are present when tokens are updated
 Hooks.on(
   "preUpdateToken",
