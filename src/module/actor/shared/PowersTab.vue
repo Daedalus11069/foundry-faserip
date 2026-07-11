@@ -1015,8 +1015,8 @@ async function applyArmorHealingToTarget(
             @click="toggleFormPanel(power.id)"
             class="fsr-btn fsr-btn-sm text-xs bg-gray-600 hover:bg-gray-500 text-white px-2 py-0.5 ml-auto"
             :title="expandedFormPanel === power.id
-                ? 'Close form assignment'
-                : 'Assign to forms'
+              ? 'Close form assignment'
+              : 'Assign to forms'
               "
           >
             {{ expandedFormPanel === power.id ? "▲ Forms" : "▼ Forms" }}
@@ -1152,15 +1152,7 @@ async function applyArmorHealingToTarget(
         </div>
 
         <!-- Damage Type, Armor Piercing, Resistance Type, and Vulnerability Type -->
-        <div
-          class="grid gap-2 mb-2"
-          :class="power.effectType === 'damage' ||
-              power.resistanceType ||
-              power.vulnerabilityType
-              ? 'grid-cols-2'
-              : 'grid-cols-1'
-            "
-        >
+        <div class="grid grid-cols-2 gap-2 mb-2">
           <div v-if="power.effectType === 'damage'">
             <label class="fsr-label">Damage Type</label>
             <select v-model="power.damageType" class="fsr-select text-sm">
@@ -1191,7 +1183,7 @@ async function applyArmorHealingToTarget(
               </option>
             </select>
           </div>
-          <div v-if="power.effectType !== 'damage' && !power.vulnerabilityType">
+          <div v-if="power.effectType === 'none'">
             <label class="fsr-label">Resistance Type</label>
             <select v-model="power.resistanceType" class="fsr-select text-sm">
               <option :value="undefined">Not a Resistance</option>
@@ -1208,7 +1200,7 @@ async function applyArmorHealingToTarget(
               <option value="force">Force Resistance</option>
             </select>
           </div>
-          <div v-if="power.effectType !== 'damage' && !power.resistanceType">
+          <div v-if="power.effectType === 'none'">
             <label class="fsr-label">Vulnerability Type</label>
             <select
               v-model="power.vulnerabilityType"
