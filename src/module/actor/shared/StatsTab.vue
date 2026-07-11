@@ -260,7 +260,29 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
     });
 
     if (equippedWeapon) {
-      // Attack with equipped weapon
+      // Check for multi-arm attack
+      // Without dual-wield talent: floor(weaponSlots / 2) weapons (natural pairing)
+      // With dual-wield talent: full weaponSlots
+      if (attrKey === "fighting") {
+        const slots = reactiveActor.system.weaponSlots ?? 1;
+        const hasDualWield = talents.value.some(t => t.grantsDualWield);
+        const maxWeaponSlots = hasDualWield
+          ? slots
+          : Math.max(1, Math.floor(slots / 2));
+        if (maxWeaponSlots >= 2) {
+          const equippedMeleeWeapons = weapons.value.filter(
+            w => w.type === "melee" && w.equipped
+          );
+          if (equippedMeleeWeapons.length >= 2) {
+            await rollMultiWeaponAttack(
+              equippedMeleeWeapons.slice(0, maxWeaponSlots)
+            );
+            return;
+          }
+        }
+      }
+
+      // Single equipped weapon attack
       await rollWeapon(equippedWeapon);
       return;
     } else if (attrKey === "fighting") {
@@ -603,6 +625,225 @@ function formatWeaponDamage(weapon: Weapon): string {
   }
 }
 
+async function rollMultiWeaponAttack(weaponList: Weapon[]) {
+  if (!currentForm.value || weaponList.length === 0) return;
+
+  const weaponCount = weaponList.length;
+  const strengthRank = stringToRank(
+    currentForm.value.attributes.strength.rank
+  );
+
+  function getWeaponDamageRank(weapon: Weapon): Rank {
+    if (weapon.type === "melee" || weapon.type === "thrown") {
+      const cs =
+        typeof weapon.damage === "number"
+          ? weapon.damage
+          : Number(weapon.damage) || 0;
+      return applyChartShift(strengthRank, cs);
+    }
+    return stringToRank(
+      typeof weapon.damage === "string" ? weapon.damage : "Typical"
+    );
+  }
+
+  const damageRanks = weaponList.map(getWeaponDamageRank);
+
+  // Collect applicable talents from all weapons (deduplicated)
+  const appliedTalentNames: string[] = [];
+  let talentCS = 0;
+  for (const weapon of weaponList) {
+    if (weapon.applicableTalents && weapon.applicableTalents.length > 0) {
+      for (const talentName of weapon.applicableTalents) {
+        if (appliedTalentNames.includes(talentName)) continue;
+        const talent = talents.value.find(
+          t =>
+            t.name.toLowerCase().replace(/[\s_-]+/g, "") ===
+            talentName.toLowerCase().replace(/[\s_-]+/g, "")
+        );
+        if (talent) {
+          appliedTalentNames.push(talent.name);
+          talentCS += talent.bonus || 0;
+        }
+      }
+    }
+  }
+
+  const attackRank = stringToRank(
+    currentForm.value.attributes.fighting.rank
+  );
+  const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+
+  const weaponLabel =
+    weaponCount === 2
+      ? `${weaponList[0].name} + ${weaponList[1].name} (Dual-Wield)`
+      : `${weaponList.map(w => w.name).join(" + ")} (${weaponCount} Arms)`;
+
+  const comboResult = await showAttackOptionsDialog(
+    actor.name || "Unknown",
+    "Fighting",
+    attackRank,
+    availableKarma,
+    weaponLabel,
+    talentCS
+  );
+
+  if (comboResult === null) return;
+
+  // Karma cost mirrors rollWeapon but multiplied by weaponCount —
+  // each combo action fires N weapons, each sharing the same penalty & karma settings
+  let totalKarmaCost = 0;
+  for (let i = 0; i < comboResult.attackKarmaSettings.length; i++) {
+    const attack = comboResult.attackKarmaSettings[i];
+    const comboPenalty = -(i + 1);
+
+    if (attack.columnShifts > 0) {
+      const effectiveRank = applyChartShift(
+        attackRank,
+        comboPenalty + (talentCS || 0)
+      );
+      const shiftedRank = applyChartShift(effectiveRank, attack.columnShifts);
+      const scoreDiff = Math.abs(
+        (RANK_VALUES[shiftedRank] || 6) - (RANK_VALUES[effectiveRank] || 6)
+      );
+      totalKarmaCost += Math.max(10, scoreDiff) * weaponCount;
+    }
+    if (attack.resultShift > 0) {
+      totalKarmaCost += Math.max(10, attack.resultShift) * weaponCount;
+    }
+    if (attack.damageRankShift > 0) {
+      const effectiveRank = applyChartShift(
+        attackRank,
+        comboPenalty + (talentCS || 0)
+      );
+      const shiftedRank = applyChartShift(
+        effectiveRank,
+        attack.damageRankShift
+      );
+      const scoreDiff = Math.abs(
+        (RANK_VALUES[shiftedRank] || 6) - (RANK_VALUES[effectiveRank] || 6)
+      );
+      totalKarmaCost += Math.max(10, scoreDiff) * weaponCount;
+    }
+    if (attack.damageBonus > 0) {
+      totalKarmaCost += Math.max(10, attack.damageBonus) * weaponCount;
+    }
+  }
+
+  if (totalKarmaCost > 0) {
+    const newKarmaValue = Math.max(
+      0,
+      (reactiveActor.system.resources?.karma?.value || 0) - totalKarmaCost
+    );
+    reactiveActor.system.resources.karma.value = newKarmaValue;
+    await actor.update({
+      // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
+      "system.resources.karma.value": newKarmaValue
+    });
+
+    const charmanData = reactiveActor.system?.charman;
+    if (charmanData?.username && charmanData?.characterName) {
+      try {
+        const service = getCharmanService();
+        await service.updateKarma(
+          charmanData.username,
+          charmanData.characterName,
+          newKarmaValue
+        );
+      } catch (error) {
+        console.warn("Could not sync karma to Charman:", error);
+      }
+    }
+  }
+
+  // Outer loop: combo actions (each action incurs the standard -N CS combo penalty)
+  // Inner loop: weapons within the action (all fire at the same combo penalty)
+  const allPendingDamages: PendingDamage[] = [];
+  let comboFailed = false;
+  let comboBotchCount = 0;
+
+  for (let i = 0; i < comboResult.comboCount; i++) {
+    const attackKarma = comboResult.attackKarmaSettings[i];
+
+    for (let j = 0; j < weaponCount; j++) {
+      const weapon = weaponList[j];
+
+      const result = await executeCombatAttack({
+        attacker: actor as any,
+        attackAttribute: "fighting" as const,
+        attackType: "melee" as const,
+        effectType: "damage" as const,
+        powerName: `${weapon.name} (Arm ${j + 1}/${weaponCount})`,
+        powerRank: damageRanks[j],
+        armorPiercing: weapon.armorPiercing,
+        talentNames: appliedTalentNames.length > 0 ? appliedTalentNames : undefined,
+        talentCS: talentCS > 0 ? talentCS : undefined,
+        karmaColumnShifts: attackKarma?.columnShifts ?? 0,
+        karmaResultShift: attackKarma?.resultShift ?? 0,
+        manualChartShift: comboResult.manualChartShift ?? 0,
+        damageRankBump: comboResult.damageRankBump ?? 0,
+        perAttackKarma: {
+          damageRankShift: attackKarma?.damageRankShift ?? 0,
+          damageBonus: attackKarma?.damageBonus ?? 0
+        },
+        // comboIndex = action index so all weapons in the same action share the penalty
+        comboIndex: i + 1,
+        comboTotal: comboResult.comboCount,
+        deferDamageApplication: true,
+        comboBotchCount
+      });
+
+      if (result === null || result.attackRollTotal === null) {
+        comboFailed = true;
+        break;
+      }
+
+      comboBotchCount = result.comboBotchCount;
+
+      if (result.attackRollTotal <= 5) {
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor }),
+          content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+            <strong>Botch! Combo Broken!</strong>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s ${weapon.name} (arm ${j + 1}/${weaponCount}) botched on action ${i + 1}/${comboResult.comboCount}. Remaining attacks cancelled.</p>
+          </div>`
+        });
+        comboFailed = true;
+        break;
+      }
+
+      if (result.pendingDamages && result.pendingDamages.length > 0) {
+        allPendingDamages.push(...result.pendingDamages);
+      }
+
+      if (j < weaponCount - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    if (comboFailed) break;
+
+    if (i < comboResult.comboCount - 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  if (allPendingDamages.length > 0) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await applyPendingDamages(actor as any, allPendingDamages);
+  }
+
+  if (comboResult.hasExhaustion) {
+    await ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor }),
+      content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+        <strong>⚠️ Exhausted!</strong>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
+      </div>`
+    });
+    await actor.toggleStatusEffect("stun", { active: true });
+  }
+}
+
 async function rollWeapon(weapon: Weapon) {
   if (!currentForm.value) return;
 
@@ -868,26 +1109,67 @@ async function toggleEquip(weapon: Weapon) {
   );
 
   if (weaponItem) {
-    // Toggle Item weapon - also unequip other weapons of the same type
-    const otherWeaponsOfType = actor.items.filter(
-      (item: any) =>
-        item.type === "weapon" &&
-        item._id !== weapon.id &&
-        // @ts-expect-error - system properties are dynamic
-        item.system.weaponType === weaponItem.system.weaponType &&
-        item.system.equipped
-    );
+    // @ts-expect-error - system properties are dynamic
+    const newEquipped = !weaponItem.system.equipped;
+    // @ts-expect-error - system properties are dynamic
+    const weaponType = weaponItem.system.weaponType as string;
 
-    // Unequip other weapons of the same type
-    for (const otherWeapon of otherWeaponsOfType) {
-      // @ts-expect-error - system properties are dynamic
-      await otherWeapon.update({ "system.equipped": false });
+    if (newEquipped && weaponType === "melee") {
+      // Without dual-wield talent: floor(weaponSlots / 2); with talent: full weaponSlots
+      const slots = (reactiveActor.system.weaponSlots as number) ?? 1;
+      const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
+        (t: any) => t.grantsDualWield
+      );
+      const maxWeaponSlots = hasDualWield
+        ? slots
+        : Math.max(1, Math.floor(slots / 2));
+
+      if (maxWeaponSlots >= 2) {
+        // Allow up to maxWeaponSlots melee weapons; unequip oldest when at limit
+        const equippedMeleeItems = actor.items.filter(
+          (item: any) =>
+            item.type === "weapon" &&
+            item._id !== weapon.id &&
+            item.system.weaponType === "melee" &&
+            item.system.equipped
+        );
+        while (equippedMeleeItems.length >= maxWeaponSlots) {
+          // @ts-expect-error - system properties are dynamic
+          await equippedMeleeItems.shift()!.update({ "system.equipped": false });
+        }
+      } else {
+        // Single slot: unequip all other melee weapons
+        const otherMeleeItems = actor.items.filter(
+          (item: any) =>
+            item.type === "weapon" &&
+            item._id !== weapon.id &&
+            item.system.weaponType === "melee" &&
+            item.system.equipped
+        );
+        for (const other of otherMeleeItems) {
+          // @ts-expect-error - system properties are dynamic
+          await other.update({ "system.equipped": false });
+        }
+      }
+    } else if (newEquipped) {
+      // Equipping a non-melee weapon: unequip all others of the same type
+      const otherWeaponsOfType = actor.items.filter(
+        (item: any) =>
+          item.type === "weapon" &&
+          item._id !== weapon.id &&
+          item.system.weaponType === weaponType &&
+          item.system.equipped
+      );
+      for (const other of otherWeaponsOfType) {
+        // @ts-expect-error - system properties are dynamic
+        await other.update({ "system.equipped": false });
+      }
     }
 
     // Toggle this weapon
     await weaponItem.update({
       // @ts-expect-error - system properties are dynamic
-      "system.equipped": !weaponItem.system.equipped
+      "system.equipped": newEquipped
     });
   } else if (reactiveActor.system.weapons) {
     // Legacy system weapon (shouldn't happen after sync, but keep for compatibility)
@@ -898,8 +1180,38 @@ async function toggleEquip(weapon: Weapon) {
 
     const newEquippedState = !weapon.equipped;
 
-    // If equipping, unequip any other weapon of the same type
-    if (newEquippedState) {
+    // If equipping, enforce weapon slot limit for melee weapons
+    if (newEquippedState && weapon.type === "melee") {
+      const slots = (reactiveActor.system.weaponSlots as number) ?? 1;
+      const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
+        (t: any) => t.grantsDualWield
+      );
+      const maxWeaponSlots = hasDualWield
+        ? slots
+        : Math.max(1, Math.floor(slots / 2));
+
+      if (maxWeaponSlots >= 2) {
+        const equippedMelee = (reactiveActor.system.weapons as Weapon[]).filter(
+          (w, idx) => idx !== weaponIndex && w.type === "melee" && w.equipped
+        );
+        while (equippedMelee.length >= maxWeaponSlots) {
+          const victimIdx = (reactiveActor.system.weapons as Weapon[]).indexOf(
+            equippedMelee.shift()!
+          );
+          if (victimIdx !== -1) {
+            (reactiveActor.system.weapons as Weapon[])[victimIdx].equipped = false;
+          }
+        }
+      } else {
+        // Single slot: unequip all other melee weapons
+        reactiveActor.system.weapons.forEach((w: Weapon, idx: number) => {
+          if (idx !== weaponIndex && w.type === "melee" && w.equipped) {
+            w.equipped = false;
+          }
+        });
+      }
+    } else if (newEquippedState) {
+      // Non-melee: unequip all others of the same type
       reactiveActor.system.weapons.forEach((w: Weapon, idx: number) => {
         if (idx !== weaponIndex && w.type === weapon.type && w.equipped) {
           w.equipped = false;

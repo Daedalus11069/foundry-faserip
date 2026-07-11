@@ -11,6 +11,7 @@ export interface Talent {
   bonus: number;
   description?: string;
   formIds?: string[]; // Form IDs this talent applies to; empty = all forms
+  grantsDualWield?: boolean; // Grants the ability to wield two weapons simultaneously
 }
 
 /**

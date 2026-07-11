@@ -139,7 +139,7 @@ async function removeTalent(index: number) {
             v-for="fid in talent.formIds"
             :key="fid"
             class="text-xs bg-yellow-900/60 text-yellow-300 rounded px-2 py-0.5"
-            >{{ forms.find(f => f.id === fid)?.name ?? fid }}</span
+            >{{forms.find(f => f.id === fid)?.name ?? fid}}</span
           >
           <button
             @click="toggleFormPanel(talent.id)"
@@ -195,6 +195,19 @@ async function removeTalent(index: number) {
             </div>
             <div>CS</div>
           </div>
+        </div>
+
+        <div class="mb-2 flex items-center gap-2">
+          <input
+            v-model="talent.grantsDualWield"
+            type="checkbox"
+            :id="`dual-wield-${talent.id}`"
+            class="form-checkbox"
+          />
+          <label :for="`dual-wield-${talent.id}`" class="fsr-label cursor-pointer select-none">
+            Grants Dual-Wield
+            <span class="text-xs text-gray-400 ml-1">(fight with two weapons simultaneously)</span>
+          </label>
         </div>
 
         <div class="mb-2">

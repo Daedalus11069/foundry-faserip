@@ -88,6 +88,7 @@ export interface TalentData {
   name: string;
   bonus: number;
   description?: string;
+  grantsDualWield?: boolean; // Grants the ability to wield two weapons simultaneously
 }
 
 export interface ArmorData {
@@ -126,6 +127,7 @@ export interface BaseActorSystemData {
   notes: string;
   publicNotes: string;
   gmNotes: string;
+  weaponSlots: number; // Number of weapon-bearing arms (default 2 for a normal humanoid)
   powers: PowerData[];
   talents: TalentData[];
   armors: ArmorData[];

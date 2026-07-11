@@ -4,6 +4,7 @@
       "base": {
         "biography": "",
         "notes": "",
+        "weaponSlots": 2,
         "currentFormId": "default",
         "forms": [],
         "healthByForm": {},

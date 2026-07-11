@@ -359,6 +359,24 @@ async function browseTokenImage() {
       </p>
     </div>
 
+    <!-- Weapon Slots -->
+    <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+      <h3 class="text-sm font-bold text-yellow-400 mb-2">Weapon Slots</h3>
+      <div class="flex items-center gap-3">
+        <input
+          v-model.number="reactiveActor.system.weaponSlots"
+          type="number"
+          min="1"
+          class="fsr-input w-20 text-center"
+        />
+        <p class="text-xs text-gray-500">
+          Number of weapon-bearing arms. 2 = normal humanoid.
+          With Dual-Wield talent: can equip &amp; attack with all arms.
+          Without it: floor(arms / 2) — e.g. 4 arms → 2 weapons naturally.
+        </p>
+      </div>
+    </div>
+
     <!-- Charman Link Section -->
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
       <h3 class="text-sm font-bold text-blue-400 mb-2">Charman Integration</h3>

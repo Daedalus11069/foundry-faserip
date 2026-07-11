@@ -22,9 +22,10 @@ export default defineConfig(({ mode }) => ({
     }
   },
 
-  esbuild: {
-    target: ["es2022"],
-    keepNames: true // Preserve function and class names for Foundry globals
+  rolldownOptions: {
+    output: {
+      keepNames: true // Preserve function and class names for Foundry globals
+    }
   },
 
   css: {
@@ -97,7 +98,7 @@ export default defineConfig(({ mode }) => ({
     sourcemap: true,
     target: ["es2022"],
     // Use esbuild for minification but preserve function/class names for Foundry compatibility
-    minify: "esbuild",
+    minify: "oxc",
     manifest: false,
     lib: {
       name: "faserip",
@@ -120,13 +121,6 @@ export default defineConfig(({ mode }) => ({
         }
         warn(warning);
       }
-    }
-  },
-
-  // Necessary when using the dev server for top-level await usage inside of TRL.
-  optimizeDeps: {
-    esbuildOptions: {
-      target: "es2022"
     }
   },
 

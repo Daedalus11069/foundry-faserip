@@ -243,7 +243,8 @@ export function defineTalentRefSchema() {
     formIds: new ArrayField(new StringField(), {
       required: false,
       initial: () => []
-    })
+    }),
+    grantsDualWield: new BooleanField({ required: false, initial: false })
   });
 }
 
@@ -265,6 +266,7 @@ export class ActorDataModel extends TypeDataModel<
   declare notes: string;
   declare publicNotes: string;
   declare gmNotes: string;
+  declare weaponSlots: number;
   declare powers: PowerData[];
   declare talents: TalentData[];
   declare charman: CharmanData;
@@ -329,6 +331,15 @@ export class ActorDataModel extends TypeDataModel<
 
       // GM-only notes
       gmNotes: new StringField({ initial: "" }),
+
+      // Number of weapon-bearing arms (default 2 for a normal humanoid)
+      // Used with dual-wield talent: talent ? arms : floor(arms/2) equipped weapons allowed
+      weaponSlots: new NumberField({
+        required: false,
+        integer: true,
+        min: 1,
+        initial: 2
+      }),
 
       // Powers (stored as references)
       powers: new ArrayField(definePowerRefSchema()),
