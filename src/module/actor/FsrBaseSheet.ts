@@ -245,12 +245,12 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       // Listen to external updates from Foundry
       this.#updateActorCallback = (
         actor: Actor,
-        _changed: unknown,
+        changed: unknown,
         _options: unknown,
         _userId: string
       ) => {
         if (actor.id === this.actor.id) {
-          this.#syncReactiveActor();
+          this.#syncReactiveActor(changed as Record<string, any>);
         }
       };
 
@@ -361,7 +361,7 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
   /**
    * Sync the reactive actor with external changes
    */
-  #syncReactiveActor(): void {
+  #syncReactiveActor(changed?: Record<string, any>): void {
     if (!this.#reactiveActor) {
       return;
     }
@@ -397,6 +397,15 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
         if (key === "resources") {
           // Skip resources - keep current derived values
           continue;
+        }
+        // Only sync actionsThisTurn when it was explicitly part of this update.
+        // Other actor updates (karma, health, etc.) fire this sync before the
+        // actionsThisTurn save completes, which would reset it back to 0.
+        if (key === "actionsThisTurn") {
+          const explicitlyChanged =
+            changed?.system?.actionsThisTurn !== undefined ||
+            changed?.["system.actionsThisTurn"] !== undefined;
+          if (!explicitlyChanged) continue;
         }
         (this.#reactiveActor!.system as Record<string, unknown>)[key] =
           freshSystem[key];

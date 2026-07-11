@@ -138,7 +138,8 @@ export async function showAttackOptionsDialog(
   attackRank: Rank,
   availableKarma: number,
   powerName?: string,
-  talentCS?: number
+  talentCS?: number,
+  actionsBeforeThisCombo?: number
 ): Promise<{
   comboCount: number;
   attackKarmaSettings: Array<{
@@ -159,7 +160,8 @@ export async function showAttackOptionsDialog(
       attackRank,
       availableKarma,
       powerName,
-      talentCS
+      talentCS,
+      actionsBeforeThisCombo
     },
     {
       window: {

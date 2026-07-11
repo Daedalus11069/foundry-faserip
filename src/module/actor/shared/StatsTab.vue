@@ -28,6 +28,10 @@ import type {
 import type { FaseripActor } from "../../documents";
 import { VueDialog } from "../../applications/vue-dialog";
 import ArmorSelectionDialog from "../../applications/dialogs/ArmorSelectionDialog.vue";
+import {
+  getActionsThisTurn,
+  addActionsThisTurn
+} from "../../utils/turn-actions-tracker";
 import { isWeaponItem, type WeaponItem } from "../../types/items";
 import {
   getEffectiveAttributeData,
@@ -327,6 +331,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       const fightingRank =
         getEffectiveAttributeData(actor, "fighting")?.rank || Rank.Typical;
       const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+      const actionsBeforeUnarmed = getActionsThisTurn(reactiveActor.system);
 
       const comboResult = await showAttackOptionsDialog(
         actor.name || "Unknown",
@@ -334,7 +339,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         fightingRank,
         availableKarma,
         "Unarmed Strike",
-        talentCS
+        talentCS,
+        actionsBeforeUnarmed
       );
 
       if (comboResult === null) {
@@ -345,7 +351,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       let totalKarmaCost = 0;
       for (let i = 0; i < comboResult.attackKarmaSettings.length; i++) {
         const attack = comboResult.attackKarmaSettings[i];
-        const comboPenalty = -(i + 1);
+        const comboPenalty = -(actionsBeforeUnarmed + (i + 1));
 
         // Pre-roll karma (column shifts)
         if (attack.columnShifts > 0) {
@@ -424,6 +430,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         const allPendingDamages: PendingDamage[] = [];
         let comboFailed = false;
         let comboBotchCount = 0; // Track botches within this combo
+        let attacksCompleted = 0;
 
         for (let i = 0; i < comboResult.comboCount; i++) {
           const attackKarma = comboResult.attackKarmaSettings[i];
@@ -446,6 +453,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
               damageRankShift: attackKarma?.damageRankShift ?? 0,
               damageBonus: attackKarma?.damageBonus ?? 0
             },
+            actionsBeforeThisCombo: actionsBeforeUnarmed,
             comboIndex: i + 1,
             comboTotal: comboResult.comboCount,
             deferDamageApplication: true, // Defer damage for cumulative application
@@ -456,6 +464,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             comboFailed = true;
             break;
           }
+
+          attacksCompleted++;
 
           // Update botch count from result
           comboBotchCount = result.comboBotchCount;
@@ -490,6 +500,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           await applyPendingDamages(actor as any, allPendingDamages);
         }
 
+        addActionsThisTurn(reactiveActor.system, attacksCompleted);
+
         // Show exhaustion warning if combo reached Poor or below
         if (comboResult.hasExhaustion) {
           await ChatMessage.create({
@@ -501,12 +513,13 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           });
           // Apply stunned status effect
           await actor.toggleStatusEffect("stun", { active: true });
+          await actor.setFlag("faserip", "exhaustionStun", true);
         }
       } else {
         // Single attack
         const firstAttackKarma = comboResult.attackKarmaSettings[0];
 
-        await executeCombatAttack({
+        const singleResult = await executeCombatAttack({
           attacker: actor as any,
           attackAttribute: "fighting",
           attackType: "melee",
@@ -523,8 +536,23 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           perAttackKarma: {
             damageRankShift: firstAttackKarma?.damageRankShift ?? 0,
             damageBonus: firstAttackKarma?.damageBonus ?? 0
-          }
+          },
+          actionsBeforeThisCombo: actionsBeforeUnarmed
         });
+        if (singleResult !== null) {
+          addActionsThisTurn(reactiveActor.system, 1);
+          if (comboResult.hasExhaustion) {
+            await ChatMessage.create({
+              speaker: ChatMessage.getSpeaker({ actor }),
+              content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+                <strong>⚠️ Exhausted!</strong>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below and cannot dodge for the rest of this round!</p>
+              </div>`
+            });
+            await actor.toggleStatusEffect("stun", { active: true });
+            await actor.setFlag("faserip", "exhaustionStun", true);
+          }
+        }
       }
       return;
     }
@@ -596,6 +624,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       });
       // Apply stunned status effect
       await actor.toggleStatusEffect("stun", { active: true });
+      await actor.setFlag("faserip", "exhaustionStun", true);
     }
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
@@ -695,17 +724,20 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
     attackRank,
     availableKarma,
     weaponLabel,
-    talentCS
+    talentCS,
+    getActionsThisTurn(reactiveActor.system)
   );
 
   if (comboResult === null) return;
+
+  const actionsBeforeMultiWeapon = getActionsThisTurn(reactiveActor.system);
 
   // Karma cost mirrors rollWeapon but multiplied by weaponCount —
   // each combo action fires N weapons, each sharing the same penalty & karma settings
   let totalKarmaCost = 0;
   for (let i = 0; i < comboResult.attackKarmaSettings.length; i++) {
     const attack = comboResult.attackKarmaSettings[i];
-    const comboPenalty = -(i + 1);
+    const comboPenalty = -(actionsBeforeMultiWeapon + (i + 1));
 
     if (attack.columnShifts > 0) {
       const effectiveRank = applyChartShift(
@@ -771,6 +803,7 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
   const allPendingDamages: PendingDamage[] = [];
   let comboFailed = false;
   let comboBotchCount = 0;
+  let actionsCompleted = 0;
 
   for (let i = 0; i < comboResult.comboCount; i++) {
     const attackKarma = comboResult.attackKarmaSettings[i];
@@ -797,6 +830,7 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
           damageBonus: attackKarma?.damageBonus ?? 0
         },
         // comboIndex = action index so all weapons in the same action share the penalty
+        actionsBeforeThisCombo: actionsBeforeMultiWeapon,
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount,
         deferDamageApplication: true,
@@ -833,6 +867,8 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
 
     if (comboFailed) break;
 
+    actionsCompleted++;
+
     if (i < comboResult.comboCount - 1) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
@@ -843,6 +879,8 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
     await applyPendingDamages(actor as any, allPendingDamages);
   }
 
+  addActionsThisTurn(reactiveActor.system, actionsCompleted);
+
   if (comboResult.hasExhaustion) {
     await ChatMessage.create({
       speaker: ChatMessage.getSpeaker({ actor }),
@@ -852,6 +890,7 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
       </div>`
     });
     await actor.toggleStatusEffect("stun", { active: true });
+    await actor.setFlag("faserip", "exhaustionStun", true);
   }
 }
 
@@ -910,6 +949,7 @@ async function rollWeapon(weapon: Weapon) {
     currentForm.value.attributes[attackAttribute].rank
   );
   const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+  const actionsBeforeWeapon = getActionsThisTurn(reactiveActor.system);
 
   const comboResult = await showAttackOptionsDialog(
     actor.name || "Unknown",
@@ -917,7 +957,8 @@ async function rollWeapon(weapon: Weapon) {
     attackRank,
     availableKarma,
     weapon.name,
-    talentCS
+    talentCS,
+    actionsBeforeWeapon
   );
 
   if (comboResult === null) {
@@ -928,7 +969,7 @@ async function rollWeapon(weapon: Weapon) {
   let totalKarmaCost = 0;
   for (let i = 0; i < comboResult.attackKarmaSettings.length; i++) {
     const attack = comboResult.attackKarmaSettings[i];
-    const comboPenalty = -(i + 1);
+    const comboPenalty = -(actionsBeforeWeapon + (i + 1));
 
     // Pre-roll karma (column shifts)
     if (attack.columnShifts > 0) {
@@ -1004,6 +1045,7 @@ async function rollWeapon(weapon: Weapon) {
     const allPendingDamages: PendingDamage[] = [];
     let comboFailed = false;
     let comboBotchCount = 0; // Track botches within this combo
+    let attacksCompleted = 0;
 
     for (let i = 0; i < comboResult.comboCount; i++) {
       const attackKarma = comboResult.attackKarmaSettings[i];
@@ -1027,6 +1069,7 @@ async function rollWeapon(weapon: Weapon) {
           damageRankShift: attackKarma?.damageRankShift ?? 0,
           damageBonus: attackKarma?.damageBonus ?? 0
         },
+        actionsBeforeThisCombo: actionsBeforeWeapon,
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount,
         multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
@@ -1040,6 +1083,8 @@ async function rollWeapon(weapon: Weapon) {
         comboFailed = true;
         break;
       }
+
+      attacksCompleted++;
 
       // Update botch count from result
       comboBotchCount = result.comboBotchCount;
@@ -1085,12 +1130,15 @@ async function rollWeapon(weapon: Weapon) {
       });
       // Apply stunned status effect
       await actor.toggleStatusEffect("stun", { active: true });
+      await actor.setFlag("faserip", "exhaustionStun", true);
     }
+
+    addActionsThisTurn(reactiveActor.system, attacksCompleted);
   } else {
     // Single attack
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
 
-    await executeCombatAttack({
+    const singleResult = await executeCombatAttack({
       attacker: actor as any,
       attackAttribute,
       attackType,
@@ -1110,8 +1158,23 @@ async function rollWeapon(weapon: Weapon) {
         damageBonus: firstAttackKarma?.damageBonus ?? 0
       },
       multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
-      statDebuff: weapon.statDebuff
+      statDebuff: weapon.statDebuff,
+      actionsBeforeThisCombo: actionsBeforeWeapon
     });
+    if (singleResult !== null) {
+      addActionsThisTurn(reactiveActor.system, 1);
+      if (comboResult.hasExhaustion) {
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor }),
+          content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+            <strong>⚠️ Exhausted!</strong>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below and cannot dodge for the rest of this round!</p>
+          </div>`
+        });
+        await actor.toggleStatusEffect("stun", { active: true });
+        await actor.setFlag("faserip", "exhaustionStun", true);
+      }
+    }
   }
 }
 
@@ -1733,6 +1796,7 @@ async function rollPower(power: any) {
 
     // Show attack options dialog for damage powers (allows combo attacks with karma distribution)
     const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+    const actionsBeforePower = getActionsThisTurn(reactiveActor.system);
 
     const comboResult = await showAttackOptionsDialog(
       actor.name || "Unknown",
@@ -1740,7 +1804,8 @@ async function rollPower(power: any) {
       rank,
       availableKarma,
       power.name,
-      totalCS
+      totalCS,
+      actionsBeforePower
     );
 
     if (comboResult === null) {
@@ -1753,6 +1818,7 @@ async function rollPower(power: any) {
       const allPendingDamages: PendingDamage[] = [];
       let comboFailed = false;
       let comboBotchCount = 0; // Track botches within this combo
+      let attacksCompleted = 0;
 
       for (let i = 0; i < comboResult.comboCount; i++) {
         const attackKarma = comboResult.attackKarmaSettings[i];
@@ -1773,6 +1839,7 @@ async function rollPower(power: any) {
           karmaColumnShifts: attackKarma?.columnShifts ?? 0,
           karmaResultShift: attackKarma?.resultShift ?? 0,
           manualChartShift: comboResult.manualChartShift ?? 0,
+          actionsBeforeThisCombo: actionsBeforePower,
           comboIndex: i + 1,
           comboTotal: comboResult.comboCount,
           multiHit: power.multiHit || false,
@@ -1787,6 +1854,8 @@ async function rollPower(power: any) {
           comboFailed = true;
           break;
         }
+
+        attacksCompleted++;
 
         // Update botch count from result
         comboBotchCount = result.comboBotchCount;
@@ -1820,11 +1889,13 @@ async function rollPower(power: any) {
         await new Promise(resolve => setTimeout(resolve, 500));
         await applyPendingDamages(actor as any, allPendingDamages);
       }
+
+      addActionsThisTurn(reactiveActor.system, attacksCompleted);
     } else {
       // Single attack with karma from combo dialog
       const firstAttackKarma = comboResult.attackKarmaSettings[0];
 
-      await executeCombatAttack({
+      const singleResult = await executeCombatAttack({
         attacker: actor as any,
         attackAttribute,
         attackType,
@@ -1841,8 +1912,23 @@ async function rollPower(power: any) {
         manualChartShift: comboResult.manualChartShift ?? 0,
         multiHit: power.multiHit || false,
         armorPiercing: power.armorPiercing, // Add armor piercing
-        statDebuff: power.statDebuff
+        statDebuff: power.statDebuff,
+        actionsBeforeThisCombo: actionsBeforePower
       });
+      if (singleResult !== null) {
+        addActionsThisTurn(reactiveActor.system, 1);
+        if (comboResult.hasExhaustion) {
+          await ChatMessage.create({
+            speaker: ChatMessage.getSpeaker({ actor }),
+            content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+              <strong>⚠️ Exhausted!</strong>
+              <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below and cannot dodge for the rest of this round!</p>
+            </div>`
+          });
+          await actor.toggleStatusEffect("stun", { active: true });
+          await actor.setFlag("faserip", "exhaustionStun", true);
+        }
+      }
     }
 
     // Deduct MP after successful attack

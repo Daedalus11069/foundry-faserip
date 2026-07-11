@@ -318,6 +318,7 @@ export class ActorDataModel extends TypeDataModel<
   declare talents: TalentData[];
   declare temporaryStatModifiers: any[];
   declare charman: CharmanData;
+  declare actionsThisTurn: number;
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
       // Current form (active form for characters with multiple forms)
@@ -459,6 +460,15 @@ export class ActorDataModel extends TypeDataModel<
         characterName: new StringField(),
         lastSync: new NumberField(),
         autoSync: new BooleanField({ initial: false })
+      }),
+
+      // Number of combat attacks taken during this actor's current turn.
+      // Reset at the start of each new turn via combatTurn / combatRound hooks.
+      actionsThisTurn: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: 0
       })
     };
   }

@@ -16,6 +16,7 @@ interface Props {
   availableKarma: number;
   powerName?: string;
   talentCS?: number;
+  actionsBeforeThisCombo?: number; // Attacks already taken this turn (shifts all combo penalties)
   dialog: VueDialog;
 }
 
@@ -48,19 +49,18 @@ const maxComboCount = computed(() => {
     Math.min(RANK_ORDER.length - 1, baseRankIndex + bonuses)
   );
 
-  // Feeble is index 1, so max penalty is (effectiveRankIndex - 1)
-  // Since penalty for attack N is -N, max combo is (effectiveRankIndex - 1)
-  return Math.max(1, effectiveRankIndex - 1);
+  // Feeble is index 1. With prior actions, first combo hit penalty is
+  // (actionsBeforeThisCombo + 1), so max attacks = effectiveRankIndex - 1 - actionsBeforeThisCombo
+  const actionOffset = props.actionsBeforeThisCombo ?? 0;
+  return Math.max(1, effectiveRankIndex - 1 - actionOffset);
 });
 
-// Check if any attacks in the combo reach exhaustion threshold (Feeble or below)
+// Check if any attacks reach exhaustion threshold (Poor or below).
+// Applies to single attacks too — prior-action penalties can push rank to Poor.
 const hasExhaustionWarning = computed(() => {
-  if (comboCount.value === 1) return false;
-
   for (let i = 0; i < comboCount.value; i++) {
     const rank = getEffectiveRank(i, 0);
     const rankIndex = RANK_ORDER.indexOf(rank);
-    // Feeble (1), Poor (2), or Typical (3) and below triggers exhaustion
     if (rankIndex <= 2) return true; // Poor or below means exhausted
   }
   return false;
@@ -182,9 +182,14 @@ const rankIsModified = computed(() => {
 });
 
 function getAttackPenalty(attackIndex: number): number {
-  // Only apply penalty if there's more than 1 attack
-  if (comboCount.value === 1) return 0;
-  return -(attackIndex + 1);
+  const actionsBefore = props.actionsBeforeThisCombo ?? 0;
+  if (comboCount.value === 1) {
+    // Single attack: free on first action of turn, else -(actionsBefore + 1)
+    return actionsBefore === 0 ? 0 : -(actionsBefore + 1);
+  }
+  // Combo hit (attackIndex is 0-based, so hit P = attackIndex + 1):
+  // always -(actionsBefore + P)
+  return -(actionsBefore + (attackIndex + 1));
 }
 
 function getEffectiveRank(attackIndex: number, columnShifts: number = 0): Rank {
@@ -280,11 +285,10 @@ function handleCancel() {
           }}</span>
           →
           <span
-            :class="
-              manualChartShift > 0 || (talentCS && talentCS > 0)
-                ? 'text-green-400 font-semibold'
-                : 'text-red-400 font-semibold'
-            "
+            :class="manualChartShift > 0 || (talentCS && talentCS > 0)
+              ? 'text-green-400 font-semibold'
+              : 'text-red-400 font-semibold'
+              "
           >
             {{ displayedAttackRank }}
           </span>
@@ -356,11 +360,10 @@ function handleCancel() {
       <div
         v-if="manualChartShift !== 0"
         class="text-sm mt-2 p-2 rounded"
-        :class="
-          manualChartShift > 0
-            ? 'bg-green-900/30 text-green-300'
-            : 'bg-red-900/30 text-red-300'
-        "
+        :class="manualChartShift > 0
+          ? 'bg-green-900/30 text-green-300'
+          : 'bg-red-900/30 text-red-300'
+          "
       >
         {{ manualChartShift > 0 ? "+" : "" }}{{ manualChartShift }} Chart Shift
         to Attack Rolls
@@ -385,11 +388,10 @@ function handleCancel() {
       <div
         v-if="damageRankBump !== 0"
         class="text-sm mt-2 p-2 rounded"
-        :class="
-          damageRankBump > 0
-            ? 'bg-green-900/30 text-green-300'
-            : 'bg-red-900/30 text-red-300'
-        "
+        :class="damageRankBump > 0
+          ? 'bg-green-900/30 text-green-300'
+          : 'bg-red-900/30 text-red-300'
+          "
       >
         {{ damageRankBump > 0 ? "+" : "" }}{{ damageRankBump }} Damage Rank
         <span v-if="damageRankBump !== 0" class="text-xs ml-2">
@@ -559,11 +561,10 @@ function handleCancel() {
     <!-- Total karma cost display -->
     <div
       class="mb-4 p-3 rounded border"
-      :class="
-        canAfford
-          ? 'bg-green-900/20 border-green-700'
-          : 'bg-red-900/20 border-red-700'
-      "
+      :class="canAfford
+        ? 'bg-green-900/20 border-green-700'
+        : 'bg-red-900/20 border-red-700'
+        "
     >
       <div class="flex justify-between items-center">
         <span class="text-sm font-semibold">Total Karma Cost:</span>

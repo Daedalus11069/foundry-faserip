@@ -163,6 +163,7 @@ export interface BaseActorSystemData {
   weapons: WeaponData[];
   temporaryStatModifiers?: TemporaryStatModifierData[];
   charman: CharmanData;
+  actionsThisTurn: number; // Cumulative attacks taken this turn (drives combo penalty offset)
 }
 
 /**

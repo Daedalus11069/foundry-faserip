@@ -53,6 +53,7 @@ interface AttackData {
   perAttackKarma?: { damageRankShift: number; damageBonus: number }; // Optional: Per-attack damage karma for this specific attack
   comboIndex?: number; // Optional: Current attack number in combo (1-based)
   comboTotal?: number; // Optional: Total number of attacks in combo
+  actionsBeforeThisCombo?: number; // Attacks already taken this turn before this combo started
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   statDebuff?: PowerStatDebuffData; // Optional temporary stat debuff to apply on hit
   deferDamageApplication?: boolean; // True to accumulate damage without applying (for cumulative combo damage)
@@ -686,7 +687,8 @@ export async function executeCombatAttack(
         attackRank,
         currentKarma,
         powerName,
-        talentCS
+        talentCS,
+        attackData.actionsBeforeThisCombo
       );
 
       if (!attackOptions) {
@@ -704,6 +706,19 @@ export async function executeCombatAttack(
     const comboBotchCount = attackData.comboBotchCount ?? 0;
     const botchPenalty = -comboBotchCount;
 
+    // Penalty rules (same as main path below):
+    //   Single attack: free (0) on first action of turn, else -(actionsThisTurn + 1)
+    //   Combo hit P: always -(actionsBeforeThisCombo + P), even first action
+    //   Multi-hit (AoE): never penalized
+    const noTargetComboPenalty = (() => {
+      if (attackData.multiHit) return 0;
+      const actionsBefore = attackData.actionsBeforeThisCombo ?? 0;
+      if (comboTotal && comboTotal > 1) {
+        return -(actionsBefore + (comboIndex ?? 1));
+      }
+      return actionsBefore === 0 ? 0 : -(actionsBefore + 1);
+    })();
+
     // Show botch penalty warning if active
     if (comboBotchCount > 0) {
       await ChatMessage.create({
@@ -715,13 +730,13 @@ export async function executeCombatAttack(
       });
     }
 
-    // Roll and show attack (no combat flow) - include talent bonus and botch penalty in chart shift
+    // Roll and show attack (no combat flow) - include talent bonus, combo penalty, and botch penalty
     const noTargetRoll = await FaseripRoll.rollAttribute(
       powerName ||
         attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
       attackRank,
       attackValue,
-      manualChartShift + (talentCS || 0) + botchPenalty,
+      manualChartShift + (talentCS || 0) + noTargetComboPenalty + botchPenalty,
       attacker,
       talentNames,
       {
@@ -789,7 +804,8 @@ export async function executeCombatAttack(
       attackRank,
       currentKarma,
       powerName,
-      talentCS
+      talentCS,
+      attackData.actionsBeforeThisCombo
     );
 
     if (!attackOptions) {
@@ -809,12 +825,19 @@ export async function executeCombatAttack(
   const comboBotchCount = attackData.comboBotchCount ?? 0;
   const botchPenalty = -comboBotchCount;
 
-  // Calculate combo penalty if this is part of a combo attack
-  // Multi-hit powers (AoE) don't suffer combo penalty - one roll for all targets
-  const comboPenalty =
-    !attackData.multiHit && comboTotal && comboTotal > 1
-      ? -(comboIndex ?? 1)
-      : 0;
+  // Penalty rules:
+  //   Single attack: free (0) on first action of turn, else -(actionsThisTurn + 1)
+  //   Combo hit P: always -(actionsBeforeThisCombo + P), even if it's the first action
+  //   Multi-hit (AoE): never penalized
+  const comboPenalty = (() => {
+    if (attackData.multiHit) return 0;
+    const actionsBefore = attackData.actionsBeforeThisCombo ?? 0;
+    if (comboTotal && comboTotal > 1) {
+      return -(actionsBefore + (comboIndex ?? 1));
+    }
+    // Single attack
+    return actionsBefore === 0 ? 0 : -(actionsBefore + 1);
+  })();
 
   // Calculate total chart shift (manual + talent bonuses + combo penalty + botch penalty)
   const totalChartShift =

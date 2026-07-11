@@ -38,13 +38,14 @@ import {
 } from "./module/utils/migrate-items";
 import { showMovementSettingsDialog } from "./module/applications/dialog-utils";
 import { initializeSocket } from "./module/socket/faserip-socket";
+import { initTurnActionsTracker } from "./module/utils/turn-actions-tracker";
 
 // ─── Movement Settings Menu ─────────────────────────────────────────────────────
 
 /**
  * Settings menu for configuring movement by rank
  */
-class MovementSettingsMenu extends FormApplication {
+class MovementSettingsMenu extends foundry.appv1.api.FormApplication {
   static override get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
       title: "Movement By Rank Settings",
@@ -967,6 +968,9 @@ Hooks.once("ready", async () => {
 
   // Initialize socket system for multiplayer combat interactions
   initializeSocket();
+
+  // Initialize per-turn action tracker (resets combo penalty offset each turn)
+  initTurnActionsTracker();
 
   // Run migration to convert embedded armors/weapons to Item documents
   // This only runs once per world and is safe to call repeatedly
