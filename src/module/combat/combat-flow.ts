@@ -1914,16 +1914,12 @@ export async function applyPendingDamages(
 
   // Merge deferred entries for the same target so combo damage is applied once.
   // This prevents duplicate "cumulative" chat cards when each combo strike
-  // contributes its own pending entry.
+  // contributes its own pending entry (e.g. multi-arm sets targeting the same token).
+  // Only key on target identity — differences in armorPiercing/armorRank between
+  // arm weapons should not split the card into multiple entries.
   const mergedByTarget = new Map<string, PendingDamage>();
   for (const pending of pendingDamages) {
-    const key = [
-      pending.targetActorId,
-      pending.targetTokenId || "",
-      pending.damageType || "",
-      pending.armorPiercing || "",
-      pending.armorRank || ""
-    ].join("::");
+    const key = [pending.targetActorId, pending.targetTokenId || ""].join("::");
 
     const existing = mergedByTarget.get(key);
     if (!existing) {
