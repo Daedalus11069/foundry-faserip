@@ -1,5 +1,8 @@
 import { Rank } from "../enums";
-import type { PowerStatDebuffData } from "../types/actor-system";
+import type {
+  PowerStatDebuffData,
+  PowerDamageDebuffData
+} from "../types/actor-system";
 
 const { ArrayField, BooleanField, NumberField, StringField } =
   foundry.data.fields;
@@ -30,6 +33,8 @@ export class PowerDataModel extends ItemDataModel {
   declare rank: string;
   declare category: string;
   declare armorPiercing?: string;
+  declare statDebuff?: PowerStatDebuffData;
+  declare damageBuff?: PowerDamageDebuffData;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -41,6 +46,69 @@ export class PowerDataModel extends ItemDataModel {
         blank: true,
         initial: "",
         choices: ["", ...Object.values(Rank)]
+      }),
+      statDebuff: new foundry.data.fields.SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        attribute: new StringField({
+          required: false,
+          initial: "intuition",
+          choices: [
+            "fighting",
+            "agility",
+            "strength",
+            "endurance",
+            "reasoning",
+            "intuition",
+            "psyche"
+          ]
+        }),
+        greenShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        yellowShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        redShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
+      }),
+      damageBuff: new foundry.data.fields.SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        greenShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        yellowShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        redShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
       })
     };
   }
@@ -139,6 +207,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare armorPiercing?: string;
   declare multiHit?: boolean;
   declare statDebuff?: PowerStatDebuffData;
+  declare damageBuff?: PowerDamageDebuffData;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -191,6 +260,31 @@ export class WeaponDataModel extends ItemDataModel {
             "intuition",
             "psyche"
           ]
+        }),
+        greenShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        yellowShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        redShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
+      }),
+      damageBuff: new foundry.data.fields.SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
         }),
         greenShift: new NumberField({
           required: false,

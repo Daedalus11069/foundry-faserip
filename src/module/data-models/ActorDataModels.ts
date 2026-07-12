@@ -274,6 +274,31 @@ export function definePowerRefSchema() {
         required: false,
         initial: "1d3"
       })
+    }),
+    damageBuff: new SchemaField({
+      enabled: new BooleanField({
+        required: false,
+        initial: false
+      }),
+      greenShift: new NumberField({
+        required: false,
+        integer: true,
+        initial: 0
+      }),
+      yellowShift: new NumberField({
+        required: false,
+        integer: true,
+        initial: 0
+      }),
+      redShift: new NumberField({
+        required: false,
+        integer: true,
+        initial: 0
+      }),
+      durationFormula: new StringField({
+        required: false,
+        initial: "1d3"
+      })
     })
   });
 }
@@ -324,6 +349,7 @@ export class ActorDataModel extends TypeDataModel<
   declare powers: PowerData[];
   declare talents: TalentData[];
   declare temporaryStatModifiers: any[];
+  declare temporaryDamageModifiers: any[];
   declare charman: CharmanData;
   declare actionsThisTurn: number;
   static override defineSchema(): foundry.data.fields.DataSchema {
@@ -431,6 +457,42 @@ export class ActorDataModel extends TypeDataModel<
           }),
           sourcePowerId: new StringField({ required: false, nullable: true }),
           sourcePowerName: new StringField({
+            required: false,
+            nullable: true
+          }),
+          durationFormula: new StringField({
+            required: false,
+            nullable: true
+          }),
+          combatId: new StringField({ required: false, nullable: true })
+        }),
+        {
+          required: false,
+          initial: () => []
+        }
+      ),
+
+      temporaryDamageModifiers: new ArrayField(
+        new SchemaField({
+          id: new StringField({ required: true }),
+          chartShift: new NumberField({
+            required: true,
+            integer: true,
+            initial: 0
+          }),
+          roundsRemaining: new NumberField({
+            required: true,
+            integer: true,
+            min: 0,
+            initial: 0
+          }),
+          sourcePowerId: new StringField({ required: false, nullable: true }),
+          sourcePowerName: new StringField({
+            required: false,
+            nullable: true
+          }),
+          sourceWeaponId: new StringField({ required: false, nullable: true }),
+          sourceWeaponName: new StringField({
             required: false,
             nullable: true
           }),

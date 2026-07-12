@@ -290,6 +290,22 @@ function ensureWeaponStatDebuff(weapon: DisplayWeapon) {
   return weapon.itemRef.system.statDebuff as PowerStatDebuffData;
 }
 
+function ensureWeaponDamageBuff(weapon: DisplayWeapon) {
+  if (!weapon.itemRef) return null;
+
+  if (!weapon.itemRef.system.damageBuff) {
+    weapon.itemRef.system.damageBuff = {
+      enabled: false,
+      greenShift: 0,
+      yellowShift: 0,
+      redShift: 0,
+      durationFormula: "1d3"
+    };
+  }
+
+  return weapon.itemRef.system.damageBuff;
+}
+
 async function updateWeaponName(
   weaponId: string,
   newName: string,
@@ -510,6 +526,24 @@ async function updateWeaponStatDebuff(
 
   await item.update({
     [`system.statDebuff.${field}`]: value
+  } as Record<string, unknown>);
+}
+
+async function updateWeaponDamageBuff(
+  weaponId: string,
+  field:
+    | "enabled"
+    | "greenShift"
+    | "yellowShift"
+    | "redShift"
+    | "durationFormula",
+  value: boolean | number | string
+) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+
+  await item.update({
+    [`system.damageBuff.${field}`]: value
   } as Record<string, unknown>);
 }
 
@@ -943,6 +977,116 @@ function toggleItem(id: string) {
                   class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
                   placeholder="1d3"
                 />
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="weapon.isItem && ensureWeaponDamageBuff(weapon)"
+            class="mt-3 p-3 bg-purple-950/30 border border-purple-800 rounded"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                :checked="ensureWeaponDamageBuff(weapon)?.enabled"
+                @change="
+                  e =>
+                    updateWeaponDamageBuff(
+                      weapon.id,
+                      'enabled',
+                      (e.target as HTMLInputElement).checked
+                    )
+                "
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
+              />
+              <span class="text-sm font-medium text-purple-200">Temporary Damage (De)buff</span>
+            </label>
+
+            <div
+              v-if="ensureWeaponDamageBuff(weapon)?.enabled"
+              class="space-y-3"
+            >
+              <div class="grid grid-cols-3 gap-2">
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Half Success</label>
+                  <input
+                    type="number"
+                    :value="ensureWeaponDamageBuff(weapon)?.greenShift"
+                    @blur="
+                      e =>
+                        updateWeaponDamageBuff(
+                          weapon.id,
+                          'greenShift',
+                          Number((e.target as HTMLInputElement).value)
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="-1"
+                  />
+                </div>
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Yellow</label>
+                  <input
+                    type="number"
+                    :value="ensureWeaponDamageBuff(weapon)?.yellowShift"
+                    @blur="
+                      e =>
+                        updateWeaponDamageBuff(
+                          weapon.id,
+                          'yellowShift',
+                          Number((e.target as HTMLInputElement).value)
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="-2"
+                  />
+                </div>
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Red</label>
+                  <input
+                    type="number"
+                    :value="ensureWeaponDamageBuff(weapon)?.redShift"
+                    @blur="
+                      e =>
+                        updateWeaponDamageBuff(
+                          weapon.id,
+                          'redShift',
+                          Number((e.target as HTMLInputElement).value)
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="-3"
+                  />
+                </div>
+              </div>
+
+              <div class="text-xs text-gray-400">
+                Affects target's damage output. Positive values buff damage, negative values debuff damage.
+              </div>
+
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
+                <input
+                  type="text"
+                  :value="ensureWeaponDamageBuff(weapon)?.durationFormula"
+                  @blur="
+                    e =>
+                      updateWeaponDamageBuff(
+                        weapon.id,
+                        'durationFormula',
+                        (e.target as HTMLInputElement).value
+                      )
+                  "
+                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  placeholder="1d3"
+                />
+                <div class="text-xs text-gray-400 mt-1">
+                  Rolled when the effect lands, in rounds.
+                </div>
               </div>
             </div>
           </div>

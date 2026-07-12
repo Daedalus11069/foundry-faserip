@@ -38,8 +38,18 @@ const activeStatuses = computed(() => {
 const temporaryStatModifiers = computed(() => {
   void effectsUpdateKey.value;
 
-  return (reactiveActor.system.temporaryStatModifiers || []).filter(
-    modifier => Number(modifier.roundsRemaining || 0) > 0
+  // Read from real actor, not reactive clone, so socket updates are visible
+  return ((actor.system as any).temporaryStatModifiers || []).filter(
+    (modifier: any) => Number(modifier.roundsRemaining || 0) > 0
+  );
+});
+
+const temporaryDamageModifiers = computed(() => {
+  void effectsUpdateKey.value;
+
+  // Read from real actor, not reactive clone, so socket updates are visible
+  return ((actor.system as any).temporaryDamageModifiers || []).filter(
+    (modifier: any) => Number(modifier.roundsRemaining || 0) > 0
   );
 });
 
@@ -47,7 +57,8 @@ const hasAnyEffects = computed(() => {
   return (
     activeEffects.value.length > 0 ||
     activeStatuses.value.length > 0 ||
-    temporaryStatModifiers.value.length > 0
+    temporaryStatModifiers.value.length > 0 ||
+    temporaryDamageModifiers.value.length > 0
   );
 });
 
@@ -58,8 +69,20 @@ function refreshEffects() {
 async function removeTemporaryModifier(modifierId: string) {
   if (!canManageEffects.value) return;
 
-  const updatedModifiers = (reactiveActor.system.temporaryStatModifiers || []).filter(
-    modifier => modifier.id !== modifierId
+  const modifier = ((actor.system as any).temporaryStatModifiers || []).find(
+    (m: any) => m.id === modifierId
+  );
+
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove stat modifier from <strong>${modifier?.sourcePowerName || 'Unknown Source'}</strong>?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
+
+  const updatedModifiers = ((actor.system as any).temporaryStatModifiers || []).filter(
+    (modifier: any) => modifier.id !== modifierId
   );
 
   await actor.update({
@@ -67,8 +90,40 @@ async function removeTemporaryModifier(modifierId: string) {
   } as Record<string, unknown>);
 }
 
+async function removeTemporaryDamageModifier(modifierId: string) {
+  if (!canManageEffects.value) return;
+
+  const modifier = ((actor.system as any).temporaryDamageModifiers || []).find(
+    (m: any) => m.id === modifierId
+  );
+
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove damage modifier from <strong>${modifier?.sourcePowerName || 'Unknown Source'}</strong>?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
+
+  const updatedModifiers = ((actor.system as any).temporaryDamageModifiers || []).filter(
+    (modifier: any) => modifier.id !== modifierId
+  );
+
+  await actor.update({
+    "system.temporaryDamageModifiers": updatedModifiers
+  } as Record<string, unknown>);
+}
+
 async function removeStatus(statusId: string) {
   if (!canManageEffects.value) return;
+
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove status <strong>${statusId}</strong>?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
 
   await actor.toggleStatusEffect(statusId, { active: false });
 }
@@ -78,6 +133,14 @@ async function removeActiveEffect(effectId: string) {
 
   const effect = actor.effects.get(effectId);
   if (!effect) return;
+
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove effect <strong>${effect.name || 'Unnamed Effect'}</strong>?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
 
   await effect.delete();
 }
@@ -165,6 +228,42 @@ onUnmounted(() => {
               @click="removeTemporaryModifier(modifier.id)"
               class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white px-2 shrink-0"
               :title="'Remove temporary stat modifier'"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="temporaryDamageModifiers.length > 0"
+        class="bg-gray-900/50 rounded-lg p-4 border border-purple-900"
+      >
+        <h3 class="text-lg font-semibold text-purple-300 mb-3">
+          Temporary Damage Modifiers
+        </h3>
+        <div class="space-y-2">
+          <div
+            v-for="modifier in temporaryDamageModifiers"
+            :key="modifier.id"
+            class="flex items-center justify-between gap-3 bg-gray-800/80 rounded p-3"
+          >
+            <div>
+              <div class="font-medium text-white">
+                {{ modifier.sourcePowerName || 'Damage Modifier' }}
+              </div>
+              <div class="text-sm text-gray-300">
+                {{ modifier.chartShift > 0 ? '+' : '' }}{{ modifier.chartShift }} CS Damage
+              </div>
+            </div>
+            <div class="text-sm text-purple-300">
+              {{ modifier.roundsRemaining }} round{{ modifier.roundsRemaining === 1 ? '' : 's' }}
+            </div>
+            <button
+              v-if="canManageEffects"
+              @click="removeTemporaryDamageModifier(modifier.id)"
+              class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white px-2 shrink-0"
+              :title="'Remove temporary damage modifier'"
             >
               ✕
             </button>

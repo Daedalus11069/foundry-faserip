@@ -29,6 +29,19 @@ interface ApplyStatDebuffData {
   combatId?: string | null;
 }
 
+interface ApplyDamageBuffData {
+  targetActorId: string;
+  targetTokenId?: string;
+  chartShift: number;
+  roundsRemaining: number;
+  sourcePowerId?: string;
+  sourcePowerName?: string;
+  sourceWeaponId?: string;
+  sourceWeaponName?: string;
+  durationFormula?: string;
+  combatId?: string | null;
+}
+
 /**
  * Data structure for defense prompt sent to defender
  */
@@ -132,6 +145,7 @@ export function initializeSocket(): void {
   socket.register("cancelCounterAttackPrompt", handleCancelCounterAttackPrompt);
   socket.register("applyDamage", handleApplyDamage);
   socket.register("applyStatDebuff", handleApplyStatDebuff);
+  socket.register("applyDamageBuff", handleApplyDamageBuff);
 }
 
 /**
@@ -1095,4 +1109,81 @@ async function handleApplyStatDebuff(
   } as Record<string, unknown>);
 
   return data;
+}
+
+async function handleApplyDamageBuff(
+  data: ApplyDamageBuffData
+): Promise<ApplyDamageBuffData | null> {
+  let targetActor: FaseripActor | undefined;
+
+  if (data.targetTokenId) {
+    const token = canvas?.tokens?.placeables.find(
+      (t: Token) => t.id === data.targetTokenId
+    );
+    if (token) {
+      targetActor = token.actor as FaseripActor;
+    }
+  }
+
+  if (!targetActor) {
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.targetActorId
+    ) as FaseripActor | undefined;
+  }
+
+  if (!targetActor) {
+    console.error("FASERIP Socket | Target actor not found for damage buff");
+    return null;
+  }
+
+  // @ts-expect-error - Foundry game.user global
+  if (!game.user?.isGM && !targetActor.isOwner) {
+    console.warn(
+      "FASERIP Socket | User doesn't own target - cannot apply damage buff"
+    );
+    return null;
+  }
+
+  const system = targetActor.system as any;
+  const modifiers = [...(system.temporaryDamageModifiers || [])];
+  const newModifier = {
+    id: foundry.utils.randomID(),
+    chartShift: data.chartShift,
+    roundsRemaining: Math.max(1, Math.floor(data.roundsRemaining)),
+    sourcePowerId: data.sourcePowerId,
+    sourcePowerName: data.sourcePowerName,
+    sourceWeaponId: data.sourceWeaponId,
+    sourceWeaponName: data.sourceWeaponName,
+    durationFormula: data.durationFormula,
+    combatId: data.combatId ?? null
+  };
+
+  modifiers.push(newModifier);
+
+  const updateResult = await targetActor.update({
+    "system.temporaryDamageModifiers": modifiers
+  } as Record<string, unknown>);
+
+  return data;
+}
+
+export async function requestDamageBuffApplication(
+  targetActor: FaseripActor,
+  data: ApplyDamageBuffData
+): Promise<ApplyDamageBuffData | null> {
+  if (!socket) {
+    // @ts-expect-error - Foundry game.user global
+    if (game.user?.isGM || targetActor.isOwner) {
+      return await handleApplyDamageBuff(data);
+    }
+    return null;
+  }
+
+  const owner = findTokenControllers(targetActor)[0];
+  if (!owner) {
+    return await handleApplyDamageBuff(data);
+  }
+
+  return await socket.executeAsUser("applyDamageBuff", owner.id, data);
 }

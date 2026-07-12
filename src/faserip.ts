@@ -480,12 +480,6 @@ const initHandler = () => {
   CONFIG.Item.dataModels[ItemType.Armor] = ArmorDataModel;
   CONFIG.Item.dataModels[ItemType.Weapon] = WeaponDataModel;
 
-  // Log registered item types for debugging
-  console.log(
-    "FASERIP | Registered Item Types:",
-    Object.keys(CONFIG.Item.dataModels)
-  );
-
   // Configure trackable attributes for tokens
   CONFIG.Actor.trackableAttributes = {
     pc: {

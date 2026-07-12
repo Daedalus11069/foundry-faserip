@@ -3,6 +3,7 @@ import { inject, computed, ref } from "vue";
 import { formatRankDisplay, RANK_VALUES } from "../../enums";
 import { getRankValue, stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
+import { applyHitStatDebuff, applyHitDamageBuff } from "../../combat/combat-flow";
 import type { ReactiveActorData, PowerData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 
@@ -53,6 +54,20 @@ function ensureStatDebuff(power: PowerData) {
   }
 
   return power.statDebuff;
+}
+
+function ensureDamageBuff(power: PowerData) {
+  if (!power.damageBuff) {
+    power.damageBuff = {
+      enabled: false,
+      greenShift: 0,
+      yellowShift: 0,
+      redShift: 0,
+      durationFormula: "1d3"
+    };
+  }
+
+  return power.damageBuff;
 }
 
 const filteredPowers = computed(() => {
@@ -210,594 +225,6 @@ function onPowerRankChange(power: PowerData, rank: string) {
   power.value = newValue;
   power.maxValue = newValue;
 }
-
-/*
-// Legacy power rolling function - replaced by combat flow system
-// Kept for reference but not currently used
-async function _rollPower(power: PowerData) {
-  const rank = stringToRank(power.rank);
-  const value = power.value || 6;
-
-  // Check MP cost if enabled
-  const mpCost = mpEnabled.value && power.mpCost ? power.mpCost : 0;
-  if (mpCost > 0) {
-    const currentMP = reactiveActor.system.resources?.mentalPoints?.value ?? 0;
-    if (currentMP < mpCost) {
-      ui.notifications?.error(
-        `Not enough Mental Points. Required: ${mpCost}, Available: ${currentMP}`
-      );
-      return;
-    }
-  }
-
-  // Route ALL attack powers (damage or contested) through combat flow
-  // Only powers with attackType "none" skip combat flow
-  if (power.attackType && power.attackType !== "none") {
-    // Determine attack attribute based on power settings
-    let attackAttribute: "fighting" | "agility" | "psyche";
-    let attackType: "melee" | "ranged" | "psyche";
-
-    if (power.attackType === "melee") {
-      attackAttribute = "fighting";
-      attackType = "melee";
-    } else if (power.attackType === "psyche") {
-      attackAttribute = "psyche";
-      attackType = "psyche";
-    } else {
-      // Default to ranged for all other attack types (blast, area, etc.)
-      attackAttribute = "agility";
-      attackType = "ranged";
-    }
-
-    // Use combat flow system - handles attack/defense and damage if applicable
-    await executeCombatAttack({
-      attacker: actor,
-      attackAttribute,
-      attackType,
-      effectType: power.effectType || "none",
-      powerName: power.name,
-      powerRank: rank, // Pass the power's rank for damage calculation
-      damageRoll: `1d${value}`, // Simple damage based on power rank value
-      damageType: power.damageType !== "none" ? power.damageType : undefined,
-      multiHit: power.multiHit || false // Pass multiHit flag for AoE powers
-    });
-
-    // Deduct MP after successful attack
-    if (mpCost > 0 && reactiveActor.system.resources.mentalPoints) {
-      const mentalPoints = reactiveActor.system.resources.mentalPoints;
-      mentalPoints.value = Math.max(0, mentalPoints.value - mpCost);
-
-      await actor.update({
-        system: {
-          resources: {
-            mentalPoints: {
-              value: reactiveActor.system.resources.mentalPoints.value
-            }
-          }
-        }
-      });
-
-      // Sync MP with Charman if character is linked
-      // @ts-expect-error - charman property exists on system
-      const charmanData = actor.system.charman;
-      if (charmanData?.username && charmanData?.characterName) {
-        try {
-          const service = getCharmanService();
-          await service.updateMP(
-            charmanData.username,
-            charmanData.characterName,
-            reactiveActor.system.resources.mentalPoints.value
-          );
-        } catch (error) {
-          console.warn("Could not sync MP to Charman:", error);
-        }
-      }
-    }
-
-    return; // Exit early - combat flow handles everything
-  }
-
-  let totalCS = 0;
-  let talentNames: string[] = [];
-
-  if (!power.skipDialogs) {
-    // Talent selection
-    if (talents.value.length > 0) {
-      const selectedTalents = await showTalentSelectionDialog(
-        talents.value,
-        power.name
-      );
-
-      if (selectedTalents === null) {
-        return;
-      }
-
-      if (selectedTalents.length > 0) {
-        talentNames = selectedTalents.map(t => t.name);
-        const talentCS = selectedTalents.reduce((sum, t) => sum + t.bonus, 0);
-        totalCS += talentCS;
-      }
-    }
-  }
-
-  // Karma/chart shift dialog — shown for all power rolls
-  const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
-
-  const comboResult = await showComboDialog(
-    power.name,
-    rank,
-    availableKarma,
-    talentNames,
-    totalCS
-  );
-
-  if (comboResult === null) {
-    return;
-  }
-
-  let faseripRoll: any = null; // Store roll result for healing calculations
-
-  if (comboResult.comboCount > 1) {
-    await FaseripRoll.rollComboAttack(
-      power.name,
-      rank,
-      value,
-      totalCS,
-      comboResult.comboCount,
-      actor,
-      talentNames,
-      undefined,
-      comboResult.attackKarmaSettings,
-      comboResult.manualChartShift ?? 0
-    );
-
-    // Show exhaustion warning if combo reached Poor or below
-    if (comboResult.hasExhaustion) {
-      await ChatMessage.create({
-        speaker: ChatMessage.getSpeaker({ actor }),
-        content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
-          <strong>⚠️ Exhausted!</strong>
-          <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
-        </div>`
-      });
-      // Apply stunned status effect
-      await actor.toggleStatusEffect("stun", { active: true });
-    }
-  } else {
-    const firstAttackKarma = comboResult.attackKarmaSettings[0];
-    faseripRoll = await FaseripRoll.rollAttribute(
-      power.name,
-      rank,
-      value,
-      totalCS,
-      actor,
-      talentNames,
-      undefined,
-      firstAttackKarma?.columnShifts ?? 0,
-      firstAttackKarma?.resultShift ?? 0,
-      false,
-      comboResult.manualChartShift ?? 0
-    );
-  }
-
-  // Deduct MP after successful roll
-  if (mpCost > 0 && reactiveActor.system.resources.mentalPoints) {
-    const mentalPoints = reactiveActor.system.resources.mentalPoints;
-    mentalPoints.value = Math.max(0, mentalPoints.value - mpCost);
-
-    // Persist to actor
-    // await actor.update({
-    //   system: {
-    //     resources: {
-    //       mentalPoints: {
-    //         value: reactiveActor.system.resources.mentalPoints!.value
-    //       }
-    //     }
-    //   }
-    // });
-
-    // Sync MP with Charman if character is linked
-    // @ts-expect-error - charman property exists on system
-    const charmanData = actor.system.charman;
-    if (charmanData?.username && charmanData?.characterName) {
-      try {
-        const service = getCharmanService();
-        await service.updateMP(
-          charmanData.username,
-          charmanData.characterName,
-          reactiveActor.system.resources.mentalPoints.value
-        );
-      } catch (error) {
-        // Service not initialized or sync failed - ignore silently
-        console.warn("Could not sync MP to Charman:", error);
-      }
-    }
-  }
-
-  // Apply power effect (healing only - damage goes through combat flow)
-  if ((power.effectType || "none") !== "none") {
-    // @ts-expect-error - game.user.targets is a Set, but TypeScript doesn't know that
-    const targets = Array.from(game.user?.targets || []);
-
-    // Determine who to apply effects to
-    let applyToSelf = false;
-    let applyToTargets = targets.length > 0;
-
-    // Healing can be used on self if no targets
-    if (!applyToTargets) {
-      applyToSelf = true;
-    }
-
-    // Apply to targeted actors
-    if (applyToTargets) {
-      for (const token of targets) {
-        // @ts-expect-error - token.actor can be null, but we'll skip if it is
-        const targetActor = token.actor;
-        if (!targetActor) continue;
-
-        if (power.effectType === "heal-health") {
-          // Calculate healing based on roll result
-          let healAmount = power.value;
-
-          if (faseripRoll) {
-            const rollTotal = faseripRoll.roll.total || 0;
-            const rollResult = faseripRoll.result;
-
-            if (rollTotal === 100) {
-              const bonusRoll = await Roll.create("5d10");
-              await bonusRoll.evaluate();
-              healAmount = power.value + (bonusRoll.total || 0);
-              await bonusRoll.toMessage({
-                flavor: `${power.name} - Ultimate Critical Healing Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor: actor as any })
-              });
-            } else if (rollResult === RollResult.Red) {
-              const bonusRoll = await Roll.create("3d6");
-              await bonusRoll.evaluate();
-              healAmount = power.value + (bonusRoll.total || 0);
-              await bonusRoll.toMessage({
-                flavor: `${power.name} - Critical Healing Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor: actor as any })
-              });
-            } else if (rollResult === RollResult.Yellow) {
-              healAmount = power.value;
-            } else if (rollResult === RollResult.Green) {
-              healAmount = Math.floor(power.value / 2);
-            } else {
-              healAmount = 0;
-              await ChatMessage.create({
-                content: `<div class="fsr-chat-card fsr-fail">
-                  <h3>Healing Failed</h3>
-                  <p><strong>${power.name}</strong> healing roll failed (White result)!</p>
-                </div>`,
-                speaker: ChatMessage.getSpeaker({ actor: actor as any })
-              });
-            }
-          }
-
-          await applyHealthHealingToTarget(targetActor, healAmount, power.name, token);
-        } else if (power.effectType === "heal-armor") {
-          // Calculate armor repair based on roll result
-          let repairAmount = power.value;
-
-          if (faseripRoll) {
-            const rollTotal = faseripRoll.roll.total || 0;
-            const rollResult = faseripRoll.result;
-
-            if (rollTotal === 100) {
-              const bonusRoll = await Roll.create("5d10");
-              await bonusRoll.evaluate();
-              repairAmount = power.value + (bonusRoll.total || 0);
-              await bonusRoll.toMessage({
-                flavor: `${power.name} - Ultimate Critical Repair Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor: actor as any })
-              });
-            } else if (rollResult === RollResult.Red) {
-              const bonusRoll = await Roll.create("3d6");
-              await bonusRoll.evaluate();
-              repairAmount = power.value + (bonusRoll.total || 0);
-              await bonusRoll.toMessage({
-                flavor: `${power.name} - Critical Repair Bonus`,
-                speaker: ChatMessage.getSpeaker({ actor: actor as any })
-              });
-            } else if (rollResult === RollResult.Yellow) {
-              repairAmount = power.value;
-            } else if (rollResult === RollResult.Green) {
-              repairAmount = Math.floor(power.value / 2);
-            } else {
-              repairAmount = 0;
-              await ChatMessage.create({
-                content: `<div class="fsr-chat-card fsr-fail">
-                  <h3>Repair Failed</h3>
-                  <p><strong>${power.name}</strong> repair roll failed (White result)!</p>
-                </div>`,
-                speaker: ChatMessage.getSpeaker({ actor: actor as any })
-              });
-            }
-          }
-
-          await applyArmorHealingToTarget(
-            targetActor,
-            repairAmount,
-            power.name,
-            token
-          );
-        }
-      }
-    }
-
-    // Apply to self
-    if (applyToSelf) {
-      if (power.effectType === "heal-health") {
-        // Calculate healing based on roll result
-        let healAmount = power.value;
-
-        if (faseripRoll) {
-          const rollTotal = faseripRoll.roll.total || 0;
-          const rollResult = faseripRoll.result;
-
-          if (rollTotal === 100) {
-            const bonusRoll = await Roll.create("5d10");
-            await bonusRoll.evaluate();
-            healAmount = power.value + (bonusRoll.total || 0);
-            await bonusRoll.toMessage({
-              flavor: `${power.name} - Ultimate Critical Healing Bonus`,
-              speaker: ChatMessage.getSpeaker({ actor: actor as any })
-            });
-          } else if (rollResult === RollResult.Red) {
-            const bonusRoll = await Roll.create("3d6");
-            await bonusRoll.evaluate();
-            healAmount = power.value + (bonusRoll.total || 0);
-            await bonusRoll.toMessage({
-              flavor: `${power.name} - Critical Healing Bonus`,
-              speaker: ChatMessage.getSpeaker({ actor: actor as any })
-            });
-          } else if (rollResult === RollResult.Yellow) {
-            healAmount = power.value;
-          } else if (rollResult === RollResult.Green) {
-            healAmount = Math.floor(power.value / 2);
-          } else {
-            healAmount = 0;
-            await ChatMessage.create({
-              content: `<div class="fsr-chat-card fsr-fail">
-                <h3>Healing Failed</h3>
-                <p><strong>${power.name}</strong> healing roll failed (White result)!</p>
-              </div>`,
-              speaker: ChatMessage.getSpeaker({ actor: actor as any })
-            });
-          }
-        }
-
-        // Get actor's controlled token for self-healing
-        const selfToken = actor.getActiveTokens()[0];
-        await applyHealthHealingToTarget(actor, healAmount, power.name, selfToken);
-      } else if (power.effectType === "heal-armor") {
-        // Calculate armor repair based on roll result
-        let repairAmount = power.value;
-
-        if (faseripRoll) {
-          const rollTotal = faseripRoll.roll.total || 0;
-          const rollResult = faseripRoll.result;
-
-          if (rollTotal === 100) {
-            const bonusRoll = await Roll.create("5d10");
-            await bonusRoll.evaluate();
-            repairAmount = power.value + (bonusRoll.total || 0);
-            await bonusRoll.toMessage({
-              flavor: `${power.name} - Ultimate Critical Repair Bonus`,
-              speaker: ChatMessage.getSpeaker({ actor: actor as any })
-            });
-          } else if (rollResult === RollResult.Red) {
-            const bonusRoll = await Roll.create("3d6");
-            await bonusRoll.evaluate();
-            repairAmount = power.value + (bonusRoll.total || 0);
-            await bonusRoll.toMessage({
-              flavor: `${power.name} - Critical Repair Bonus`,
-              speaker: ChatMessage.getSpeaker({ actor: actor as any })
-            });
-          } else if (rollResult === RollResult.Yellow) {
-            repairAmount = power.value;
-          } else if (rollResult === RollResult.Green) {
-            repairAmount = Math.floor(power.value / 2);
-          } else {
-            repairAmount = 0;
-            await ChatMessage.create({
-              content: `<div class="fsr-chat-card fsr-fail">
-                <h3>Repair Failed</h3>
-                <p><strong>${power.name}</strong> repair roll failed (White result)!</p>
-              </div>`,
-              speaker: ChatMessage.getSpeaker({ actor: actor as any })
-            });
-          }
-        }
-
-        // Get actor's controlled token for self-repair
-        const selfToken = actor.getActiveTokens()[0];
-        await applyArmorHealingToTarget(actor, repairAmount, power.name, selfToken);
-      }
-    }
-  }
-}
-*/
-
-// Helper function to apply damage to a target (currently unused - entire function commented out)
-/*
-async function applyDamageToTarget(
-  targetActor: any,
-  damageAmount: number,
-  powerName: string,
-  attackType: string,
-  skipDodge: boolean = false,
-  damageType: string = "none"
-) {
-  // Skip dodge prompt if already handled in rollPower
-  if (!skipDodge) {
-    // Determine dodge attribute based on attack type
-    let dodgeAttribute: "agility" | "fighting" | null = null;
-    if (attackType === "ranged") {
-      dodgeAttribute = "agility";
-    } else if (attackType === "melee") {
-      dodgeAttribute = "fighting";
-    }
-
-    // Prompt for dodge if attack type is specified
-    if (dodgeAttribute) {
-      const dodgeRank =
-        targetActor.system.attributes[dodgeAttribute]?.rank || "typical";
-      const dodgeValue =
-        targetActor.system.attributes[dodgeAttribute]?.value || 6;
-
-      // @ts-expect-error - DialogV2 path not fully typed
-      const dodgeAttempt = await foundry.applications.api.DialogV2.confirm({
-        window: { title: `Dodge ${powerName}?` },
-        content: `<p><strong>${targetActor.name}</strong> is targeted by <strong>${powerName}</strong> (${attackType} attack).</p>
-                <p>Attempt to dodge using <strong>${dodgeAttribute.charAt(0).toUpperCase() + dodgeAttribute.slice(1)}</strong> (${formatRankDisplay(dodgeRank)} / ${dodgeValue})?</p>`,
-        modal: true,
-        rejectClose: false,
-        yes: { label: "Dodge", icon: "fa-solid fa-person-running" },
-        no: { label: "Don't Dodge", icon: "fa-solid fa-xmark" }
-      });
-
-      if (dodgeAttempt) {
-        // Roll dodge
-        await FaseripRoll.rollAttribute(
-          `Dodge ${powerName}`,
-          dodgeRank,
-          dodgeValue,
-          0,
-          targetActor,
-          [],
-          undefined,
-          0,
-          0,
-          false,
-          0
-        );
-
-        ui.notifications?.info(
-          `${targetActor.name} attempts to dodge! Check the chat for the result.`
-        );
-
-        // For now, GM must manually decide if dodge succeeded
-        // Future enhancement: compare dodge roll to attack roll
-        return;
-      }
-    }
-  }
-
-  // Check for damage type resistance
-  if (damageType && damageType !== "none") {
-    const resistancePower = (targetActor.system.powers || []).find(
-      (p: any) =>
-        p.resistanceType === damageType &&
-        (!p.formIds?.length ||
-          p.formIds.includes(targetActor.system.currentFormId))
-    );
-
-    if (resistancePower) {
-      const resistanceValue = resistancePower.value;
-      if (resistanceValue >= damageAmount) {
-        // Complete resistance
-        await ChatMessage.create({
-          content: `<div class="fsr-chat-card fsr-success">
-            <h3>Resistance: Complete Immunity</h3>
-            <p><strong>${targetActor.name}</strong>'s ${resistancePower.name} (${formatRankDisplay(resistancePower.rank)}: ${resistanceValue}) completely resists ${damageAmount} ${damageType} damage from <strong>${powerName}</strong>!</p>
-          </div>`,
-          speaker: ChatMessage.getSpeaker({ actor: targetActor })
-        });
-        return; // No damage applied
-      } else {
-        // Partial resistance
-        await ChatMessage.create({
-          content: `<div class="fsr-chat-card">
-            <h3>Resistance: Partial Protection</h3>
-            <p><strong>${targetActor.name}</strong>'s ${resistancePower.name} (${formatRankDisplay(resistancePower.rank)}: ${resistanceValue}) reduces ${damageType} damage by ${resistanceValue}</p>
-            <p class="fsr-rank-change">${damageAmount} → ${damageAmount - resistanceValue} damage</p>
-          </div>`,
-          speaker: ChatMessage.getSpeaker({ actor: targetActor })
-        });
-        damageAmount -= resistanceValue;
-      }
-    }
-  }
-
-  let incoming = damageAmount;
-  const soakSources: string[] = [];
-
-  // Check for equipped armor (house rule setting)
-  const armorEnabled = game.settings.get("faserip", "armorEnabled") ?? false;
-  const equippedArmor = armorEnabled
-    ? (targetActor.system.armors || []).find((a: any) => a.equipped)
-    : null;
-
-  // Equipped armor soaks first (if enabled)
-  if (equippedArmor) {
-    const armorSoak = Math.min(incoming, equippedArmor.value);
-    if (armorSoak > 0) {
-      soakSources.push(`${equippedArmor.name} –${armorSoak}`);
-      incoming = Math.max(0, incoming - armorSoak);
-
-      // Degrade armor if the setting is enabled
-      const degradingEnabled =
-        game.settings.get("faserip", "degradingArmor") ?? false;
-      if (degradingEnabled) {
-        equippedArmor.value = Math.max(0, equippedArmor.value - armorSoak);
-        if (equippedArmor.value === 0) {
-          ui.notifications?.warn(
-            `${targetActor.name}'s ${equippedArmor.name} is destroyed!`
-          );
-        }
-      }
-    }
-  }
-
-  // Body Armor power soaks remainder
-  const bodyArmorPower = (targetActor.system.powers || []).find(
-    (p: any) =>
-      p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
-      (!p.formIds?.length ||
-        p.formIds.includes(targetActor.system.currentFormId))
-  );
-
-  if (bodyArmorPower && incoming > 0) {
-    const powerSoak = Math.min(incoming, bodyArmorPower.value);
-    if (powerSoak > 0) {
-      soakSources.push(`${bodyArmorPower.name} –${powerSoak}`);
-      incoming = Math.max(0, incoming - powerSoak);
-
-      // Degrade Body Armor power if the setting is enabled
-      const degradingEnabled =
-        game.settings.get("faserip", "degradingArmor") ?? false;
-      if (degradingEnabled) {
-        bodyArmorPower.value = Math.max(0, bodyArmorPower.value - powerSoak);
-        if (bodyArmorPower.value === 0) {
-          ui.notifications?.warn(
-            `${targetActor.name}'s ${bodyArmorPower.name} is destroyed!`
-          );
-        }
-      }
-    }
-  }
-
-  // Apply remaining damage to health
-  const oldHealth = targetActor.system.resources.health.value;
-  const newHealth = Math.max(-20, oldHealth - incoming);
-
-  await targetActor.update({
-    "system.resources.health.value": newHealth
-  });
-
-  if (soakSources.length > 0) {
-    ui.notifications?.info(
-      `${powerName} → ${targetActor.name}: Absorbed ${soakSources.join(", ")}. ${incoming} damage applied.`
-    );
-  } else {
-    ui.notifications?.info(
-      `${powerName} → ${targetActor.name}: ${incoming} damage applied.`
-    );
-  }
-}
-*/
 
 const expandedItems = ref<string | null>(null);
 function toggleItem(id: string) {
@@ -1032,7 +459,6 @@ function toggleItem(id: string) {
           </div>
 
           <div
-            v-if="power.attackType && power.attackType !== 'none'"
             class="mb-2 p-2 bg-indigo-950/30 border border-indigo-800 rounded"
           >
             <label class="flex items-center gap-2 cursor-pointer mb-2">
@@ -1099,6 +525,68 @@ function toggleItem(id: string) {
                 <label class="fsr-label">Duration Formula</label>
                 <input
                   v-model="ensureStatDebuff(power).durationFormula"
+                  type="text"
+                  class="fsr-input"
+                  placeholder="1d3"
+                />
+                <div class="text-xs text-gray-400 mt-1">
+                  Rolled when the effect lands, in rounds.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="mb-2 p-2 bg-purple-950/30 border border-purple-800 rounded"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                v-model="ensureDamageBuff(power).enabled"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
+              />
+              <span class="fsr-label mb-0">Temporary Damage (De)buff</span>
+            </label>
+
+            <div v-if="ensureDamageBuff(power).enabled" class="space-y-2">
+              <div class="grid grid-cols-3 gap-2">
+                <div>
+                  <label class="fsr-label">Half Success</label>
+                  <input
+                    v-model.number="ensureDamageBuff(power).greenShift"
+                    type="number"
+                    class="fsr-input"
+                    placeholder="-1"
+                  />
+                </div>
+                <div>
+                  <label class="fsr-label">Yellow</label>
+                  <input
+                    v-model.number="ensureDamageBuff(power).yellowShift"
+                    type="number"
+                    class="fsr-input"
+                    placeholder="-2"
+                  />
+                </div>
+                <div>
+                  <label class="fsr-label">Red</label>
+                  <input
+                    v-model.number="ensureDamageBuff(power).redShift"
+                    type="number"
+                    class="fsr-input"
+                    placeholder="-3"
+                  />
+                </div>
+              </div>
+
+              <div class="text-xs text-gray-400">
+                Affects target's damage output. Positive values buff damage, negative values debuff damage.
+              </div>
+
+              <div>
+                <label class="fsr-label">Duration Formula</label>
+                <input
+                  v-model="ensureDamageBuff(power).durationFormula"
                   type="text"
                   class="fsr-input"
                   placeholder="1d3"

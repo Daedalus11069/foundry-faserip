@@ -108,3 +108,34 @@ export function getStatDebuffShiftForResult(
 
   return 0;
 }
+
+/**
+ * Get the damage buff/debuff chart shift for a given attack result
+ * @param damageBuff - The damage buff configuration from power/weapon
+ * @param result - FASERIP result (Red, Yellow, Green, etc.)
+ * @param rollTotal - The total of the roll
+ * @returns The chart shift to apply
+ */
+export function getDamageBuffShiftForResult(
+  damageBuff: any,
+  result: RollResult | undefined,
+  rollTotal?: number
+): number {
+  if (!damageBuff?.enabled) {
+    return 0;
+  }
+
+  if (rollTotal === 100 || result === RollResult.Red) {
+    return Number(damageBuff.redShift || 0);
+  }
+
+  if (result === RollResult.Yellow) {
+    return Number(damageBuff.yellowShift || 0);
+  }
+
+  if (result === RollResult.Green) {
+    return Number(damageBuff.greenShift || 0);
+  }
+
+  return 0;
+}

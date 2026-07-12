@@ -81,6 +81,14 @@ export interface CharmanPowerStatDebuff {
   durationFormula: string;
 }
 
+export interface CharmanPowerDamageBuff {
+  enabled: boolean;
+  greenShift: number;
+  yellowShift: number;
+  redShift: number;
+  durationFormula: string;
+}
+
 export interface CharmanPower {
   name: string;
   rank: string | number | Record<string, string | number>; // Can be simple rank, numeric value, or form-specific ranks
@@ -98,6 +106,7 @@ export interface CharmanPower {
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   targetType?: "any" | "others" | "self"; // Who this power can target
   statDebuff?: CharmanPowerStatDebuff; // Temporary stat debuff applied on hit
+  damageBuff?: CharmanPowerDamageBuff; // Temporary damage buff/debuff applied on hit
 }
 
 export interface CharmanTalent {
@@ -580,6 +589,15 @@ export class CharmanService {
               yellowShift: power.statDebuff.yellowShift ?? 0,
               redShift: power.statDebuff.redShift ?? 0,
               durationFormula: power.statDebuff.durationFormula ?? ""
+            }
+          : undefined,
+        damageBuff: power.damageBuff
+          ? {
+              enabled: power.damageBuff.enabled ?? false,
+              greenShift: power.damageBuff.greenShift ?? 0,
+              yellowShift: power.damageBuff.yellowShift ?? 0,
+              redShift: power.damageBuff.redShift ?? 0,
+              durationFormula: power.damageBuff.durationFormula ?? ""
             }
           : undefined,
         value: power.value || getRankValue(rankName),

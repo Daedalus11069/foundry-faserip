@@ -23,6 +23,8 @@
         },
         "powers": [],
         "talents": [],
+        "temporaryStatModifiers": [],
+        "temporaryDamageModifiers": [],
         "armors": [],
         "weapons": [
           {

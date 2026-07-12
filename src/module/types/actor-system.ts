@@ -81,6 +81,14 @@ export interface PowerStatDebuffData {
   durationFormula: string;
 }
 
+export interface PowerDamageDebuffData {
+  enabled: boolean;
+  greenShift: number;
+  yellowShift: number;
+  redShift: number;
+  durationFormula: string;
+}
+
 export interface TemporaryStatModifierData {
   id: string;
   attribute: PowerStatDebuffData["attribute"];
@@ -88,6 +96,18 @@ export interface TemporaryStatModifierData {
   roundsRemaining: number;
   sourcePowerId?: string;
   sourcePowerName?: string;
+  durationFormula?: string;
+  combatId?: string | null;
+}
+
+export interface TemporaryDamageModifierData {
+  id: string;
+  chartShift: number;
+  roundsRemaining: number;
+  sourcePowerId?: string;
+  sourcePowerName?: string;
+  sourceWeaponId?: string;
+  sourceWeaponName?: string;
   durationFormula?: string;
   combatId?: string | null;
 }
@@ -112,6 +132,7 @@ export interface PowerData {
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   armorPiercing?: string | null; // Armor-piercing rank (for damage powers that pierce armor)
   statDebuff?: PowerStatDebuffData;
+  damageBuff?: PowerDamageDebuffData;
 }
 
 export interface TalentData {
@@ -164,6 +185,7 @@ export interface BaseActorSystemData {
   armors: ArmorData[];
   weapons: WeaponData[];
   temporaryStatModifiers?: TemporaryStatModifierData[];
+  temporaryDamageModifiers?: TemporaryDamageModifierData[];
   charman: CharmanData;
   actionsThisTurn: number; // Cumulative attacks taken this turn (drives combo penalty offset)
 }

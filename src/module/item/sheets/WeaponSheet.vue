@@ -217,6 +217,63 @@
         </div>
       </div>
 
+      <div class="fsr-form-group border border-purple-800 rounded p-4 bg-purple-950/20">
+        <label class="flex items-center gap-2 cursor-pointer mb-3">
+          <input
+            v-model="reactiveItem.system.damageBuff.enabled"
+            type="checkbox"
+            class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
+          />
+          <span class="fsr-form-label mb-0">Temporary Damage (De)buff</span>
+        </label>
+
+        <div v-if="reactiveItem.system.damageBuff.enabled" class="space-y-3">
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="fsr-form-label">Half Success</label>
+              <input
+                v-model.number="reactiveItem.system.damageBuff.greenShift"
+                type="number"
+                class="fsr-input"
+                placeholder="-1"
+              />
+            </div>
+            <div>
+              <label class="fsr-form-label">Yellow</label>
+              <input
+                v-model.number="reactiveItem.system.damageBuff.yellowShift"
+                type="number"
+                class="fsr-input"
+                placeholder="-2"
+              />
+            </div>
+            <div>
+              <label class="fsr-form-label">Red</label>
+              <input
+                v-model.number="reactiveItem.system.damageBuff.redShift"
+                type="number"
+                class="fsr-input"
+                placeholder="-3"
+              />
+            </div>
+          </div>
+
+          <div class="text-xs text-gray-400">
+            Affects target's damage output. Positive values buff damage, negative values debuff damage.
+          </div>
+
+          <div>
+            <label class="fsr-form-label">Duration Formula</label>
+            <input
+              v-model="reactiveItem.system.damageBuff.durationFormula"
+              type="text"
+              class="fsr-input"
+              placeholder="1d3"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- Equipped Checkbox -->
       <div class="fsr-form-group">
         <label
@@ -294,6 +351,16 @@ if (!reactiveItem.system.statDebuff) {
   reactiveItem.system.statDebuff = {
     enabled: false,
     attribute: "intuition",
+    greenShift: 0,
+    yellowShift: 0,
+    redShift: 0,
+    durationFormula: "1d3"
+  };
+}
+
+if (!reactiveItem.system.damageBuff) {
+  reactiveItem.system.damageBuff = {
+    enabled: false,
     greenShift: 0,
     yellowShift: 0,
     redShift: 0,

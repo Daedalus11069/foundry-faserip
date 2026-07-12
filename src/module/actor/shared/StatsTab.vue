@@ -18,6 +18,8 @@ import type { Talent } from "../../types";
 import {
   executeCombatAttack,
   applyPendingDamages,
+  applyHitStatDebuff,
+  applyHitDamageBuff,
   type PendingDamage
 } from "../../combat/combat-flow";
 import type {
@@ -1996,8 +1998,9 @@ async function rollPower(power: any) {
     return;
   }
 
+  let faseripRoll;
   if (comboResult.comboCount > 1) {
-    await FaseripRoll.rollComboAttack(
+    faseripRoll = await FaseripRoll.rollComboAttack(
       power.name,
       rank,
       rankValue,
@@ -2011,7 +2014,7 @@ async function rollPower(power: any) {
     );
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
-    await FaseripRoll.rollAttribute(
+    faseripRoll = await FaseripRoll.rollAttribute(
       power.name,
       rank,
       rankValue,
@@ -2024,6 +2027,43 @@ async function rollPower(power: any) {
       false,
       comboResult.manualChartShift ?? 0
     );
+  }
+
+  // Apply buffs/debuffs to targets (for automatic powers with effectType "none")
+  // @ts-expect-error - game.user.targets is a Set
+  const targets = Array.from(game.user?.targets || []) as Token[];
+
+  if (targets.length > 0 && faseripRoll) {
+    for (const token of targets) {
+      const targetActor = token.actor;
+      if (!targetActor) continue;
+
+      // Apply stat debuff if enabled
+      if (power.statDebuff?.enabled) {
+        await applyHitStatDebuff(
+          targetActor,
+          token.id,
+          {
+            powerName: power.name,
+            statDebuff: power.statDebuff
+          },
+          faseripRoll
+        );
+      }
+
+      // Apply damage buff if enabled
+      if (power.damageBuff?.enabled) {
+        await applyHitDamageBuff(
+          targetActor,
+          token.id,
+          {
+            powerName: power.name,
+            damageBuff: power.damageBuff
+          },
+          faseripRoll
+        );
+      }
+    }
   }
 
   // Deduct MP after successful roll
