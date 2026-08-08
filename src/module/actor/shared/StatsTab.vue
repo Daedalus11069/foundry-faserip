@@ -14,6 +14,7 @@ import {
   showTalentSelectionDialog,
   showAttackOptionsDialog
 } from "../../applications/dialog-utils";
+import { snapshotTemporaryModifiers } from "../../utils/temp-effects";
 import type { Talent } from "../../types";
 import {
   executeCombatAttack,
@@ -343,7 +344,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         availableKarma,
         "Unarmed Strike",
         talentCS,
-        actionsBeforeUnarmed
+        actionsBeforeUnarmed,
+        snapshotTemporaryModifiers(actor)
       );
 
       if (comboResult === null) {
@@ -595,7 +597,9 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
     rank,
     availableKarma,
     undefined,
-    totalCS
+    totalCS,
+    undefined,
+    snapshotTemporaryModifiers(actor)
   );
 
   if (comboResult === null) {
@@ -728,7 +732,8 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
     availableKarma,
     weaponLabel,
     talentCS,
-    getActionsThisTurn(reactiveActor.system)
+    getActionsThisTurn(reactiveActor.system),
+    snapshotTemporaryModifiers(actor)
   );
 
   if (comboResult === null) return;
@@ -961,7 +966,8 @@ async function rollWeapon(weapon: Weapon) {
     availableKarma,
     weapon.name,
     talentCS,
-    actionsBeforeWeapon
+    actionsBeforeWeapon,
+    snapshotTemporaryModifiers(actor)
   );
 
   if (comboResult === null) {
@@ -1811,7 +1817,8 @@ async function rollPower(power: any) {
       availableKarma,
       power.name,
       totalCS,
-      actionsBeforePower
+      actionsBeforePower,
+      snapshotTemporaryModifiers(actor)
     );
 
     if (comboResult === null) {
@@ -1991,7 +1998,9 @@ async function rollPower(power: any) {
     rank,
     availableKarma,
     power.name,
-    totalCS
+    totalCS,
+    undefined,
+    snapshotTemporaryModifiers(actor)
   );
 
   if (comboResult === null) {

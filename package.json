@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run unlink-dev && npm run link-dev && vite",
-    "dev-remote": "npm run unlink-dev && npm run link-dev && vite --port 30001",
+    "dev-remote": "npm run unlink-dev && npm run link-dev-dist && vite --port 30001",
     "build": "vite build",
     "auto-build": "node auto-build.cjs",
     "preview": "vite preview",

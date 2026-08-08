@@ -35,7 +35,9 @@ import type {
 } from "../types/actor-system";
 import {
   getActiveDamageModifierEffects,
-  sumChartShift
+  sumChartShift,
+  snapshotTemporaryModifiers,
+  consumeIncomingAttackModifiers
 } from "../utils/temp-effects";
 
 /**
@@ -751,7 +753,8 @@ export async function executeCombatAttack(
         currentKarma,
         powerName,
         talentCS,
-        attackData.actionsBeforeThisCombo
+        attackData.actionsBeforeThisCombo,
+        snapshotTemporaryModifiers(attacker)
       );
 
       if (!attackOptions) {
@@ -868,7 +871,8 @@ export async function executeCombatAttack(
       currentKarma,
       powerName,
       talentCS,
-      attackData.actionsBeforeThisCombo
+      attackData.actionsBeforeThisCombo,
+      snapshotTemporaryModifiers(attacker)
     );
 
     if (!attackOptions) {
@@ -902,9 +906,22 @@ export async function executeCombatAttack(
     return actionsBefore === 0 ? 0 : -(actionsBefore + 1);
   })();
 
+  // Apply any "incoming attack" debuffs/buffs the defender has active against
+  // them (e.g. "foes get +2CS to hit me next attack") - these live on the
+  // defender's actor, not the attacker's, so they're folded in here rather
+  // than via consumeTriggeredModifiers (which only looks at the attacker).
+  const defenderActor = targets[0]?.actor as FaseripActor | undefined;
+  const incomingAttackCS = defenderActor
+    ? await consumeIncomingAttackModifiers(defenderActor)
+    : 0;
+
   // Calculate total chart shift (manual + talent bonuses + combo penalty + botch penalty)
   const totalChartShift =
-    manualChartShift + (talentCS || 0) + comboPenalty + botchPenalty;
+    manualChartShift +
+    (talentCS || 0) +
+    comboPenalty +
+    botchPenalty +
+    incomingAttackCS;
 
   // Step 1: Roll attack with applied chart shifts
   // Pass karma shifts to rollAttribute - it will handle deduction and application

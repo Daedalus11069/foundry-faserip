@@ -103,6 +103,11 @@
             border-bottom-color: var(--fsr-primary);
         }
 
+        .fsr-tab-badge {
+            @apply inline-flex items-center justify-center ml-1 px-1.5 py-0.5 rounded-full bg-red-600 text-white text-xs font-bold leading-none;
+            min-width: 1.1rem;
+        }
+
         /* Content area */
         .fsr-content {
             @apply flex-1 px-3 pt-3 overflow-y-auto;

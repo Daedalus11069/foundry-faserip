@@ -92,13 +92,44 @@ const movementSquares = computed(() => {
 
 const gridUnits = computed(() => canvas?.scene?.grid.units || "ft");
 
+const effectsUpdateKey = ref(0);
+
+const activeEffectsCount = computed(() => {
+  void effectsUpdateKey.value;
+  return Array.from(actor.effects || []).filter(
+    (effect: any) => !effect.disabled
+  ).length;
+});
+
+const handleActiveEffectCreate = (effect: ActiveEffect) => {
+  if (effect.parent?._id === actor._id) {
+    effectsUpdateKey.value++;
+  }
+};
+
+const handleActiveEffectUpdate = (effect: ActiveEffect) => {
+  if (effect.parent?._id === actor._id) {
+    effectsUpdateKey.value++;
+  }
+};
+
+const handleActiveEffectDelete = (effect: ActiveEffect) => {
+  if (effect.parent?._id === actor._id) {
+    effectsUpdateKey.value++;
+  }
+};
+
 const tabs = computed(() => [
   { id: "stats", label: "Stats" },
   { id: "powers", label: "Powers" },
   { id: "talents", label: "Talents" },
   ...(weaponsEnabled.value ? [{ id: "weapons", label: "Weapons" }] : []),
   ...(armorEnabled.value ? [{ id: "armor", label: "Armor" }] : []),
-  { id: "effects", label: "Effects" },
+  {
+    id: "effects",
+    label: "Effects",
+    badge: activeEffectsCount.value > 0 ? activeEffectsCount.value : null
+  },
   { id: "biography", label: "Notes" },
   { id: "edit", label: "Edit" }
 ]);
@@ -436,6 +467,9 @@ onMounted(() => {
   Hooks.on("createItem", handleItemCreate);
   Hooks.on("updateItem", handleItemUpdate);
   Hooks.on("deleteItem", handleItemDelete);
+  Hooks.on("createActiveEffect", handleActiveEffectCreate);
+  Hooks.on("updateActiveEffect", handleActiveEffectUpdate);
+  Hooks.on("deleteActiveEffect", handleActiveEffectDelete);
 });
 
 onUnmounted(() => {
@@ -443,6 +477,9 @@ onUnmounted(() => {
   Hooks.off("createItem", handleItemCreate);
   Hooks.off("updateItem", handleItemUpdate);
   Hooks.off("deleteItem", handleItemDelete);
+  Hooks.off("createActiveEffect", handleActiveEffectCreate);
+  Hooks.off("updateActiveEffect", handleActiveEffectUpdate);
+  Hooks.off("deleteActiveEffect", handleActiveEffectDelete);
 });
 </script>
 
@@ -594,6 +631,7 @@ onUnmounted(() => {
         @click="activeTab = tab.id"
       >
         {{ tab.label }}
+        <span v-if="tab.badge" class="fsr-tab-badge">{{ tab.badge }}</span>
       </div>
     </div>
 

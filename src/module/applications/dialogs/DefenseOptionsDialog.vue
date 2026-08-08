@@ -7,6 +7,7 @@ import {
   applyChartShift,
   formatRankDisplay
 } from "../../enums";
+import type { TemporaryModifierSnapshot } from "../../utils/temp-effects";
 
 interface Props {
   defenderName: string;
@@ -19,10 +20,34 @@ interface Props {
   attackResult?: string;
   powerName?: string;
   talentCS?: number;
+  temporaryModifiers?: TemporaryModifierSnapshot[];
   dialog: VueDialog;
 }
 
 const props = defineProps<Props>();
+
+// Temporary modifiers that will apply to this defense roll (passive stat
+// modifiers on the defense attribute, plus nextDodge/nextAction trigger
+// effects). Informational only - consumption happens in
+// FaseripRoll.rollAttribute via consumeTriggeredModifiers.
+const pendingStatModifiers = computed(() => {
+  const attributeKey = props.defenseAttribute.toLowerCase();
+  return (props.temporaryModifiers ?? [])
+    .filter(m => {
+      if (m.flags.kind !== "stat") return false;
+      if (m.flags.attribute && m.flags.attribute !== attributeKey) return false;
+      if (m.flags.trigger) {
+        return m.flags.trigger === "nextDodge" || m.flags.trigger === "nextAction";
+      }
+      return true;
+    })
+    .map(m => ({
+      id: m.id,
+      name: m.flags.sourcePowerName || m.name,
+      chartShift: m.flags.chartShift,
+      trigger: m.flags.trigger
+    }));
+});
 
 // Attack result class for styling
 const attackResultClass = computed(() => {
@@ -69,9 +94,16 @@ const totalKarmaCost = computed(() => {
 
 const canAfford = computed(() => totalKarmaCost.value <= props.availableKarma);
 
+const pendingStatShiftTotal = computed(() =>
+  pendingStatModifiers.value.reduce((sum, m) => sum + m.chartShift, 0)
+);
+
 const effectiveRank = computed(() => {
   const totalShifts =
-    karmaColumnShifts.value + manualChartShift.value + (props.talentCS || 0);
+    karmaColumnShifts.value +
+    manualChartShift.value +
+    (props.talentCS || 0) +
+    pendingStatShiftTotal.value;
   return applyChartShift(props.defenseRank, totalShifts);
 });
 
@@ -145,16 +177,41 @@ function handleCancel() {
       <div class="text-sm">
         <strong>Defense Rank: </strong>
         <span
-          v-if="karmaColumnShifts > 0 || manualChartShift !== 0"
-          class="text-green-400"
+          v-if="karmaColumnShifts > 0 || manualChartShift !== 0 || pendingStatShiftTotal !== 0"
         >
-          {{ formatRankDisplay(defenseRank) }} →
-          {{ formatRankDisplay(effectiveRank) }}
+          <span class="text-gray-400 line-through">{{ formatRankDisplay(defenseRank) }}</span>
+          →
+          <span
+            :class="karmaColumnShifts + manualChartShift + (talentCS || 0) + pendingStatShiftTotal > 0
+              ? 'text-green-400 font-semibold'
+              : 'text-red-400 font-semibold'
+              "
+          >
+            {{ formatRankDisplay(effectiveRank) }}
+          </span>
         </span>
         <span v-else>{{ formatRankDisplay(defenseRank) }}</span>
       </div>
       <div class="text-sm">
         <strong>Available Karma: </strong> {{ availableKarma }}
+      </div>
+    </div>
+
+    <!-- Pending temporary stat modifiers (from EffectsTab / critical table draws) -->
+    <div
+      v-if="pendingStatModifiers.length > 0"
+      class="mb-4 p-3 bg-indigo-900/30 rounded border border-indigo-700"
+    >
+      <div class="text-sm font-semibold text-indigo-300 mb-1">
+        Active Buffs/Debuffs
+      </div>
+      <div
+        v-for="modifier in pendingStatModifiers"
+        :key="modifier.id"
+        class="text-xs text-indigo-200"
+      >
+        {{ modifier.name }}: {{ modifier.chartShift > 0 ? "+" : "" }}{{ modifier.chartShift }} CS
+        <span v-if="modifier.trigger" class="text-indigo-400">(consumed on this defense)</span>
       </div>
     </div>
 

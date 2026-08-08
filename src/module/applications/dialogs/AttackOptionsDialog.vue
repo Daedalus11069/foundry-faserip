@@ -8,6 +8,7 @@ import {
   applyChartShift,
   formatRankDisplay
 } from "../../enums";
+import type { TemporaryModifierSnapshot } from "../../utils/temp-effects";
 
 interface Props {
   attackerName: string;
@@ -17,6 +18,7 @@ interface Props {
   powerName?: string;
   talentCS?: number;
   actionsBeforeThisCombo?: number; // Attacks already taken this turn (shifts all combo penalties)
+  temporaryModifiers?: TemporaryModifierSnapshot[];
   dialog: VueDialog;
 }
 
@@ -28,6 +30,51 @@ interface AttackKarma {
 }
 
 const props = defineProps<Props>();
+
+// Temporary modifiers (from EffectsTab / critical table draws) that will
+// apply to this attack: passive stat modifiers for the rolled attribute,
+// any nextAttack/nextAction trigger effects, and passive/triggered damage
+// modifiers. These are informational only - actual consumption happens in
+// FaseripRoll.rollAttribute via consumeTriggeredModifiers.
+const pendingStatModifiers = computed(() => {
+  const attributeKey = props.attackAttribute.toLowerCase();
+  return (props.temporaryModifiers ?? [])
+    .filter(m => {
+      if (m.flags.kind !== "stat") return false;
+      if (m.flags.attribute && m.flags.attribute !== attributeKey) return false;
+      if (m.flags.trigger) {
+        return m.flags.trigger === "nextAttack" || m.flags.trigger === "nextAction";
+      }
+      return true;
+    })
+    .map(m => ({
+      id: m.id,
+      name: m.flags.sourcePowerName || m.name,
+      chartShift: m.flags.chartShift,
+      trigger: m.flags.trigger
+    }));
+});
+
+const pendingDamageModifiers = computed(() => {
+  return (props.temporaryModifiers ?? [])
+    .filter(m => {
+      if (m.flags.kind !== "damage") return false;
+      if (m.flags.trigger) {
+        return m.flags.trigger === "nextAttack" || m.flags.trigger === "nextAction";
+      }
+      return true;
+    })
+    .map(m => ({
+      id: m.id,
+      name: m.flags.sourceWeaponName || m.flags.sourcePowerName || m.name,
+      chartShift: m.flags.chartShift,
+      trigger: m.flags.trigger
+    }));
+});
+
+const pendingStatShiftTotal = computed(() =>
+  pendingStatModifiers.value.reduce((sum, m) => sum + m.chartShift, 0)
+);
 
 // Combo attack settings
 const comboCount = ref(1);
@@ -164,9 +211,14 @@ const totalKarmaCost = computed(() => {
 
 const canAfford = computed(() => totalKarmaCost.value <= props.availableKarma);
 
-// Display rank with manual chart shift and talent bonuses applied
+// Display rank with manual chart shift, talent bonuses, and active
+// stat modifiers (buffs/debuffs from EffectsTab / critical table draws)
+// applied
 const displayedAttackRank = computed(() => {
-  const totalShifts = manualChartShift.value + (props.talentCS || 0);
+  const totalShifts =
+    manualChartShift.value +
+    (props.talentCS || 0) +
+    pendingStatShiftTotal.value;
   if (totalShifts === 0) {
     return formatRankDisplay(props.attackRank);
   }
@@ -177,7 +229,9 @@ const displayedAttackRank = computed(() => {
 // Check if rank has been modified from base
 const rankIsModified = computed(() => {
   return (
-    manualChartShift.value !== 0 || (props.talentCS && props.talentCS !== 0)
+    manualChartShift.value !== 0 ||
+    (props.talentCS && props.talentCS !== 0) ||
+    pendingStatShiftTotal.value !== 0
   );
 });
 
@@ -285,7 +339,7 @@ function handleCancel() {
           }}</span>
           →
           <span
-            :class="manualChartShift > 0 || (talentCS && talentCS > 0)
+            :class="manualChartShift + (talentCS || 0) + pendingStatShiftTotal > 0
               ? 'text-green-400 font-semibold'
               : 'text-red-400 font-semibold'
               "
@@ -313,6 +367,42 @@ function handleCancel() {
       <div class="text-sm text-orange-300">
         <strong>Talent Bonus:</strong>
         <span class="ml-2">{{ talentCS > 0 ? "+" : "" }}{{ talentCS }} CS</span>
+      </div>
+    </div>
+
+    <!-- Pending temporary stat modifiers (from EffectsTab / critical table draws) -->
+    <div
+      v-if="pendingStatModifiers.length > 0"
+      class="mb-4 p-3 bg-indigo-900/30 rounded border border-indigo-700"
+    >
+      <div class="text-sm font-semibold text-indigo-300 mb-1">
+        Active Buffs/Debuffs ({{ pendingStatShiftTotal > 0 ? "+" : "" }}{{ pendingStatShiftTotal }} CS)
+      </div>
+      <div
+        v-for="modifier in pendingStatModifiers"
+        :key="modifier.id"
+        class="text-xs text-indigo-200"
+      >
+        {{ modifier.name }}: {{ modifier.chartShift > 0 ? "+" : "" }}{{ modifier.chartShift }} CS
+        <span v-if="modifier.trigger" class="text-indigo-400">(consumed on this attack)</span>
+      </div>
+    </div>
+
+    <!-- Pending temporary damage modifiers -->
+    <div
+      v-if="pendingDamageModifiers.length > 0"
+      class="mb-4 p-3 bg-purple-900/30 rounded border border-purple-700"
+    >
+      <div class="text-sm font-semibold text-purple-300 mb-1">
+        Active Damage Modifiers
+      </div>
+      <div
+        v-for="modifier in pendingDamageModifiers"
+        :key="modifier.id"
+        class="text-xs text-purple-200"
+      >
+        {{ modifier.name }}: {{ modifier.chartShift > 0 ? "+" : "" }}{{ modifier.chartShift }} CS Damage
+        <span v-if="modifier.trigger" class="text-purple-400">(consumed on this attack)</span>
       </div>
     </div>
 

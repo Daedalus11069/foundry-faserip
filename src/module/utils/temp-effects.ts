@@ -23,14 +23,24 @@ import type { AttributeKey } from "./stat-debuffs";
  * trigger effect that's never used eventually falls off (per the source
  * table's "next round" wording) instead of lingering forever.
  */
-export type TemporaryModifierTrigger = "nextAttack" | "nextDodge" | "nextAction";
+export type TemporaryModifierTrigger =
+  | "nextAttack"
+  | "nextDodge"
+  | "nextAction";
 
 export interface TemporaryModifierFlags {
-  kind: "stat" | "damage";
+  kind: "stat" | "damage" | "incoming";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
   trigger?: TemporaryModifierTrigger;
+  /**
+   * Only meaningful when trigger is set. Number of matching rolls the
+   * modifier survives before being deleted - each matching roll decrements
+   * it by 1 instead of deleting the effect outright. Undefined preserves the
+   * original behavior of consuming (deleting) on the first matching roll.
+   */
+  usesRemaining?: number;
   sourcePowerId?: string | null;
   sourcePowerName?: string | null;
   sourceWeaponId?: string | null;
@@ -38,11 +48,12 @@ export interface TemporaryModifierFlags {
 }
 
 export interface ApplyTemporaryModifierOptions {
-  kind: "stat" | "damage";
+  kind: "stat" | "damage" | "incoming";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
   trigger?: TemporaryModifierTrigger;
+  usesRemaining?: number;
   sourceName?: string | null;
   sourcePowerId?: string | null;
   sourceWeaponId?: string | null;
@@ -68,7 +79,13 @@ export async function applyTemporaryModifier(
   const label =
     options.kind === "stat"
       ? `${sourceName} (${options.attribute} ${chartShift > 0 ? "+" : ""}${chartShift}CS)`
-      : `${sourceName} (Damage ${chartShift > 0 ? "+" : ""}${chartShift}CS)`;
+      : options.kind === "damage"
+        ? `${sourceName} (Damage ${chartShift > 0 ? "+" : ""}${chartShift}CS)`
+        : `${sourceName} (Foes ${chartShift > 0 ? "+" : ""}${chartShift}CS to hit)`;
+
+  const usesRemaining = options.usesRemaining
+    ? Math.max(1, Math.floor(Number(options.usesRemaining) || 1))
+    : undefined;
 
   const flags: TemporaryModifierFlags = {
     kind: options.kind,
@@ -76,6 +93,7 @@ export async function applyTemporaryModifier(
     chartShift,
     roundsRemaining,
     trigger: options.trigger,
+    usesRemaining,
     sourcePowerId: options.sourcePowerId ?? null,
     sourcePowerName: options.kind === "stat" ? sourceName : undefined,
     sourceWeaponId: options.sourceWeaponId ?? null,
@@ -86,9 +104,7 @@ export async function applyTemporaryModifier(
     {
       name: label,
       img:
-        chartShift >= 0
-          ? "icons/svg/upgrade.svg"
-          : "icons/svg/downgrade.svg",
+        chartShift >= 0 ? "icons/svg/upgrade.svg" : "icons/svg/downgrade.svg",
       changes: [],
       flags: {
         faserip: flags
@@ -116,18 +132,64 @@ export async function consumeTriggeredModifiers(
     const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
     if (!flags || flags.kind !== "stat") return false;
     if (!isModifierActive(effect)) return false;
-    return (
-      flags.trigger === triggerKind || flags.trigger === "nextAction"
-    );
+    return flags.trigger === triggerKind || flags.trigger === "nextAction";
   }) as any[];
 
   if (!matches.length) return 0;
 
+  return consumeModifierEffects(actor, matches);
+}
+
+/**
+ * Consume (delete or decrement usesRemaining on) any "incoming attack"
+ * modifier effects on the defender - debuffs like "foes get +2CS to hit me
+ * next attack" that shift an attacker's roll instead of the defender's own.
+ * Called from the single-target attack-roll path in combat-flow.ts once the
+ * defending actor is known, right before the attack's chart shift is
+ * finalized.
+ */
+export async function consumeIncomingAttackModifiers(
+  defender: any
+): Promise<number> {
+  if (!defender?.effects) return 0;
+
+  const matches = Array.from(defender.effects).filter((effect: any) => {
+    const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
+    if (!flags || flags.kind !== "incoming") return false;
+    return isModifierActive(effect);
+  }) as any[];
+
+  if (!matches.length) return 0;
+
+  return consumeModifierEffects(defender, matches);
+}
+
+/**
+ * Shared consumption logic: sums the matched effects' chart shifts, then
+ * either decrements usesRemaining (if set) or deletes each effect outright.
+ */
+async function consumeModifierEffects(
+  actor: any,
+  matches: any[]
+): Promise<number> {
   const totalShift = sumChartShift(matches);
-  await actor.deleteEmbeddedDocuments(
-    "ActiveEffect",
-    matches.map(effect => effect.id)
-  );
+
+  const toDelete: string[] = [];
+  for (const effect of matches) {
+    const usesRemaining = effect.flags?.faserip?.usesRemaining;
+    if (usesRemaining !== undefined && usesRemaining !== null) {
+      const next = Number(usesRemaining) - 1;
+      if (next > 0) {
+        await effect.update({ "flags.faserip.usesRemaining": next });
+        continue;
+      }
+    }
+    toDelete.push(effect.id);
+  }
+
+  if (toDelete.length > 0) {
+    await actor.deleteEmbeddedDocuments("ActiveEffect", toDelete);
+  }
 
   return totalShift;
 }
@@ -214,6 +276,34 @@ export function getActiveDamageModifierEffects(actor: any): any[] {
   });
 }
 
+/** Plain, serializable snapshot of a temporary-modifier ActiveEffect, safe to pass through Vue's reactive() without touching the live Foundry document. */
+export interface TemporaryModifierSnapshot {
+  id: string;
+  name: string;
+  flags: TemporaryModifierFlags;
+}
+
+/**
+ * Snapshot every faserip temporary-modifier ActiveEffect on the actor into
+ * plain objects. Used to hand modifier data to Vue dialogs (e.g.
+ * AttackOptionsDialog/DefenseOptionsDialog) without passing the live actor
+ * document itself - VueDialog wraps its props in Vue's reactive(), which
+ * deep-proxies objects and breaks Foundry's EmbeddedCollection internals
+ * (actor.effects) if the actor is passed directly.
+ */
+export function snapshotTemporaryModifiers(
+  actor: any
+): TemporaryModifierSnapshot[] {
+  return Array.from(actor?.effects ?? [])
+    .filter((effect: any) => !effect.disabled && !!effect.flags?.faserip)
+    .filter(isModifierActive)
+    .map((effect: any) => ({
+      id: effect.id,
+      name: effect.name,
+      flags: { ...effect.flags.faserip }
+    }));
+}
+
 export function sumChartShift(effects: any[]): number {
   return effects.reduce((sum, effect) => {
     const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
@@ -247,7 +337,6 @@ export async function drawCriticalTableEffect(
 
   await ChatMessage.create({
     content: `<strong>${label}</strong><br>${drawnResults.map((r: any) => r.description || r.text).join("<br>")}`,
-    // @ts-expect-error - actor may be undefined, but getSpeaker accepts undefined
     speaker: ChatMessage.getSpeaker({ actor }),
     flavor: label
   });

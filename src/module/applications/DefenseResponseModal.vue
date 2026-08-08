@@ -77,6 +77,7 @@ import type { FaseripActor } from "../documents";
 import { FaseripRoll } from "../rolling/FaseripRoll";
 import { formatRankDisplay, type Rank, applyChartShift } from "../enums";
 import { stringToRank } from "../utils";
+import { snapshotTemporaryModifiers } from "../utils/temp-effects";
 import { showDefenseOptionsDialog } from "./dialog-utils";
 import type { VueDialog } from "./vue-dialog";
 
@@ -169,7 +170,8 @@ async function handleDefend() {
     props.attackRoll,
     props.attackResult,
     props.powerName,
-    props.talentCS
+    props.talentCS,
+    snapshotTemporaryModifiers(rawActor)
   );
 
   if (!defenseOptions) {

@@ -8,6 +8,7 @@ import MovementSettingsDialog from "./dialogs/MovementSettingsDialog.vue";
 import TableEffectsEditor from "./dialogs/TableEffectsEditor.vue";
 import { Rank } from "../enums";
 import type { Talent, SelectedTalent } from "../types";
+import type { TemporaryModifierSnapshot } from "../utils/temp-effects";
 
 interface KarmaSpendResult {
   karmaSpent: number;
@@ -140,7 +141,8 @@ export async function showAttackOptionsDialog(
   availableKarma: number,
   powerName?: string,
   talentCS?: number,
-  actionsBeforeThisCombo?: number
+  actionsBeforeThisCombo?: number,
+  temporaryModifiers?: TemporaryModifierSnapshot[]
 ): Promise<{
   comboCount: number;
   attackKarmaSettings: Array<{
@@ -162,7 +164,8 @@ export async function showAttackOptionsDialog(
       availableKarma,
       powerName,
       talentCS,
-      actionsBeforeThisCombo
+      actionsBeforeThisCombo,
+      temporaryModifiers
     },
     {
       window: {
@@ -204,7 +207,8 @@ export async function showDefenseOptionsDialog(
   attackRoll?: number,
   attackResult?: string,
   powerName?: string,
-  talentCS?: number
+  talentCS?: number,
+  temporaryModifiers?: TemporaryModifierSnapshot[]
 ): Promise<{
   karmaColumnShifts: number;
   karmaResultShift: number;
@@ -222,7 +226,8 @@ export async function showDefenseOptionsDialog(
       attackRoll,
       attackResult,
       powerName,
-      talentCS
+      talentCS,
+      temporaryModifiers
     },
     {
       window: {
