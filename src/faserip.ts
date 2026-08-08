@@ -26,6 +26,7 @@ import {
   parseRankExpression
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
+import { tickTemporaryModifiers } from "./module/utils/temp-effects";
 import {
   showIntuitionOverlay,
   removeIntuitionOverlay,
@@ -855,6 +856,10 @@ Hooks.on("deleteToken", (_scene: any, tokenDoc: any) => {
   if (tokenDoc?.id) removeIntuitionOverlay(tokenDoc.id);
 });
 
+// Temporary stat/damage modifiers live as ActiveEffects (not combat-linked -
+// see temp-effects.ts) with their own roundsRemaining counter in
+// flags.faserip. Tick it down
+// explicitly each round and delete effects that hit zero.
 Hooks.on("updateCombat", async (combat: any, changes: any) => {
   if (changes.round === undefined) {
     return;
@@ -865,48 +870,7 @@ Hooks.on("updateCombat", async (combat: any, changes: any) => {
     return;
   }
 
-  const processedActors = new Set<string>();
-
-  for (const combatant of combat.combatants ?? []) {
-    const combatantActor = combatant.token?.actor || combatant.actor;
-    if (!combatantActor) {
-      continue;
-    }
-
-    const actorKey = combatantActor.uuid || combatantActor.id || combatant.id;
-    if (processedActors.has(actorKey)) {
-      continue;
-    }
-    processedActors.add(actorKey);
-
-    const system = combatantActor.system as any;
-    const modifiers = system.temporaryStatModifiers || [];
-    if (!modifiers.length) {
-      continue;
-    }
-
-    const updatedModifiers = modifiers
-      .map((modifier: any) => {
-        if (modifier.combatId !== combat.id) {
-          return modifier;
-        }
-
-        return {
-          ...modifier,
-          roundsRemaining: Math.max(
-            0,
-            Number(modifier.roundsRemaining || 0) - 1
-          )
-        };
-      })
-      .filter((modifier: any) => Number(modifier.roundsRemaining || 0) > 0);
-
-    if (JSON.stringify(updatedModifiers) !== JSON.stringify(modifiers)) {
-      await combatantActor.update({
-        "system.temporaryStatModifiers": updatedModifiers
-      });
-    }
-  }
+  await tickTemporaryModifiers(combat);
 });
 
 // Hook: Ensure bars are present when tokens are updated
@@ -955,6 +919,31 @@ Hooks.on(
 // Ready hook
 Hooks.once("ready", async () => {
   console.log("FASERIP | System ready");
+
+  // Suppress Foundry's core "you do not have permission to update/delete
+  // this document" warnings for non-GM clients. These fire on every
+  // connected client (not just the one acting) when a GM-driven update to a
+  // GM-owned actor is broadcast over the socket and a player's client tries
+  // to locally apply it - the write already succeeded, so the warning is
+  // just noise for players. GMs still see real permission errors.
+  // @ts-expect-error - Foundry game.user global
+  if (!game.user?.isGM && ui.notifications) {
+    const originalWarn = ui.notifications.warn.bind(ui.notifications);
+    const originalError = ui.notifications.error.bind(ui.notifications);
+    const isOwnershipNoise = (message: unknown) =>
+      typeof message === "string" &&
+      /do not have (permission|the required permissions)/i.test(message) &&
+      /(update|delete|modify)/i.test(message);
+
+    ui.notifications.warn = (message: unknown, options?: unknown) => {
+      if (isOwnershipNoise(message)) return undefined as any;
+      return originalWarn(message as any, options as any);
+    };
+    ui.notifications.error = (message: unknown, options?: unknown) => {
+      if (isOwnershipNoise(message)) return undefined as any;
+      return originalError(message as any, options as any);
+    };
+  }
 
   // Diagnostic: Log valid item types recognized by Foundry
   // @ts-expect-error - TypeScript doesn't recognize documentTypes on game

@@ -1,9 +1,7 @@
 import { applyChartShift, type Rank, RANK_VALUES, RollResult } from "../enums";
-import type {
-  PowerStatDebuffData,
-  TemporaryStatModifierData
-} from "../types/actor-system";
+import type { PowerStatDebuffData } from "../types/actor-system";
 import { stringToRank } from "../utils";
+import { getActiveStatModifierEffects } from "./temp-effects";
 
 export const ATTRIBUTE_KEYS = [
   "fighting",
@@ -24,7 +22,7 @@ export interface EffectiveAttributeData {
   baseRank: Rank;
   baseValue: number;
   totalShift: number;
-  modifiers: TemporaryStatModifierData[];
+  modifiers: any[];
 }
 
 export function getCurrentFormFromSystem(system: any): any | null {
@@ -40,10 +38,11 @@ export function getCurrentFormFromSystem(system: any): any | null {
 }
 
 export function getEffectiveAttributeData(
-  actorOrSystem: { system?: any } | any,
+  actorOrSystem: { system?: any; effects?: any } | any,
   attributeKey: AttributeKey
 ): EffectiveAttributeData | null {
-  const system = actorOrSystem?.system ?? actorOrSystem;
+  const isActor = actorOrSystem?.system !== undefined;
+  const system = isActor ? actorOrSystem.system : actorOrSystem;
   const currentForm = getCurrentFormFromSystem(system);
 
   if (!currentForm?.attributes?.[attributeKey]) {
@@ -53,19 +52,16 @@ export function getEffectiveAttributeData(
   const baseAttribute = currentForm.attributes[attributeKey];
   const baseRank = stringToRank(baseAttribute.rank) as Rank;
   const baseValue = Number(baseAttribute.value || 0);
-  const modifiers = (
-    (system.temporaryStatModifiers || []) as TemporaryStatModifierData[]
-  )
-    .filter(
-      modifier =>
-        modifier.attribute === attributeKey &&
-        Number(modifier.roundsRemaining || 0) > 0
-    )
-    .map(modifier => ({
-      ...modifier,
-      chartShift: Number(modifier.chartShift || 0),
-      roundsRemaining: Number(modifier.roundsRemaining || 0)
-    }));
+  const modifiers = isActor
+    ? getActiveStatModifierEffects(actorOrSystem, attributeKey).map(
+        effect => ({
+          id: effect.id,
+          chartShift: Number(effect.flags?.faserip?.chartShift || 0),
+          sourcePowerName:
+            effect.flags?.faserip?.sourcePowerName || effect.name
+        })
+      )
+    : [];
 
   const totalShift = modifiers.reduce(
     (sum, modifier) => sum + Number(modifier.chartShift || 0),

@@ -429,6 +429,9 @@ export class ActorDataModel extends TypeDataModel<
       // Talents (stored as references)
       talents: new ArrayField(defineTalentRefSchema()),
 
+      // DEPRECATED: Temporary buffs/debuffs now use native ActiveEffects
+      // (see src/module/utils/temp-effects.ts). Kept for backwards
+      // compatibility with existing actors; no longer written to.
       temporaryStatModifiers: new ArrayField(
         new SchemaField({
           id: new StringField({ required: true }),
@@ -472,6 +475,7 @@ export class ActorDataModel extends TypeDataModel<
         }
       ),
 
+      // DEPRECATED: see temporaryStatModifiers above.
       temporaryDamageModifiers: new ArrayField(
         new SchemaField({
           id: new StringField({ required: true }),

@@ -11,6 +11,7 @@ import { formatRankDisplay } from "../enums";
 import type { BaseActorSystemData } from "../types/actor-system";
 import { applyDamageToActor } from "../utils/damage-application";
 import { getEffectiveAttributeData } from "../utils/stat-debuffs";
+import { applyTemporaryModifier } from "../utils/temp-effects";
 
 /**
  * Socket module instance
@@ -1091,22 +1092,14 @@ async function handleApplyStatDebuff(
     return null;
   }
 
-  const system = targetActor.system as any;
-  const modifiers = [...(system.temporaryStatModifiers || [])];
-  modifiers.push({
-    id: foundry.utils.randomID(),
-    attribute: data.attribute,
+  await applyTemporaryModifier(targetActor, {
+    kind: "stat",
+    attribute: data.attribute as any,
     chartShift: data.chartShift,
-    roundsRemaining: Math.max(1, Math.floor(data.roundsRemaining)),
-    sourcePowerId: data.sourcePowerId,
-    sourcePowerName: data.sourcePowerName,
-    durationFormula: data.durationFormula,
-    combatId: data.combatId ?? null
+    roundsRemaining: data.roundsRemaining,
+    sourceName: data.sourcePowerName,
+    sourcePowerId: data.sourcePowerId
   });
-
-  await targetActor.update({
-    "system.temporaryStatModifiers": modifiers
-  } as Record<string, unknown>);
 
   return data;
 }
@@ -1145,25 +1138,15 @@ async function handleApplyDamageBuff(
     return null;
   }
 
-  const system = targetActor.system as any;
-  const modifiers = [...(system.temporaryDamageModifiers || [])];
-  const newModifier = {
-    id: foundry.utils.randomID(),
+  await applyTemporaryModifier(targetActor, {
+    kind: "damage",
     chartShift: data.chartShift,
-    roundsRemaining: Math.max(1, Math.floor(data.roundsRemaining)),
+    roundsRemaining: data.roundsRemaining,
+    sourceName: data.sourcePowerName,
     sourcePowerId: data.sourcePowerId,
-    sourcePowerName: data.sourcePowerName,
     sourceWeaponId: data.sourceWeaponId,
-    sourceWeaponName: data.sourceWeaponName,
-    durationFormula: data.durationFormula,
-    combatId: data.combatId ?? null
-  };
-
-  modifiers.push(newModifier);
-
-  const updateResult = await targetActor.update({
-    "system.temporaryDamageModifiers": modifiers
-  } as Record<string, unknown>);
+    sourceWeaponName: data.sourceWeaponName
+  });
 
   return data;
 }

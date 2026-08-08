@@ -55,33 +55,9 @@ export function initTurnActionsTracker(): void {
       await resetActionsThisTurn(current.actor);
     }
 
-    // Decrement temporary modifiers (stat debuffs and damage buffs) for all combatants
-    for (const combatant of combat.combatants ?? []) {
-      const actor = combatant.actor;
-      if (!actor) continue;
-
-      // Decrement temporary stat modifiers
-      const statModifiers = actor.system.temporaryStatModifiers || [];
-      const updatedStatModifiers = statModifiers.map((mod: any) => ({
-        ...mod,
-        roundsRemaining: Math.max(0, (mod.roundsRemaining || 0) - 1)
-      }));
-
-      // Decrement temporary damage modifiers
-      const damageModifiers = actor.system.temporaryDamageModifiers || [];
-      const updatedDamageModifiers = damageModifiers.map((mod: any) => ({
-        ...mod,
-        roundsRemaining: Math.max(0, (mod.roundsRemaining || 0) - 1)
-      }));
-
-      // Only update if there are modifiers to update
-      if (statModifiers.length > 0 || damageModifiers.length > 0) {
-        await actor.update({
-          "system.temporaryStatModifiers": updatedStatModifiers,
-          "system.temporaryDamageModifiers": updatedDamageModifiers
-        });
-      }
-    }
+    // Temporary stat/damage modifiers now live as combat-linked ActiveEffects
+    // and expire automatically via Foundry's native duration.rounds tracking —
+    // no manual decrement needed here.
 
     // Clear exhaustion stuns from all combatants — they last one round only
     for (const combatant of combat.combatants ?? []) {

@@ -2,6 +2,7 @@
 import { inject, computed, ref, onMounted, onUnmounted } from "vue";
 import type { FaseripActor } from "../../documents";
 import type { ReactiveActorData } from "../../types/actor-system";
+import { applyTemporaryModifier } from "../../utils/temp-effects";
 
 const actor = inject("actor") as FaseripActor;
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -41,21 +42,13 @@ const newDamageModifier = ref({
 async function addStatModifier() {
   if (!canManageEffects.value) return;
 
-  const modifiers = [...((actor.system as any).temporaryStatModifiers || [])];
-  modifiers.push({
-    id: foundry.utils.randomID(),
-    attribute: newStatModifier.value.attribute,
+  await applyTemporaryModifier(actor, {
+    kind: "stat",
+    attribute: newStatModifier.value.attribute as any,
     chartShift: Number(newStatModifier.value.chartShift) || 0,
-    roundsRemaining: Math.max(1, Math.floor(Number(newStatModifier.value.roundsRemaining) || 1)),
-    sourcePowerId: undefined,
-    sourcePowerName: newStatModifier.value.sourceName?.trim() || "GM Applied",
-    durationFormula: undefined,
-    combatId: (game as any).combat?.id ?? null
+    roundsRemaining: Number(newStatModifier.value.roundsRemaining) || 1,
+    sourceName: newStatModifier.value.sourceName
   });
-
-  await actor.update({
-    "system.temporaryStatModifiers": modifiers
-  } as Record<string, unknown>);
 
   showAddStatModifier.value = false;
   newStatModifier.value = {
@@ -69,22 +62,12 @@ async function addStatModifier() {
 async function addDamageModifier() {
   if (!canManageEffects.value) return;
 
-  const modifiers = [...((actor.system as any).temporaryDamageModifiers || [])];
-  modifiers.push({
-    id: foundry.utils.randomID(),
+  await applyTemporaryModifier(actor, {
+    kind: "damage",
     chartShift: Number(newDamageModifier.value.chartShift) || 0,
-    roundsRemaining: Math.max(1, Math.floor(Number(newDamageModifier.value.roundsRemaining) || 1)),
-    sourcePowerId: undefined,
-    sourcePowerName: newDamageModifier.value.sourceName?.trim() || "GM Applied",
-    sourceWeaponId: undefined,
-    sourceWeaponName: undefined,
-    durationFormula: undefined,
-    combatId: (game as any).combat?.id ?? null
+    roundsRemaining: Number(newDamageModifier.value.roundsRemaining) || 1,
+    sourceName: newDamageModifier.value.sourceName
   });
-
-  await actor.update({
-    "system.temporaryDamageModifiers": modifiers
-  } as Record<string, unknown>);
 
   showAddDamageModifier.value = false;
   newDamageModifier.value = {
@@ -98,7 +81,7 @@ const activeEffects = computed(() => {
   void effectsUpdateKey.value;
 
   return Array.from(actor.effects || [])
-    .filter((effect: any) => !effect.disabled)
+    .filter((effect: any) => !effect.disabled && !effect.flags?.faserip)
     .map((effect: any) => ({
       id: effect.id,
       name: effect.name || "Unnamed Effect",
@@ -119,19 +102,28 @@ const activeStatuses = computed(() => {
 const temporaryStatModifiers = computed(() => {
   void effectsUpdateKey.value;
 
-  // Read from real actor, not reactive clone, so socket updates are visible
-  return ((actor.system as any).temporaryStatModifiers || []).filter(
-    (modifier: any) => Number(modifier.roundsRemaining || 0) > 0
-  );
+  return Array.from(actor.effects || [])
+    .filter((effect: any) => !effect.disabled && effect.flags?.faserip?.kind === "stat")
+    .map((effect: any) => ({
+      id: effect.id,
+      attribute: effect.flags.faserip.attribute,
+      chartShift: effect.flags.faserip.chartShift,
+      roundsRemaining: effect.flags.faserip.roundsRemaining ?? 0,
+      sourcePowerName: effect.flags.faserip.sourcePowerName || effect.name
+    }));
 });
 
 const temporaryDamageModifiers = computed(() => {
   void effectsUpdateKey.value;
 
-  // Read from real actor, not reactive clone, so socket updates are visible
-  return ((actor.system as any).temporaryDamageModifiers || []).filter(
-    (modifier: any) => Number(modifier.roundsRemaining || 0) > 0
-  );
+  return Array.from(actor.effects || [])
+    .filter((effect: any) => !effect.disabled && effect.flags?.faserip?.kind === "damage")
+    .map((effect: any) => ({
+      id: effect.id,
+      chartShift: effect.flags.faserip.chartShift,
+      roundsRemaining: effect.flags.faserip.roundsRemaining ?? 0,
+      sourcePowerName: effect.flags.faserip.sourcePowerName || effect.name
+    }));
 });
 
 const hasAnyEffects = computed(() => {
@@ -150,49 +142,42 @@ function refreshEffects() {
 async function removeTemporaryModifier(modifierId: string) {
   if (!canManageEffects.value) return;
 
-  const modifier = ((actor.system as any).temporaryStatModifiers || []).find(
-    (m: any) => m.id === modifierId
-  );
+  const effect = actor.effects.get(modifierId);
+  if (!effect) return;
 
   const confirmed = await foundry.applications.api.DialogV2.confirm({
-    content: `<p>Remove stat modifier from <strong>${modifier?.sourcePowerName || 'Unknown Source'}</strong>?</p>`,
+    content: `<p>Remove stat modifier from <strong>${effect.flags?.faserip?.sourcePowerName || effect.name || 'Unknown Source'}</strong>?</p>`,
     rejectClose: false,
     modal: true
   });
 
   if (!confirmed) return;
 
-  const updatedModifiers = ((actor.system as any).temporaryStatModifiers || []).filter(
-    (modifier: any) => modifier.id !== modifierId
-  );
+  // The effect may have already expired (round-tick deletion) while the
+  // confirm dialog was open - re-check before deleting to avoid a
+  // double-delete "id does not exist" server error.
+  if (!actor.effects.get(modifierId)) return;
 
-  await actor.update({
-    "system.temporaryStatModifiers": updatedModifiers
-  } as Record<string, unknown>);
+  await effect.delete();
 }
 
 async function removeTemporaryDamageModifier(modifierId: string) {
   if (!canManageEffects.value) return;
 
-  const modifier = ((actor.system as any).temporaryDamageModifiers || []).find(
-    (m: any) => m.id === modifierId
-  );
+  const effect = actor.effects.get(modifierId);
+  if (!effect) return;
 
   const confirmed = await foundry.applications.api.DialogV2.confirm({
-    content: `<p>Remove damage modifier from <strong>${modifier?.sourcePowerName || 'Unknown Source'}</strong>?</p>`,
+    content: `<p>Remove damage modifier from <strong>${effect.flags?.faserip?.sourcePowerName || effect.name || 'Unknown Source'}</strong>?</p>`,
     rejectClose: false,
     modal: true
   });
 
   if (!confirmed) return;
 
-  const updatedModifiers = ((actor.system as any).temporaryDamageModifiers || []).filter(
-    (modifier: any) => modifier.id !== modifierId
-  );
+  if (!actor.effects.get(modifierId)) return;
 
-  await actor.update({
-    "system.temporaryDamageModifiers": updatedModifiers
-  } as Record<string, unknown>);
+  await effect.delete();
 }
 
 async function removeStatus(statusId: string) {
@@ -222,6 +207,8 @@ async function removeActiveEffect(effectId: string) {
   });
 
   if (!confirmed) return;
+
+  if (!actor.effects.get(effectId)) return;
 
   await effect.delete();
 }

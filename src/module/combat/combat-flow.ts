@@ -33,6 +33,10 @@ import type {
   PowerStatDebuffData,
   PowerDamageDebuffData
 } from "../types/actor-system";
+import {
+  getActiveDamageModifierEffects,
+  sumChartShift
+} from "../utils/temp-effects";
 
 /**
  * Data for an attack attempt
@@ -1398,14 +1402,8 @@ export async function executeCombatAttack(
       let powerRank = attackData.powerRank || attackRank;
 
       // Apply temporary damage modifiers (buffs/debuffs on the attacker)
-      const attackerSystem = attacker.system as any;
-      const damageModifiers = attackerSystem.temporaryDamageModifiers || [];
-      const activeDamageModifiers = damageModifiers.filter(
-        (mod: any) => mod.roundsRemaining > 0
-      );
-      const totalDamageModifierCS = activeDamageModifiers.reduce(
-        (sum: number, mod: any) => sum + (mod.chartShift || 0),
-        0
+      const totalDamageModifierCS = sumChartShift(
+        getActiveDamageModifierEffects(attacker)
       );
 
       if (totalDamageModifierCS !== 0) {
