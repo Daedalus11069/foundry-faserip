@@ -104,10 +104,10 @@ declare global {
   const game: Game;
   const ui: {
     notifications: {
-      info: (message: string) => void;
-      warn: (message: string) => void;
-      error: (message: string) => void;
-      success: (message: string) => void;
+      info: (message: string, options?: Record<string, any>) => void;
+      warn: (message: string, options?: Record<string, any>) => void;
+      error: (message: string, options?: Record<string, any>) => void;
+      success: (message: string, options?: Record<string, any>) => void;
     };
   };
 }

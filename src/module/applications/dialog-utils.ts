@@ -5,6 +5,7 @@ import ComboDialog from "./dialogs/ComboDialog.vue";
 import AttackOptionsDialog from "./dialogs/AttackOptionsDialog.vue";
 import DefenseOptionsDialog from "./dialogs/DefenseOptionsDialog.vue";
 import MovementSettingsDialog from "./dialogs/MovementSettingsDialog.vue";
+import TableEffectsEditor from "./dialogs/TableEffectsEditor.vue";
 import { Rank } from "../enums";
 import type { Talent, SelectedTalent } from "../types";
 
@@ -268,4 +269,28 @@ export async function showMovementSettingsDialog(
   );
 
   return result as Record<string, number> | null;
+}
+
+/**
+ * Show the RollTable effects editor, letting a GM attach stat/damage chart
+ * shift modifiers to individual RollTable results (e.g. critical success/
+ * failure table rows) so drawing them applies the effect automatically.
+ */
+export async function showTableEffectsEditor(): Promise<void> {
+  await VueDialog.show(
+    TableEffectsEditor,
+    {},
+    {
+      window: {
+        title: "FASERIP Table Effects",
+        icon: "fas fa-dice-d20",
+        minimizable: false,
+        resizable: true
+      },
+      position: {
+        width: 750,
+        height: 700
+      }
+    }
+  );
 }

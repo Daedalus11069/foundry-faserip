@@ -11,6 +11,10 @@ import { showKarmaSpendDialog } from "../applications/dialog-utils";
 import { getCharmanService } from "../charman-service";
 import type { FaseripActor } from "../documents";
 import { createRoll } from "../utils/manual-roll-handler";
+import {
+  consumeTriggeredModifiers,
+  drawCriticalTableEffect
+} from "../utils/temp-effects";
 
 /**
  * FASERIP roll evaluation
@@ -310,6 +314,18 @@ export class FaseripRoll {
       }
     }
 
+    // Consume any "next attack"/"next dodge"/"next action" triggered
+    // modifiers (e.g. from a critical-success table draw) that match this
+    // roll, folding their chart shift in before the rank is looked up.
+    if (actor) {
+      const triggerKind = additionalFlags?.attackRoll
+        ? "nextAttack"
+        : additionalFlags?.defenseRoll
+          ? "nextDodge"
+          : "nextAction";
+      totalChartShift += await consumeTriggeredModifiers(actor, triggerKind);
+    }
+
     // Apply Chart Shift to the rank used for Universal Table lookup
     const shiftedRank = applyChartShift(attributeRank, totalChartShift);
 
@@ -352,6 +368,23 @@ export class FaseripRoll {
         postRollKarma,
         karmaColumnShifts,
         additionalFlags
+      );
+    }
+
+    // Draw from the configured critical botch/success table, if any, and
+    // apply any effect configured on the drawn result to the actor.
+    const resultText = faseripRoll.getResultText();
+    if (resultText === "Botch" || resultText === "Ultimate Botch!") {
+      await drawCriticalTableEffect(
+        actor,
+        "criticalBotchTable",
+        "Critical Botch Effect"
+      );
+    } else if (resultText === "Critical" || resultText === "Ultimate Critical!") {
+      await drawCriticalTableEffect(
+        actor,
+        "criticalSuccessTable",
+        "Critical Success Effect"
       );
     }
 

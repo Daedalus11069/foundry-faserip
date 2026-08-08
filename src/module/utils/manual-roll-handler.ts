@@ -1,6 +1,5 @@
 import { VueDialog } from "../applications/vue-dialog";
 import ManualRollEntryModal from "../applications/ManualRollEntryModal.vue";
-import { FaseripRoll } from "../rolling/index.ts";
 
 /**
  * Interface for manual roll options
@@ -133,42 +132,9 @@ export async function createRoll(
     }
   }
 
-  // loop through the rolls and see if any are 5 or below. If so, roll a configured roll table and add the result to the chat message as a flavor text
-  if (
-    FaseripRoll.getResultText(roll) === "Botch" ||
-    FaseripRoll.getResultText(roll) === "Ultimate Botch!"
-  ) {
-    const tableName = game.settings.get("faserip", "criticalBotchTable");
-    // @ts-expect-error - game.tables exists at runtime
-    const table = game.tables?.getName(tableName);
-    if (table) {
-      const rollResult = await table.roll();
-      if (rollResult) {
-        // Create the chat message with the critical botch effect as flavor text
-        await ChatMessage.create({
-          content: `<strong>Critical Botch Effect</strong><br>${rollResult.results.map((r: any) => r.description).join("<br>")}`,
-          flavor: `Critical Botch Effect: ${FaseripRoll.getResultText(roll)}`
-        });
-      }
-    }
-  } else if (
-    FaseripRoll.getResultText(roll) === "Critical" ||
-    FaseripRoll.getResultText(roll) === "Ultimate Critical!"
-  ) {
-    const tableName = game.settings.get("faserip", "criticalSuccessTable");
-    // @ts-expect-error - game.tables exists at runtime
-    const table = game.tables?.getName(tableName);
-    if (table) {
-      const rollResult = await table.roll();
-      if (rollResult) {
-        // Create the chat message with the critical success effect as flavor text
-        await ChatMessage.create({
-          content: `<strong>Critical Success Effect</strong><br>${rollResult.results.map((r: any) => r.description).join("<br>")}`,
-          flavor: `Critical Success Effect: ${FaseripRoll.getResultText(roll)}`
-        });
-      }
-    }
-  }
+  // Note: the final Botch/Critical table draw (with actor-aware effect
+  // application) happens once in FaseripRoll.rollAttribute, which calls this
+  // function and has actor context that isn't available here.
 
   return roll;
 }

@@ -16,11 +16,21 @@
  */
 import type { AttributeKey } from "./stat-debuffs";
 
+/**
+ * "nextAttack"/"nextDodge"/"nextAction" effects are consumed the first time a
+ * matching roll happens (see consumeTriggeredModifiers), regardless of
+ * roundsRemaining. roundsRemaining still acts as a round-based backstop so a
+ * trigger effect that's never used eventually falls off (per the source
+ * table's "next round" wording) instead of lingering forever.
+ */
+export type TemporaryModifierTrigger = "nextAttack" | "nextDodge" | "nextAction";
+
 export interface TemporaryModifierFlags {
   kind: "stat" | "damage";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
+  trigger?: TemporaryModifierTrigger;
   sourcePowerId?: string | null;
   sourcePowerName?: string | null;
   sourceWeaponId?: string | null;
@@ -32,6 +42,7 @@ export interface ApplyTemporaryModifierOptions {
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
+  trigger?: TemporaryModifierTrigger;
   sourceName?: string | null;
   sourcePowerId?: string | null;
   sourceWeaponId?: string | null;
@@ -40,7 +51,8 @@ export interface ApplyTemporaryModifierOptions {
 
 /**
  * Create a temporary ActiveEffect on the actor representing a stat or damage
- * chart-shift modifier. Expiry is handled entirely by flags.faserip.roundsRemaining.
+ * chart-shift modifier. Expiry is handled entirely by flags.faserip.roundsRemaining,
+ * unless a trigger is set, in which case a matching roll consumes (deletes) it first.
  */
 export async function applyTemporaryModifier(
   actor: any,
@@ -63,6 +75,7 @@ export async function applyTemporaryModifier(
     attribute: options.attribute,
     chartShift,
     roundsRemaining,
+    trigger: options.trigger,
     sourcePowerId: options.sourcePowerId ?? null,
     sourcePowerName: options.kind === "stat" ? sourceName : undefined,
     sourceWeaponId: options.sourceWeaponId ?? null,
@@ -84,6 +97,39 @@ export async function applyTemporaryModifier(
   ]);
 
   return created;
+}
+
+/**
+ * Consume (delete) any of the actor's trigger-based modifier effects that
+ * match the given roll kind, returning their summed chart shifts so the
+ * caller can fold them into the roll before it resolves. Call this once,
+ * right before computing the shifted rank, from the single choke point all
+ * attribute rolls pass through (FaseripRoll.rollAttribute).
+ */
+export async function consumeTriggeredModifiers(
+  actor: any,
+  triggerKind: TemporaryModifierTrigger
+): Promise<number> {
+  if (!actor?.effects) return 0;
+
+  const matches = Array.from(actor.effects).filter((effect: any) => {
+    const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
+    if (!flags || flags.kind !== "stat") return false;
+    if (!isModifierActive(effect)) return false;
+    return (
+      flags.trigger === triggerKind || flags.trigger === "nextAction"
+    );
+  }) as any[];
+
+  if (!matches.length) return 0;
+
+  const totalShift = sumChartShift(matches);
+  await actor.deleteEmbeddedDocuments(
+    "ActiveEffect",
+    matches.map(effect => effect.id)
+  );
+
+  return totalShift;
 }
 
 function isModifierActive(effect: any): boolean {
@@ -138,7 +184,13 @@ export async function tickTemporaryModifiers(combat: any): Promise<void> {
   }
 }
 
-/** All active (non-expired) temporary stat modifier effects on the actor. */
+/**
+ * All active (non-expired), passively-applied temporary stat modifier effects
+ * on the actor. Trigger-based effects (flags.faserip.trigger set) are
+ * excluded here — they only apply once, via consumeTriggeredModifiers, at the
+ * moment a matching roll happens. Including them here too would double-apply
+ * their chart shift (once passively, once on consumption).
+ */
 export function getActiveStatModifierEffects(
   actor: any,
   attribute?: AttributeKey
@@ -146,16 +198,18 @@ export function getActiveStatModifierEffects(
   return Array.from(actor.effects ?? []).filter((effect: any) => {
     const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
     if (flags?.kind !== "stat") return false;
+    if (flags.trigger) return false;
     if (attribute && flags.attribute !== attribute) return false;
     return isModifierActive(effect);
   });
 }
 
-/** All active (non-expired) temporary damage modifier effects on the actor. */
+/** All active (non-expired), passively-applied temporary damage modifier effects on the actor. */
 export function getActiveDamageModifierEffects(actor: any): any[] {
   return Array.from(actor.effects ?? []).filter((effect: any) => {
     const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
     if (flags?.kind !== "damage") return false;
+    if (flags.trigger) return false;
     return isModifierActive(effect);
   });
 }
@@ -165,4 +219,50 @@ export function sumChartShift(effects: any[]): number {
     const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
     return sum + Number(flags?.chartShift || 0);
   }, 0);
+}
+
+/**
+ * Draw from a configured RollTable setting (e.g. "criticalBotchTable" /
+ * "criticalSuccessTable"), post the result to chat, and — if the drawn
+ * TableResult has flags.faserip configured via the Table Effects editor —
+ * apply it to actor as a temporary modifier.
+ *
+ * Centralizes what was previously duplicated (draw + chat post, no effect
+ * application) across manual-roll-handler.ts and chat-commands.ts.
+ */
+export async function drawCriticalTableEffect(
+  actor: any,
+  settingKey: "criticalBotchTable" | "criticalSuccessTable",
+  label: "Critical Botch Effect" | "Critical Success Effect"
+): Promise<void> {
+  const tableName = game.settings.get("faserip", settingKey) as string;
+  // @ts-expect-error - game.tables exists at runtime
+  const table = game.tables?.getName(tableName);
+  if (!table) return;
+
+  const rollResult = await table.roll();
+  if (!rollResult) return;
+
+  const drawnResults = rollResult.results ?? [];
+
+  await ChatMessage.create({
+    content: `<strong>${label}</strong><br>${drawnResults.map((r: any) => r.description || r.text).join("<br>")}`,
+    // @ts-expect-error - actor may be undefined, but getSpeaker accepts undefined
+    speaker: ChatMessage.getSpeaker({ actor }),
+    flavor: label
+  });
+
+  if (!actor) return;
+
+  for (const result of drawnResults as any[]) {
+    const flags = result.flags?.faserip as
+      | ApplyTemporaryModifierOptions
+      | undefined;
+    if (!flags) continue;
+
+    await applyTemporaryModifier(actor, {
+      ...flags,
+      sourceName: result.description || result.text || label
+    });
+  }
 }

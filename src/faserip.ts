@@ -37,7 +37,10 @@ import {
   migrateEmbeddedItemsToDocuments,
   forceMigrateItems
 } from "./module/utils/migrate-items";
-import { showMovementSettingsDialog } from "./module/applications/dialog-utils";
+import {
+  showMovementSettingsDialog,
+  showTableEffectsEditor
+} from "./module/applications/dialog-utils";
 import { initializeSocket } from "./module/socket/faserip-socket";
 import { initTurnActionsTracker } from "./module/utils/turn-actions-tracker";
 
@@ -95,6 +98,32 @@ class MovementSettingsMenu extends foundry.appv1.api.FormApplication {
         actor.render();
       }
     }
+  }
+}
+
+// ─── Table Effects Editor Menu ──────────────────────────────────────────────────
+
+/**
+ * Settings menu for attaching stat/damage modifiers to RollTable results
+ * (e.g. critical success/failure tables).
+ */
+class TableEffectsMenu extends foundry.appv1.api.FormApplication {
+  static override get defaultOptions() {
+    return foundry.utils.mergeObject(super.defaultOptions, {
+      title: "FASERIP Table Effects",
+      id: "faserip-table-effects",
+      template: "" // No template needed, we use Vue dialog
+    });
+  }
+
+  override async _updateObject(_event: Event, _formData: any): Promise<void> {
+    // Not used - dialog handles updates
+  }
+
+  override render(_force?: boolean, _options?: any): this {
+    // Launch dialog asynchronously without awaiting
+    showTableEffectsEditor();
+    return this;
   }
 }
 
@@ -420,6 +449,16 @@ const initHandler = () => {
     hint: "Open a dialog to configure movement distance (squares) for each rank.",
     icon: "fas fa-person-running",
     type: MovementSettingsMenu,
+    restricted: true
+  });
+
+  // Register settings menu for RollTable effects (e.g. critical success/failure tables)
+  game.settings.registerMenu("faserip", "tableEffectsMenu", {
+    name: "Table Effects",
+    label: "Configure Table Effects",
+    hint: "Attach stat/damage chart-shift modifiers to RollTable results so drawing them applies the effect automatically.",
+    icon: "fas fa-dice-d20",
+    type: TableEffectsMenu,
     restricted: true
   });
 
