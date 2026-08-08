@@ -13,6 +13,87 @@ const canManageEffects = computed(() => {
   return game.user?.isGM === true;
 });
 
+const attributeChoices = [
+  { value: "fighting", label: "Fighting" },
+  { value: "agility", label: "Agility" },
+  { value: "strength", label: "Strength" },
+  { value: "endurance", label: "Endurance" },
+  { value: "reasoning", label: "Reasoning" },
+  { value: "intuition", label: "Intuition" },
+  { value: "psyche", label: "Psyche" }
+];
+
+const showAddStatModifier = ref(false);
+const newStatModifier = ref({
+  attribute: "intuition",
+  chartShift: -1,
+  roundsRemaining: 3,
+  sourceName: "GM Applied"
+});
+
+const showAddDamageModifier = ref(false);
+const newDamageModifier = ref({
+  chartShift: -1,
+  roundsRemaining: 3,
+  sourceName: "GM Applied"
+});
+
+async function addStatModifier() {
+  if (!canManageEffects.value) return;
+
+  const modifiers = [...((actor.system as any).temporaryStatModifiers || [])];
+  modifiers.push({
+    id: foundry.utils.randomID(),
+    attribute: newStatModifier.value.attribute,
+    chartShift: Number(newStatModifier.value.chartShift) || 0,
+    roundsRemaining: Math.max(1, Math.floor(Number(newStatModifier.value.roundsRemaining) || 1)),
+    sourcePowerId: undefined,
+    sourcePowerName: newStatModifier.value.sourceName?.trim() || "GM Applied",
+    durationFormula: undefined,
+    combatId: (game as any).combat?.id ?? null
+  });
+
+  await actor.update({
+    "system.temporaryStatModifiers": modifiers
+  } as Record<string, unknown>);
+
+  showAddStatModifier.value = false;
+  newStatModifier.value = {
+    attribute: "intuition",
+    chartShift: -1,
+    roundsRemaining: 3,
+    sourceName: "GM Applied"
+  };
+}
+
+async function addDamageModifier() {
+  if (!canManageEffects.value) return;
+
+  const modifiers = [...((actor.system as any).temporaryDamageModifiers || [])];
+  modifiers.push({
+    id: foundry.utils.randomID(),
+    chartShift: Number(newDamageModifier.value.chartShift) || 0,
+    roundsRemaining: Math.max(1, Math.floor(Number(newDamageModifier.value.roundsRemaining) || 1)),
+    sourcePowerId: undefined,
+    sourcePowerName: newDamageModifier.value.sourceName?.trim() || "GM Applied",
+    sourceWeaponId: undefined,
+    sourceWeaponName: undefined,
+    durationFormula: undefined,
+    combatId: (game as any).combat?.id ?? null
+  });
+
+  await actor.update({
+    "system.temporaryDamageModifiers": modifiers
+  } as Record<string, unknown>);
+
+  showAddDamageModifier.value = false;
+  newDamageModifier.value = {
+    chartShift: -1,
+    roundsRemaining: 3,
+    sourceName: "GM Applied"
+  };
+}
+
 const activeEffects = computed(() => {
   void effectsUpdateKey.value;
 
@@ -190,6 +271,125 @@ onUnmounted(() => {
       <h2 class="text-2xl font-bold text-white">Effects</h2>
       <div class="text-sm text-gray-400">
         {{ activeEffects.length }} active effect{{ activeEffects.length === 1 ? '' : 's' }}
+      </div>
+    </div>
+
+    <div v-if="canManageEffects" class="flex gap-2 mb-4">
+      <button
+        @click="showAddStatModifier = !showAddStatModifier"
+        class="fsr-btn fsr-btn-sm bg-indigo-900 hover:bg-indigo-950 text-white"
+      >
+        + Add Stat Modifier
+      </button>
+      <button
+        @click="showAddDamageModifier = !showAddDamageModifier"
+        class="fsr-btn fsr-btn-sm bg-purple-900 hover:bg-purple-950 text-white"
+      >
+        + Add Damage Modifier
+      </button>
+    </div>
+
+    <div
+      v-if="showAddStatModifier"
+      class="mb-4 p-3 bg-gray-900/50 rounded-lg border border-indigo-800 space-y-2"
+    >
+      <h3 class="text-sm font-semibold text-indigo-300">New Stat Modifier</h3>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="fsr-label">Attribute</label>
+          <select v-model="newStatModifier.attribute" class="fsr-select text-sm">
+            <option v-for="option in attributeChoices" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </div>
+        <div>
+          <label class="fsr-label">Source Name</label>
+          <input v-model="newStatModifier.sourceName" type="text" class="fsr-input" />
+        </div>
+        <div>
+          <label class="fsr-label">Chart Shift</label>
+          <input
+            v-model.number="newStatModifier.chartShift"
+            type="number"
+            class="fsr-input"
+            placeholder="-1"
+          />
+        </div>
+        <div>
+          <label class="fsr-label">Rounds Remaining</label>
+          <input
+            v-model.number="newStatModifier.roundsRemaining"
+            type="number"
+            min="1"
+            class="fsr-input"
+          />
+        </div>
+      </div>
+      <div class="text-xs text-gray-400">
+        Positive values buff, negative values debuff.
+      </div>
+      <div class="flex gap-2">
+        <button
+          @click="addStatModifier"
+          class="fsr-btn fsr-btn-sm bg-indigo-700 hover:bg-indigo-800 text-white"
+        >
+          Add
+        </button>
+        <button
+          @click="showAddStatModifier = false"
+          class="fsr-btn fsr-btn-sm bg-gray-700 hover:bg-gray-800 text-white"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+
+    <div
+      v-if="showAddDamageModifier"
+      class="mb-4 p-3 bg-gray-900/50 rounded-lg border border-purple-800 space-y-2"
+    >
+      <h3 class="text-sm font-semibold text-purple-300">New Damage Modifier</h3>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="fsr-label">Source Name</label>
+          <input v-model="newDamageModifier.sourceName" type="text" class="fsr-input" />
+        </div>
+        <div>
+          <label class="fsr-label">Chart Shift</label>
+          <input
+            v-model.number="newDamageModifier.chartShift"
+            type="number"
+            class="fsr-input"
+            placeholder="-1"
+          />
+        </div>
+        <div>
+          <label class="fsr-label">Rounds Remaining</label>
+          <input
+            v-model.number="newDamageModifier.roundsRemaining"
+            type="number"
+            min="1"
+            class="fsr-input"
+          />
+        </div>
+      </div>
+      <div class="text-xs text-gray-400">
+        Positive values buff damage, negative values debuff damage.
+      </div>
+      <div class="flex gap-2">
+        <button
+          @click="addDamageModifier"
+          class="fsr-btn fsr-btn-sm bg-purple-700 hover:bg-purple-800 text-white"
+        >
+          Add
+        </button>
+        <button
+          @click="showAddDamageModifier = false"
+          class="fsr-btn fsr-btn-sm bg-gray-700 hover:bg-gray-800 text-white"
+        >
+          Cancel
+        </button>
       </div>
     </div>
 
