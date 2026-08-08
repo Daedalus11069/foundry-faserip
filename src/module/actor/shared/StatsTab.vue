@@ -59,6 +59,18 @@ interface Weapon {
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
 const actor = inject("actor") as FaseripActor;
 
+/**
+ * Snapshot of the currently-targeted token's actor "incoming attack"
+ * modifiers (e.g. "foes get +2CS to hit me next attack"), for display in the
+ * Attack Options dialog. Empty if no target is selected or it has none.
+ */
+function getDefenderTemporaryModifiers() {
+  // @ts-expect-error - game.user.targets is a Set
+  const targets = Array.from(game.user?.targets || []) as Token[];
+  const defenderActor = targets[0]?.actor;
+  return defenderActor ? snapshotTemporaryModifiers(defenderActor) : [];
+}
+
 const forms = computed(() => reactiveActor.system.forms || []);
 
 // Local ref: which form is being viewed/rolled (independent of active combat form)
@@ -345,7 +357,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         "Unarmed Strike",
         talentCS,
         actionsBeforeUnarmed,
-        snapshotTemporaryModifiers(actor)
+        snapshotTemporaryModifiers(actor),
+        getDefenderTemporaryModifiers()
       );
 
       if (comboResult === null) {
@@ -599,7 +612,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
     undefined,
     totalCS,
     undefined,
-    snapshotTemporaryModifiers(actor)
+    snapshotTemporaryModifiers(actor),
+    getDefenderTemporaryModifiers()
   );
 
   if (comboResult === null) {
@@ -733,7 +747,8 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
     weaponLabel,
     talentCS,
     getActionsThisTurn(reactiveActor.system),
-    snapshotTemporaryModifiers(actor)
+    snapshotTemporaryModifiers(actor),
+    getDefenderTemporaryModifiers()
   );
 
   if (comboResult === null) return;
@@ -967,7 +982,8 @@ async function rollWeapon(weapon: Weapon) {
     weapon.name,
     talentCS,
     actionsBeforeWeapon,
-    snapshotTemporaryModifiers(actor)
+    snapshotTemporaryModifiers(actor),
+    getDefenderTemporaryModifiers()
   );
 
   if (comboResult === null) {
@@ -1818,7 +1834,8 @@ async function rollPower(power: any) {
       power.name,
       totalCS,
       actionsBeforePower,
-      snapshotTemporaryModifiers(actor)
+      snapshotTemporaryModifiers(actor),
+      getDefenderTemporaryModifiers()
     );
 
     if (comboResult === null) {
@@ -2000,7 +2017,8 @@ async function rollPower(power: any) {
     power.name,
     totalCS,
     undefined,
-    snapshotTemporaryModifiers(actor)
+    snapshotTemporaryModifiers(actor),
+    getDefenderTemporaryModifiers()
   );
 
   if (comboResult === null) {

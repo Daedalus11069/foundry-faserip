@@ -19,6 +19,7 @@ interface Props {
   talentCS?: number;
   actionsBeforeThisCombo?: number; // Attacks already taken this turn (shifts all combo penalties)
   temporaryModifiers?: TemporaryModifierSnapshot[];
+  defenderTemporaryModifiers?: TemporaryModifierSnapshot[];
   dialog: VueDialog;
 }
 
@@ -74,6 +75,23 @@ const pendingDamageModifiers = computed(() => {
 
 const pendingStatShiftTotal = computed(() =>
   pendingStatModifiers.value.reduce((sum, m) => sum + m.chartShift, 0)
+);
+
+// Incoming-attack modifiers on the defender (e.g. "foes get +2CS to hit me
+// next attack") - these are folded into the roll unconditionally by
+// consumeIncomingAttackModifiers server-side, shown here for visibility only.
+const pendingIncomingModifiers = computed(() => {
+  return (props.defenderTemporaryModifiers ?? [])
+    .filter(m => m.flags.kind === "incoming")
+    .map(m => ({
+      id: m.id,
+      name: m.flags.sourcePowerName || m.name,
+      chartShift: m.flags.chartShift
+    }));
+});
+
+const pendingIncomingShiftTotal = computed(() =>
+  pendingIncomingModifiers.value.reduce((sum, m) => sum + m.chartShift, 0)
 );
 
 // Combo attack settings
@@ -218,7 +236,8 @@ const displayedAttackRank = computed(() => {
   const totalShifts =
     manualChartShift.value +
     (props.talentCS || 0) +
-    pendingStatShiftTotal.value;
+    pendingStatShiftTotal.value +
+    pendingIncomingShiftTotal.value;
   if (totalShifts === 0) {
     return formatRankDisplay(props.attackRank);
   }
@@ -231,7 +250,8 @@ const rankIsModified = computed(() => {
   return (
     manualChartShift.value !== 0 ||
     (props.talentCS && props.talentCS !== 0) ||
-    pendingStatShiftTotal.value !== 0
+    pendingStatShiftTotal.value !== 0 ||
+    pendingIncomingShiftTotal.value !== 0
   );
 });
 
@@ -339,7 +359,7 @@ function handleCancel() {
           }}</span>
           →
           <span
-            :class="manualChartShift + (talentCS || 0) + pendingStatShiftTotal > 0
+            :class="manualChartShift + (talentCS || 0) + pendingStatShiftTotal + pendingIncomingShiftTotal > 0
               ? 'text-green-400 font-semibold'
               : 'text-red-400 font-semibold'
               "
@@ -403,6 +423,23 @@ function handleCancel() {
       >
         {{ modifier.name }}: {{ modifier.chartShift > 0 ? "+" : "" }}{{ modifier.chartShift }} CS Damage
         <span v-if="modifier.trigger" class="text-purple-400">(consumed on this attack)</span>
+      </div>
+    </div>
+
+    <!-- Pending incoming-attack modifiers (debuffs/buffs on the defender) -->
+    <div
+      v-if="pendingIncomingModifiers.length > 0"
+      class="mb-4 p-3 bg-red-900/30 rounded border border-red-700"
+    >
+      <div class="text-sm font-semibold text-red-300 mb-1">
+        Defender's Active Modifiers ({{ pendingIncomingShiftTotal > 0 ? "+" : "" }}{{ pendingIncomingShiftTotal }} CS to hit)
+      </div>
+      <div
+        v-for="modifier in pendingIncomingModifiers"
+        :key="modifier.id"
+        class="text-xs text-red-200"
+      >
+        {{ modifier.name }}: {{ modifier.chartShift > 0 ? "+" : "" }}{{ modifier.chartShift }} CS
       </div>
     </div>
 

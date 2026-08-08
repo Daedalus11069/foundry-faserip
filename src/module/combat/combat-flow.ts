@@ -863,7 +863,14 @@ export async function executeCombatAttack(
     manualChartShift = presetManualChartShift ?? 0;
     damageRankBump = attackData.damageRankBump ?? 0;
   } else {
-    // Show attack options dialog
+    // Show attack options dialog. Include the defender's "incoming attack"
+    // modifiers (e.g. "foes get +2CS to hit me") for display only - they're
+    // applied to the roll unconditionally later via
+    // consumeIncomingAttackModifiers, not something the attacker can opt out of.
+    const defenderSnapshot = targets[0]?.actor
+      ? snapshotTemporaryModifiers(targets[0].actor)
+      : [];
+
     attackOptions = await showAttackOptionsDialog(
       attacker.name!,
       attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
@@ -872,7 +879,8 @@ export async function executeCombatAttack(
       powerName,
       talentCS,
       attackData.actionsBeforeThisCombo,
-      snapshotTemporaryModifiers(attacker)
+      snapshotTemporaryModifiers(attacker),
+      defenderSnapshot
     );
 
     if (!attackOptions) {

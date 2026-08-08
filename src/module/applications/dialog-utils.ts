@@ -142,7 +142,8 @@ export async function showAttackOptionsDialog(
   powerName?: string,
   talentCS?: number,
   actionsBeforeThisCombo?: number,
-  temporaryModifiers?: TemporaryModifierSnapshot[]
+  temporaryModifiers?: TemporaryModifierSnapshot[],
+  defenderTemporaryModifiers?: TemporaryModifierSnapshot[]
 ): Promise<{
   comboCount: number;
   attackKarmaSettings: Array<{
@@ -165,7 +166,8 @@ export async function showAttackOptionsDialog(
       powerName,
       talentCS,
       actionsBeforeThisCombo,
-      temporaryModifiers
+      temporaryModifiers,
+      defenderTemporaryModifiers
     },
     {
       window: {
