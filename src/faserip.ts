@@ -1095,22 +1095,28 @@ Hooks.on("chatMessage", (_chatLog: any, message: string, _chatData: any) => {
       }
     }
 
-    // If there are dice formulas, send them through Foundry's normal processing
-    if (diceLines.length > 0) {
-      // Reconstruct the dice message with /roll prefix and let Foundry process it normally
-      const diceMessage = diceLines.map(line => `/roll ${line}`).join("\n");
-
-      // Use setTimeout to process after this hook returns
-      setTimeout(() => {
-        // Manually process the dice formulas through Foundry
-        // @ts-expect-error - ui.chat exists at runtime
-        const chatLog = ui.chat;
-        if (chatLog) {
-          chatLog.processMessage(diceMessage).catch((err: any) => {
-            console.error("Error processing dice formulas:", err);
+    // If there are dice formulas, roll and post them directly. We can't
+    // route these back through chatLog.processMessage("/roll ...") because
+    // that re-invokes this same "chatMessage" hook, which would classify
+    // the reconstructed "/roll xdy" message as a dice formula again and
+    // return false again - an infinite defer loop that silently never
+    // creates a roll.
+    for (const line of diceLines) {
+      const roll = Roll.create(line);
+      try {
+        roll
+          .evaluate()
+          .then(async () => {
+            await roll.toMessage({
+              speaker: ChatMessage.getSpeaker()
+            });
+          })
+          .catch((err: any) => {
+            console.error("Error processing dice formula:", line, err);
           });
-        }
-      }, 0);
+      } catch (err: any) {
+        console.error("Error creating dice roll:", line, err);
+      }
     }
 
     return false; // Prevent Foundry from processing original message
