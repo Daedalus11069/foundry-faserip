@@ -9,6 +9,7 @@ import {
 import { stringToRank } from "./utils";
 import { FaseripRoll } from "./rolling/FaseripRoll";
 import type { FaseripActor } from "./documents";
+import { isPowersNegated } from "./utils/power-negation";
 
 /**
  * Parse a rank expression like "good", "good+2", "remarkable-1", "ex+2k", "gd@20", "ex[reason]"
@@ -573,6 +574,13 @@ export async function handleCharacterRollCommand(
       const power = powers.find((p: any) => p.name === parsed.name);
 
       if (power) {
+        if (!game.user?.isGM && isPowersNegated(actor)) {
+          ui.notifications?.warn(
+            `Powers are negated in this area. ${power.name} cannot be used.`
+          );
+          continue;
+        }
+
         const rank = stringToRank(power.rank);
         const value = power.value || RANK_VALUES[rank];
 

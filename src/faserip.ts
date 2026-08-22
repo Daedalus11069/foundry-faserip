@@ -26,7 +26,10 @@ import {
   parseRankExpression
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
-import { tickTemporaryModifiers } from "./module/utils/temp-effects";
+import {
+  tickTemporaryModifiers,
+  tickDotEffectsForCombatant
+} from "./module/utils/temp-effects";
 import {
   showIntuitionOverlay,
   removeIntuitionOverlay,
@@ -43,6 +46,7 @@ import {
 } from "./module/applications/dialog-utils";
 import { initializeSocket } from "./module/socket/faserip-socket";
 import { initTurnActionsTracker } from "./module/utils/turn-actions-tracker";
+import { PowerNegationRegionBehaviorType } from "./module/region/PowerNegationRegionBehaviorType";
 
 // ─── Movement Settings Menu ─────────────────────────────────────────────────────
 
@@ -520,6 +524,19 @@ const initHandler = () => {
   CONFIG.Item.dataModels[ItemType.Armor] = ArmorDataModel;
   CONFIG.Item.dataModels[ItemType.Weapon] = WeaponDataModel;
 
+  // Register region behavior types
+  // @ts-expect-error - TypeScript doesn't recognize custom CONFIG property
+  CONFIG.RegionBehavior.dataModels.powerNegation =
+    PowerNegationRegionBehaviorType;
+  CONFIG.RegionBehavior.typeIcons.powerNegation = "icons/svg/blind.svg";
+
+  // Register the "Powers Negated" status so it shows a labeled icon on tokens
+  CONFIG.statusEffects.push({
+    id: "faseripPowersNegated",
+    name: "Powers Negated",
+    img: "icons/svg/blind.svg"
+  });
+
   // Configure trackable attributes for tokens
   CONFIG.Actor.trackableAttributes = {
     pc: {
@@ -895,22 +912,96 @@ Hooks.on("deleteToken", (_scene: any, tokenDoc: any) => {
   if (tokenDoc?.id) removeIntuitionOverlay(tokenDoc.id);
 });
 
+// Snapshot (round, turn) before every combat update so the updateCombat
+// handler below can tell which combatants' turns were skipped over by a
+// "Next Round"/"Previous Round" jump (which sets turn straight to 0/last
+// without visiting every combatant in between) rather than a normal
+// turn-by-turn advance.
+let lastCombatPosition: { round: number; turn: number } | null = null;
+
+Hooks.on("preUpdateCombat", (combat: any) => {
+  lastCombatPosition = {
+    round: combat.round ?? 0,
+    turn: combat.turn ?? 0
+  };
+});
+
 // Temporary stat/damage modifiers live as ActiveEffects (not combat-linked -
 // see temp-effects.ts) with their own roundsRemaining counter in
-// flags.faserip. Tick it down
-// explicitly each round and delete effects that hit zero.
+// flags.faserip. Tick it down explicitly each round and delete effects that
+// hit zero. Only the active GM (first GM in turn order, or first connected
+// GM if only one) runs this - if every GM client ran it, a table with two GMs
+// online would tick/delete each effect twice per round.
 Hooks.on("updateCombat", async (combat: any, changes: any) => {
-  if (changes.round === undefined) {
-    return;
-  }
-
   // @ts-expect-error - Foundry game.user global
-  if (!game.user?.isGM) {
+  if (!game.user?.isGM || !game.users?.activeGM?.isSelf) {
     return;
   }
 
-  await tickTemporaryModifiers(combat);
+  if (changes.round !== undefined) {
+    await tickTemporaryModifiers(combat);
+  }
+
+  if (changes.turn !== undefined || changes.round !== undefined) {
+    const skipped = getSkippedCombatants(combat, lastCombatPosition);
+    const activeCombatant = combat.combatant;
+
+    const combatantsToTick = [...skipped];
+    if (
+      activeCombatant &&
+      !combatantsToTick.some(c => c.id === activeCombatant.id)
+    ) {
+      combatantsToTick.push(activeCombatant);
+    }
+
+    if (combatantsToTick.length > 0) {
+      await tickDotEffectsForCombatant(combat, combatantsToTick);
+    }
+  }
+
+  lastCombatPosition = { round: combat.round ?? 0, turn: combat.turn ?? 0 };
 });
+
+/**
+ * Combatants whose turn fell strictly between the previous (round, turn) and
+ * the combat's current position, in turn order - i.e. whoever a "Next Round"
+ * (or multi-round) jump skipped past without visiting. Returns [] for a
+ * normal single-turn advance (nothing was skipped) or if there's no prior
+ * position to compare against (e.g. combat just started).
+ */
+function getSkippedCombatants(
+  combat: any,
+  previous: { round: number; turn: number } | null
+): any[] {
+  if (!previous) return [];
+
+  const turns = combat.turns ?? combat.combatants?.contents ?? [];
+  if (!turns.length) return [];
+
+  const currentRound = combat.round ?? 0;
+  const currentTurn = combat.turn ?? 0;
+
+  // Absolute turn index = round * turns.length + turn, so the skipped range
+  // is just every index strictly between previous and current.
+  const toAbsolute = (round: number, turn: number) =>
+    round * turns.length + turn;
+
+  const previousAbsolute = toAbsolute(previous.round, previous.turn);
+  const currentAbsolute = toAbsolute(currentRound, currentTurn);
+
+  if (currentAbsolute <= previousAbsolute + 1) {
+    // Normal forward advance (or no movement) - nothing skipped.
+    return [];
+  }
+
+  const skipped: any[] = [];
+  for (let abs = previousAbsolute + 1; abs < currentAbsolute; abs++) {
+    const turnIndex = ((abs % turns.length) + turns.length) % turns.length;
+    const combatant = turns[turnIndex];
+    if (combatant) skipped.push(combatant);
+  }
+  return skipped;
+}
 
 // Hook: Ensure bars are present when tokens are updated
 Hooks.on(

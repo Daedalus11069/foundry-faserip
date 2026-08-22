@@ -411,9 +411,10 @@ async function applyHealing() {
   if (damageAmount.value <= 0) return;
 
   // Apply healing directly to reactive system - watcher will persist changes
-  const newHealthValue = applyHealingToActor(
+  const newHealthValue = await applyHealingToActor(
     reactiveActor.system,
-    damageAmount.value
+    damageAmount.value,
+    actor
   );
 
   // CRITICAL: Also update the derived resource value for immediate UI feedback

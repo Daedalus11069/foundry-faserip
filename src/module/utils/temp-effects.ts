@@ -15,6 +15,7 @@
  * our own flags.faserip.roundsRemaining tracking ever deletes the effect.
  */
 import type { AttributeKey } from "./stat-debuffs";
+import { Rank, RANK_VALUES } from "../enums";
 
 /**
  * "nextAttack"/"nextDodge"/"nextAction" effects are consumed the first time a
@@ -29,7 +30,7 @@ export type TemporaryModifierTrigger =
   | "nextAction";
 
 export interface TemporaryModifierFlags {
-  kind: "stat" | "damage" | "incoming";
+  kind: "stat" | "damage" | "incoming" | "dot";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
@@ -45,10 +46,33 @@ export interface TemporaryModifierFlags {
   sourcePowerName?: string | null;
   sourceWeaponId?: string | null;
   sourceWeaponName?: string | null;
+  /** kind: "dot" only - the rank the effect deals damage at, each round it ticks. */
+  dotRank?: string;
+  /**
+   * kind: "dot" only - fixed per-tick damage amount, when the DoT should
+   * deal the triggering attack's actual rolled/reduced damage rather than
+   * RANK_VALUES[dotRank] every tick. Set once at application time and never
+   * re-rolled.
+   */
+  dotDamage?: number;
+  /** kind: "dot" only - armor-piercing rank applied to every tick's damage application. */
+  dotArmorPiercing?: string | null;
+  /**
+   * kind: "dot" only - the actor id of whoever applied this DoT. It ticks
+   * once when THIS actor's turn comes up in combat, not the afflicted
+   * target's turn and not once per round for everyone.
+   */
+  dotCasterActorId?: string | null;
+  /**
+   * kind: "dot" only - when true, roundsRemaining is never decremented and
+   * the effect is never auto-deleted by tickTemporaryModifiers. It persists
+   * until removed manually (EffectsTab, or requestDotRemoval by any player).
+   */
+  indefinite?: boolean;
 }
 
 export interface ApplyTemporaryModifierOptions {
-  kind: "stat" | "damage" | "incoming";
+  kind: "stat" | "damage" | "incoming" | "dot";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
@@ -58,6 +82,11 @@ export interface ApplyTemporaryModifierOptions {
   sourcePowerId?: string | null;
   sourceWeaponId?: string | null;
   sourceWeaponName?: string | null;
+  dotRank?: string;
+  dotDamage?: number;
+  dotArmorPiercing?: string | null;
+  dotCasterActorId?: string | null;
+  indefinite?: boolean;
 }
 
 /**
@@ -70,10 +99,9 @@ export async function applyTemporaryModifier(
   options: ApplyTemporaryModifierOptions
 ): Promise<any> {
   const chartShift = Number(options.chartShift) || 0;
-  const roundsRemaining = Math.max(
-    1,
-    Math.floor(Number(options.roundsRemaining) || 1)
-  );
+  const roundsRemaining = options.indefinite
+    ? 0
+    : Math.max(1, Math.floor(Number(options.roundsRemaining) || 1));
   const sourceName = options.sourceName?.trim() || "GM Applied";
 
   const label =
@@ -81,7 +109,9 @@ export async function applyTemporaryModifier(
       ? `${sourceName} (${options.attribute} ${chartShift > 0 ? "+" : ""}${chartShift}CS)`
       : options.kind === "damage"
         ? `${sourceName} (Damage ${chartShift > 0 ? "+" : ""}${chartShift}CS)`
-        : `${sourceName} (Foes ${chartShift > 0 ? "+" : ""}${chartShift}CS to hit)`;
+        : options.kind === "dot"
+          ? `${sourceName} (${options.dotRank} DoT${options.indefinite ? ", until removed" : ""})`
+          : `${sourceName} (Foes ${chartShift > 0 ? "+" : ""}${chartShift}CS to hit)`;
 
   const usesRemaining = options.usesRemaining
     ? Math.max(1, Math.floor(Number(options.usesRemaining) || 1))
@@ -97,14 +127,23 @@ export async function applyTemporaryModifier(
     sourcePowerId: options.sourcePowerId ?? null,
     sourcePowerName: options.kind === "stat" ? sourceName : undefined,
     sourceWeaponId: options.sourceWeaponId ?? null,
-    sourceWeaponName: options.sourceWeaponName ?? null
+    sourceWeaponName: options.sourceWeaponName ?? null,
+    dotRank: options.dotRank,
+    dotDamage: options.dotDamage,
+    dotArmorPiercing: options.dotArmorPiercing ?? null,
+    dotCasterActorId: options.dotCasterActorId ?? null,
+    indefinite: options.indefinite
   };
 
   const [created] = await actor.createEmbeddedDocuments("ActiveEffect", [
     {
       name: label,
       img:
-        chartShift >= 0 ? "icons/svg/upgrade.svg" : "icons/svg/downgrade.svg",
+        options.kind === "dot"
+          ? "icons/svg/poison.svg"
+          : chartShift >= 0
+            ? "icons/svg/upgrade.svg"
+            : "icons/svg/downgrade.svg",
       changes: [],
       flags: {
         faserip: flags
@@ -196,6 +235,7 @@ async function consumeModifierEffects(
 
 function isModifierActive(effect: any): boolean {
   if (effect.disabled) return false;
+  if (effect.flags?.faserip?.indefinite) return true;
   const roundsRemaining = effect.flags?.faserip?.roundsRemaining;
   if (roundsRemaining !== null && roundsRemaining !== undefined) {
     return Number(roundsRemaining) > 0;
@@ -207,6 +247,11 @@ function isModifierActive(effect: any): boolean {
  * Decrement roundsRemaining on every faserip temporary-modifier ActiveEffect
  * across all combatants for this combat round, deleting any that hit zero.
  * Called from the combatRound hook in faserip.ts.
+ *
+ * DoT damage itself is NOT dealt here - see tickDotEffectsForCombatant, fired
+ * on turn change against the DoT's caster. This still decrements a DoT's
+ * roundsRemaining (so its duration counts down in real rounds) but skips
+ * calling applyDotTick a second time.
  */
 export async function tickTemporaryModifiers(combat: any): Promise<void> {
   const processedActors = new Set<string>();
@@ -224,26 +269,162 @@ export async function tickTemporaryModifiers(combat: any): Promise<void> {
     );
     if (!modifierEffects.length) continue;
 
-    const toDelete: string[] = [];
-    for (const effect of modifierEffects as any[]) {
-      // A manual delete (e.g. from EffectsTab) may race with this tick -
-      // skip effects that are no longer on the actor rather than erroring.
-      if (!actor.effects.get(effect.id)) continue;
+    // Each actor's effects are ticked independently - one actor's update/delete
+    // failing (e.g. a permissions or validation error) must not abort the tick
+    // for every other combatant, since Hooks.on callbacks reject silently.
+    try {
+      const toDelete: string[] = [];
+      for (const effect of modifierEffects as any[]) {
+        // A manual delete (e.g. from EffectsTab) may race with this tick -
+        // skip effects that are no longer on the actor rather than erroring.
+        if (!actor.effects.get(effect.id)) continue;
 
-      const current = Number(effect.flags.faserip.roundsRemaining ?? 0);
-      const next = Math.max(0, current - 1);
-      if (next <= 0) {
-        toDelete.push(effect.id);
-      } else {
-        await effect.update({ "flags.faserip.roundsRemaining": next });
+        const flags = effect.flags.faserip as TemporaryModifierFlags;
+
+        if (flags.indefinite) continue;
+
+        const current = Number(flags.roundsRemaining ?? 0);
+        const next = Math.max(0, current - 1);
+        try {
+          if (next <= 0) {
+            toDelete.push(effect.id);
+          } else {
+            await effect.update({ "flags.faserip.roundsRemaining": next });
+          }
+        } catch (err) {
+          console.error(
+            `faserip | failed to tick temporary modifier "${effect.name}" on ${actor.name}`,
+            err
+          );
+        }
       }
-    }
 
-    const stillPresent = toDelete.filter(id => actor.effects.get(id));
-    if (stillPresent.length > 0) {
-      await actor.deleteEmbeddedDocuments("ActiveEffect", stillPresent);
+      const stillPresent = toDelete.filter(id => actor.effects.get(id));
+      if (stillPresent.length > 0) {
+        await actor.deleteEmbeddedDocuments("ActiveEffect", stillPresent);
+      }
+    } catch (err) {
+      console.error(
+        `faserip | failed to tick temporary modifiers for ${actor.name}`,
+        err
+      );
     }
   }
+}
+
+/**
+ * Deals damage for every active DoT effect (on any actor in this combat)
+ * whose caster is one of the given combatants. Called from the updateCombat
+ * "turn changed" hook in faserip.ts, once per combatant whose turn started -
+ * normally just the one combatant whose turn just began, but the caller may
+ * pass several when a "Next Round" jump skipped past other combatants'
+ * turns entirely (see faserip.ts), so a DoT doesn't silently miss ticks
+ * whenever a GM uses the round-skip shortcut instead of stepping through
+ * every turn.
+ */
+export async function tickDotEffectsForCombatant(
+  combat: any,
+  activeCombatants: any | any[]
+): Promise<void> {
+  const combatantList: any[] = Array.isArray(activeCombatants)
+    ? activeCombatants
+    : [activeCombatants];
+
+  for (const activeCombatant of combatantList) {
+    const casterActor = activeCombatant?.token?.actor || activeCombatant?.actor;
+    if (!casterActor) continue;
+
+    const casterActorId = casterActor.id;
+
+    for (const combatant of combat.combatants ?? []) {
+      const actor = combatant.token?.actor || combatant.actor;
+      if (!actor) continue;
+
+      const dotEffects = Array.from(actor.effects ?? []).filter(
+        (effect: any) =>
+          effect.flags?.faserip?.kind === "dot" &&
+          effect.flags?.faserip?.dotCasterActorId === casterActorId
+      ) as any[];
+
+      for (const effect of dotEffects) {
+        if (!actor.effects.get(effect.id)) continue;
+
+        const flags = effect.flags.faserip as TemporaryModifierFlags;
+        if (!flags.dotRank) continue;
+
+        try {
+          await applyDotTick(actor, combatant.token?.id, flags, effect.name);
+        } catch (err) {
+          console.error(
+            `faserip | failed to apply DoT tick "${effect.name}" on ${actor.name}`,
+            err
+          );
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Apply one round's worth of damage-over-time to an actor, using the amount
+ * fixed at the time the DoT was applied (never re-rolled or recomputed each
+ * round). Prefers dotDamage - the triggering attack's actual post-reduction
+ * damage - when set; falls back to a flat RANK_VALUES[dotRank] lookup only
+ * when the DoT wasn't tied to a specific attack roll (e.g. an automatic
+ * "none" effectType power, or a rank explicitly pinned on the power/weapon).
+ * Routed through requestDamageApplication so it respects the same owner/GM
+ * socket handoff and armor/AP soak as normal hits.
+ */
+async function applyDotTick(
+  actor: any,
+  tokenId: string | undefined,
+  flags: TemporaryModifierFlags,
+  effectName: string
+): Promise<void> {
+  const damage =
+    flags.dotDamage !== undefined && flags.dotDamage > 0
+      ? flags.dotDamage
+      : (RANK_VALUES[flags.dotRank as Rank] ?? 0);
+  if (damage <= 0) return;
+
+  const { requestDamageApplication } = await import(
+    "../socket/faserip-socket"
+  );
+
+  const result = await requestDamageApplication(
+    actor,
+    damage,
+    "dot",
+    effectName,
+    tokenId,
+    flags.dotArmorPiercing ?? null,
+    undefined,
+    1
+  );
+
+  if (!result) return;
+
+  const apText =
+    result.piercingResult && result.piercingResult.piercingValue > 0
+      ? ` (${flags.dotArmorPiercing} AP: -${result.piercingResult.piercingValue} armor)`
+      : "";
+
+  const rankText =
+    flags.dotDamage !== undefined && flags.dotDamage > 0
+      ? ""
+      : ` ${flags.dotRank}`;
+
+  await ChatMessage.create({
+    speaker: ChatMessage.getSpeaker({ actor }),
+    flavor: "Damage Over Time",
+    content: `<div class="fsr-combat-message" style="background: #14532d; color: #bbf7d0; padding: 0.5rem; border-radius: 4px;">
+      <strong>${effectName}</strong>
+      <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">
+        ${actor.name} takes ${damage}${rankText} damage${apText}
+        ${result.armorDamage > 0 ? ` (${result.armorDamage} absorbed by armor, ${result.healthDamage} to health)` : ` (${result.healthDamage} to health)`}.
+      </p>
+    </div>`
+  });
 }
 
 /**
@@ -272,6 +453,15 @@ export function getActiveDamageModifierEffects(actor: any): any[] {
     const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
     if (flags?.kind !== "damage") return false;
     if (flags.trigger) return false;
+    return isModifierActive(effect);
+  });
+}
+
+/** All active (non-expired) damage-over-time effects on the actor. */
+export function getActiveDotEffects(actor: any): any[] {
+  return Array.from(actor.effects ?? []).filter((effect: any) => {
+    const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
+    if (flags?.kind !== "dot") return false;
     return isModifierActive(effect);
   });
 }

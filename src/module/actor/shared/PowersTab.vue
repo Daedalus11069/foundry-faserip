@@ -70,6 +70,19 @@ function ensureDamageBuff(power: PowerData) {
   return power.damageBuff;
 }
 
+function ensureDot(power: PowerData) {
+  if (!power.dot) {
+    power.dot = {
+      enabled: false,
+      rank: "",
+      armorPiercing: "",
+      durationFormula: "1d3"
+    };
+  }
+
+  return power.dot;
+}
+
 const filteredPowers = computed(() => {
   const all = powers.value.map(power => {
     // Ensure powers without armor piercing have it set to null for consistency
@@ -587,6 +600,85 @@ function toggleItem(id: string) {
                 <label class="fsr-label">Duration Formula</label>
                 <input
                   v-model="ensureDamageBuff(power).durationFormula"
+                  type="text"
+                  class="fsr-input"
+                  placeholder="1d3"
+                />
+                <div class="text-xs text-gray-400 mt-1">
+                  Rolled when the effect lands, in rounds.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="mb-2 p-2 bg-green-950/30 border border-green-800 rounded"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                v-model="ensureDot(power).enabled"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+              />
+              <span class="fsr-label mb-0">Damage Over Time</span>
+            </label>
+
+            <div v-if="ensureDot(power).enabled" class="space-y-2">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="fsr-label">Rank</label>
+                  <select v-model="ensureDot(power).rank" class="fsr-select text-sm">
+                    <option value="">Use Power's Rank</option>
+                    <option
+                      v-for="(label, value) in rankChoicesWithValues"
+                      :key="value"
+                      :value="value"
+                    >
+                      {{ label }}
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="fsr-label">Armor Piercing</label>
+                  <select
+                    v-model="ensureDot(power).armorPiercing"
+                    class="fsr-select text-sm"
+                  >
+                    <option value="">None</option>
+                    <option
+                      v-for="(label, value) in rankChoicesWithValues"
+                      :key="value"
+                      :value="value"
+                    >
+                      {{ label }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="text-xs text-gray-400">
+                Deals damage at this rank to the target at the start of each of their rounds, using the same armor-piercing rules as a normal hit, until it is removed or its duration expires.
+              </div>
+
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="ensureDot(power).durationFormula === 'indefinite'"
+                  @change="
+                    e =>
+                      (ensureDot(power).durationFormula = (e.target as HTMLInputElement).checked
+                        ? 'indefinite'
+                        : '1d3')
+                  "
+                  class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+                />
+                <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
+              </label>
+
+              <div v-if="ensureDot(power).durationFormula !== 'indefinite'">
+                <label class="fsr-label">Duration Formula</label>
+                <input
+                  v-model="ensureDot(power).durationFormula"
                   type="text"
                   class="fsr-input"
                   placeholder="1d3"

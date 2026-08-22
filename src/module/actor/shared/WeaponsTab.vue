@@ -12,7 +12,8 @@ import type { WeaponItem } from "../../types/items";
 import { isWeaponItem } from "../../types/items";
 import type {
   ReactiveActorData,
-  PowerStatDebuffData
+  PowerStatDebuffData,
+  PowerDotData
 } from "../../types/actor-system";
 
 interface DisplayWeapon {
@@ -25,7 +26,9 @@ interface DisplayWeapon {
   description?: string;
   talents?: string[];
   armorPiercing?: string;
+  multiHit?: boolean;
   statDebuff?: PowerStatDebuffData;
+  dot?: PowerDotData;
   isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
   itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
   systemIndex?: number; // Array index in system.weapons for synced weapons
@@ -66,7 +69,9 @@ const weaponItems = computed((): DisplayWeapon[] => {
       description: item.system.description,
       talents: item.system.talents || [],
       armorPiercing: item.system.armorPiercing,
+      multiHit: item.system.multiHit || false,
       statDebuff: item.system.statDebuff,
+      dot: item.system.dot,
       isItem: true,
       itemRef: item
     });
@@ -104,6 +109,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       description: weapon.description,
       talents: weapon.applicableTalents || [],
       armorPiercing: weapon.armorPiercing,
+      multiHit: weapon.multiHit || false,
       isItem: false,
       systemIndex: index
     });
@@ -304,6 +310,21 @@ function ensureWeaponDamageBuff(weapon: DisplayWeapon) {
   }
 
   return weapon.itemRef.system.damageBuff;
+}
+
+function ensureWeaponDot(weapon: DisplayWeapon) {
+  if (!weapon.itemRef) return null;
+
+  if (!weapon.itemRef.system.dot) {
+    weapon.itemRef.system.dot = {
+      enabled: false,
+      rank: "",
+      armorPiercing: "",
+      durationFormula: "1d3"
+    };
+  }
+
+  return weapon.itemRef.system.dot;
 }
 
 async function updateWeaponName(
@@ -510,6 +531,39 @@ async function updateWeaponArmorPiercing(
   }
 }
 
+async function updateWeaponMultiHit(
+  weaponId: string,
+  newMultiHit: boolean,
+  isItem: boolean,
+  systemIndex?: number
+) {
+  if (isItem) {
+    const item = actor.items.get(weaponId);
+    if (item) {
+      await item.update({ "system.multiHit": newMultiHit } as Record<
+        string,
+        unknown
+      >);
+    }
+  } else {
+    // Update synced weapon multiHit using array index
+    if (systemIndex === undefined) return;
+
+    const systemWeapons = [...(reactiveActor.system.weapons || [])];
+    if (systemIndex < 0 || systemIndex >= systemWeapons.length) return;
+
+    systemWeapons[systemIndex] = {
+      ...systemWeapons[systemIndex],
+      multiHit: newMultiHit
+    };
+
+    await actor.update({
+      // @ts-expect-error - system.weapons not fully typed
+      "system.weapons": systemWeapons
+    });
+  }
+}
+
 async function updateWeaponStatDebuff(
   weaponId: string,
   field:
@@ -544,6 +598,19 @@ async function updateWeaponDamageBuff(
 
   await item.update({
     [`system.damageBuff.${field}`]: value
+  } as Record<string, unknown>);
+}
+
+async function updateWeaponDot(
+  weaponId: string,
+  field: "enabled" | "rank" | "armorPiercing" | "durationFormula",
+  value: boolean | string
+) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+
+  await item.update({
+    [`system.dot.${field}`]: value
   } as Record<string, unknown>);
 }
 
@@ -850,6 +917,33 @@ function toggleItem(id: string) {
             </div>
           </div>
 
+          <!-- Multi-Hit (AoE) -->
+          <div class="mt-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                :checked="weapon.multiHit"
+                @change="
+                  e =>
+                    updateWeaponMultiHit(
+                      weapon.id,
+                      (e.target as HTMLInputElement).checked,
+                      weapon.isItem,
+                      weapon.systemIndex
+                    )
+                "
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-red-500 focus:ring-2 focus:ring-red-500"
+              />
+              <span class="text-xs text-gray-300">
+                Multi-Hit (AoE)
+                <i
+                  class="fas fa-burst text-xs text-yellow-400 ml-1"
+                  :title="'Area of effect - one roll for all targets, no combo penalty'"
+                ></i>
+              </span>
+            </label>
+          </div>
+
           <div
             v-if="weapon.isItem && ensureWeaponStatDebuff(weapon)"
             class="mt-3 p-3 bg-indigo-950/30 border border-indigo-800 rounded"
@@ -1075,6 +1169,124 @@ function toggleItem(id: string) {
                   @blur="
                     e =>
                       updateWeaponDamageBuff(
+                        weapon.id,
+                        'durationFormula',
+                        (e.target as HTMLInputElement).value
+                      )
+                  "
+                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  placeholder="1d3"
+                />
+                <div class="text-xs text-gray-400 mt-1">
+                  Rolled when the effect lands, in rounds.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="weapon.isItem && ensureWeaponDot(weapon)"
+            class="mt-3 p-3 bg-green-950/30 border border-green-800 rounded"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                :checked="ensureWeaponDot(weapon)?.enabled"
+                @change="
+                  e =>
+                    updateWeaponDot(
+                      weapon.id,
+                      'enabled',
+                      (e.target as HTMLInputElement).checked
+                    )
+                "
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+              />
+              <span class="text-sm font-medium text-green-200">Damage Over Time</span>
+            </label>
+
+            <div v-if="ensureWeaponDot(weapon)?.enabled" class="space-y-3">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Rank</label>
+                  <select
+                    :value="ensureWeaponDot(weapon)?.rank || ''"
+                    @change="
+                      e =>
+                        updateWeaponDot(
+                          weapon.id,
+                          'rank',
+                          (e.target as HTMLSelectElement).value
+                        )
+                    "
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">Use Weapon's Damage Rank</option>
+                    <option
+                      v-for="rank in Object.values(Rank)"
+                      :key="rank"
+                      :value="rank"
+                    >
+                      {{ formatRankDisplay(rank) }} ({{ RANK_VALUES[rank] }})
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Armor Piercing</label>
+                  <select
+                    :value="ensureWeaponDot(weapon)?.armorPiercing || ''"
+                    @change="
+                      e =>
+                        updateWeaponDot(
+                          weapon.id,
+                          'armorPiercing',
+                          (e.target as HTMLSelectElement).value
+                        )
+                    "
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">None</option>
+                    <option
+                      v-for="rank in Object.values(Rank)"
+                      :key="rank"
+                      :value="rank"
+                    >
+                      {{ formatRankDisplay(rank) }} ({{ RANK_VALUES[rank] }})
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="text-xs text-gray-400">
+                Deals damage at this rank to the target at the start of each of their rounds, using the same armor-piercing rules as a normal hit, until it is removed or its duration expires.
+              </div>
+
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="ensureWeaponDot(weapon)?.durationFormula === 'indefinite'"
+                  @change="
+                    e =>
+                      updateWeaponDot(
+                        weapon.id,
+                        'durationFormula',
+                        (e.target as HTMLInputElement).checked ? 'indefinite' : '1d3'
+                      )
+                  "
+                  class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+                />
+                <span class="text-sm text-green-200">Until Removed (no duration limit)</span>
+              </label>
+
+              <div v-if="ensureWeaponDot(weapon)?.durationFormula !== 'indefinite'">
+                <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
+                <input
+                  type="text"
+                  :value="ensureWeaponDot(weapon)?.durationFormula"
+                  @blur="
+                    e =>
+                      updateWeaponDot(
                         weapon.id,
                         'durationFormula',
                         (e.target as HTMLInputElement).value

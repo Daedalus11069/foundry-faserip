@@ -114,7 +114,7 @@ export async function applyDamageToActor(
   // Calculate effective armor with piercing
   let effectiveArmor = totalArmor;
 
-  if (data.armorPiercing && data.armorRank && totalArmor > 0) {
+  if (data.armorPiercing && totalArmor > 0) {
     piercingResult = calculateArmorPiercing(
       totalArmor,
       data.armorRank as Rank,
@@ -142,17 +142,24 @@ export async function applyDamageToActor(
     }
   }
 
-  if (effectiveArmor > 0) {
-    // Armor soaks damage (using effective armor after piercing)
-    armorDamage = Math.min(damage, effectiveArmor);
+  if (totalArmor > 0) {
+    // Armor soaks damage using effective armor after piercing - fully
+    // pierced armor (effectiveArmor <= 0) soaks nothing and all damage goes
+    // to health, but still degrades below: a hit that penetrates armor
+    // entirely still wears it down, per the degradingArmor world setting.
+    armorDamage = Math.max(0, Math.min(damage, effectiveArmor));
     overflow = damage - armorDamage;
 
     // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
-    let remainingArmorDamage = armorDamage;
+    // "full" mode degrades by what armor would have soaked with no piercing
+    // applied (pre-AP), even though the actual (post-AP) armorDamage may be
+    // lower or zero - a fully-pierced hit still wears the armor down.
+    const preApArmorDamage = Math.min(damage, totalArmor);
+    let remainingArmorDamage = preApArmorDamage;
 
     // Apply armor degradation based on mode
     if (degradingArmorMode === "full") {
-      // Full degradation: Reduce armor by damage soaked
+      // Full degradation: Reduce armor by damage soaked (pre-AP)
       // Equipped armor items soak first (update each directly)
       for (const armorItem of equippedArmorItems) {
         if (remainingArmorDamage <= 0) break;
@@ -188,8 +195,9 @@ export async function applyDamageToActor(
           bodyArmorDestroyed = true;
         }
       }
-    } else if (degradingArmorMode === "per-hit" && armorDamage > 0) {
-      // Per-hit degradation: Reduce armor by hitCount (default 1) when armor absorbs damage
+    } else if (degradingArmorMode === "per-hit" && preApArmorDamage > 0) {
+      // Per-hit degradation: Reduce armor by hitCount (default 1) whenever
+      // the hit would have reached armor (pre-AP), including fully-pierced hits.
       const degradationAmount = data.hitCount || 1;
 
       // Prioritize equipped armor degradation first
@@ -293,12 +301,22 @@ export async function applyDamageToActor(
   }
   system.healthByForm[currentFormId] = newHealthValue;
 
-  // Calculate new armor value for display
+  // Mark actor as dead once health reaches the -20 death threshold
+  if (newHealthValue <= -20 && actor) {
+    await actor.toggleStatusEffect("dead", { active: true });
+  }
+
+  // Calculate new armor value for display. Degradation is based on what
+  // armor would have soaked before armor piercing (preApArmorDamage), since
+  // a fully-pierced hit still wears armor down even though armorDamage
+  // (post-AP) may be 0.
+  const preApArmorDamageForDisplay =
+    totalArmor > 0 ? Math.min(damage, totalArmor) : 0;
   const degradationAmount = data.hitCount || 1;
   const newArmorValue =
     degradingArmorMode === "full"
-      ? totalArmor - armorDamage
-      : degradingArmorMode === "per-hit" && armorDamage > 0
+      ? totalArmor - preApArmorDamageForDisplay
+      : degradingArmorMode === "per-hit" && preApArmorDamageForDisplay > 0
         ? totalArmor - degradationAmount
         : totalArmor;
 
@@ -326,10 +344,11 @@ export async function applyDamageToActor(
  * Apply healing to an actor
  * Modifies reactiveSystem.healthByForm directly
  */
-export function applyHealingToActor(
+export async function applyHealingToActor(
   reactiveSystem: any,
-  healAmount: number
-): number {
+  healAmount: number,
+  actor?: FaseripActor
+): Promise<number> {
   const system = reactiveSystem;
 
   // Find correct form ID using same fallback logic as prepareDerivedData
@@ -361,6 +380,11 @@ export function applyHealingToActor(
     system.healthByForm = {};
   }
   system.healthByForm[currentFormId] = newHealthValue;
+
+  // Revive actor if healing brought them back above the death threshold
+  if (newHealthValue > -20 && actor) {
+    await actor.toggleStatusEffect("dead", { active: false });
+  }
 
   return newHealthValue;
 }

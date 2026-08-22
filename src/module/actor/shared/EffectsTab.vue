@@ -325,6 +325,44 @@
       </div>
 
       <div
+        v-if="dotEffects.length > 0"
+        class="bg-gray-900/50 rounded-lg p-4 border border-green-900"
+      >
+        <h3 class="text-lg font-semibold text-green-300 mb-3">
+          Damage Over Time
+        </h3>
+        <div class="space-y-2">
+          <div
+            v-for="modifier in dotEffects"
+            :key="modifier.id"
+            class="flex items-center justify-between gap-3 bg-gray-800/80 rounded p-3"
+          >
+            <div>
+              <div class="font-medium text-white">
+                {{ modifier.sourcePowerName || 'Damage Over Time' }}
+              </div>
+              <div class="text-sm text-gray-300">
+                {{ modifier.dotRank }} damage
+                <span v-if="modifier.armorPiercing" class="ml-1 px-1.5 py-0.5 rounded bg-green-800 text-green-200 text-xs">
+                  {{ modifier.armorPiercing }} AP
+                </span>
+              </div>
+            </div>
+            <div class="text-sm text-green-300">
+              {{ modifier.roundsRemaining }} round{{ modifier.roundsRemaining === 1 ? '' : 's' }}
+            </div>
+            <button
+              @click="removeDotEffect(modifier.id)"
+              class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white px-2 shrink-0"
+              :title="'Remove damage-over-time effect'"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
         v-if="incomingAttackModifiers.length > 0"
         class="bg-gray-900/50 rounded-lg p-4 border border-red-900"
       >
@@ -431,6 +469,7 @@ import { inject, computed, ref, onMounted, onUnmounted } from "vue";
 import type { FaseripActor } from "../../documents";
 import type { ReactiveActorData } from "../../types/actor-system";
 import { applyTemporaryModifier } from "../../utils/temp-effects";
+import { requestDotRemoval } from "../../socket/faserip-socket";
 
 const actor = inject("actor") as FaseripActor;
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -611,6 +650,20 @@ const temporaryDamageModifiers = computed(() => {
     }));
 });
 
+const dotEffects = computed(() => {
+  void effectsUpdateKey.value;
+
+  return Array.from(actor.effects || [])
+    .filter((effect: any) => !effect.disabled && effect.flags?.faserip?.kind === "dot")
+    .map((effect: any) => ({
+      id: effect.id,
+      dotRank: effect.flags.faserip.dotRank,
+      armorPiercing: effect.flags.faserip.dotArmorPiercing || null,
+      roundsRemaining: effect.flags.faserip.roundsRemaining ?? 0,
+      sourcePowerName: effect.flags.faserip.sourcePowerName || effect.name
+    }));
+});
+
 const incomingAttackModifiers = computed(() => {
   void effectsUpdateKey.value;
 
@@ -631,6 +684,7 @@ const hasAnyEffects = computed(() => {
     activeStatuses.value.length > 0 ||
     temporaryStatModifiers.value.length > 0 ||
     temporaryDamageModifiers.value.length > 0 ||
+    dotEffects.value.length > 0 ||
     incomingAttackModifiers.value.length > 0
   );
 });
@@ -680,6 +734,23 @@ async function removeTemporaryDamageModifier(modifierId: string) {
   if (!actor.effects.get(modifierId)) return;
 
   await effect.delete();
+}
+
+async function removeDotEffect(modifierId: string) {
+  // DoT is intentionally curable by anyone (e.g. an ally's healing power),
+  // not just the GM or the afflicted actor's owner - see requestDotRemoval.
+  const effect = actor.effects.get(modifierId);
+
+  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove damage-over-time effect from <strong>${effect?.flags?.faserip?.sourcePowerName || effect?.name || 'Unknown Source'}</strong>?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
+
+  await requestDotRemoval(actor, modifierId);
 }
 
 async function removeIncomingModifier(modifierId: string) {

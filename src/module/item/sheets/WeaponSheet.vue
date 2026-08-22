@@ -274,6 +274,80 @@
         </div>
       </div>
 
+      <div class="fsr-form-group border border-green-800 rounded p-4 bg-green-950/20">
+        <label class="flex items-center gap-2 cursor-pointer mb-3">
+          <input
+            v-model="reactiveItem.system.dot.enabled"
+            type="checkbox"
+            class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+          />
+          <span class="fsr-form-label mb-0">Damage Over Time</span>
+        </label>
+
+        <div v-if="reactiveItem.system.dot.enabled" class="space-y-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="fsr-form-label">Rank</label>
+              <select v-model="reactiveItem.system.dot.rank" class="fsr-select">
+                <option value="">Use Weapon's Damage Rank</option>
+                <option
+                  v-for="[key, label] in rankChoicesWithValues"
+                  :key="key"
+                  :value="key"
+                >
+                  {{ label }}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="fsr-form-label">Armor Piercing</label>
+              <select
+                v-model="reactiveItem.system.dot.armorPiercing"
+                class="fsr-select"
+              >
+                <option value="">None</option>
+                <option
+                  v-for="[key, label] in rankChoicesWithValues"
+                  :key="key"
+                  :value="key"
+                >
+                  {{ label }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <div class="text-xs text-gray-400">
+            Deals damage at this rank to the target at the start of each of their rounds, using the same armor-piercing rules as a normal hit, until it is removed or its duration expires.
+          </div>
+
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="reactiveItem.system.dot.durationFormula === 'indefinite'"
+              @change="
+                e =>
+                  (reactiveItem.system.dot.durationFormula = (e.target as HTMLInputElement).checked
+                    ? 'indefinite'
+                    : '1d3')
+              "
+              class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+            />
+            <span class="fsr-form-label mb-0">Until Removed (no duration limit)</span>
+          </label>
+
+          <div v-if="reactiveItem.system.dot.durationFormula !== 'indefinite'">
+            <label class="fsr-form-label">Duration Formula</label>
+            <input
+              v-model="reactiveItem.system.dot.durationFormula"
+              type="text"
+              class="fsr-input"
+              placeholder="1d3"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- Equipped Checkbox -->
       <div class="fsr-form-group">
         <label
@@ -364,6 +438,15 @@ if (!reactiveItem.system.damageBuff) {
     greenShift: 0,
     yellowShift: 0,
     redShift: 0,
+    durationFormula: "1d3"
+  };
+}
+
+if (!reactiveItem.system.dot) {
+  reactiveItem.system.dot = {
+    enabled: false,
+    rank: "",
+    armorPiercing: "",
     durationFormula: "1d3"
   };
 }

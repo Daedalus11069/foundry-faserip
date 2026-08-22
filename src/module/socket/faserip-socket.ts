@@ -10,6 +10,7 @@ import { VueDialog } from "../applications/vue-dialog";
 import { formatRankDisplay } from "../enums";
 import type { BaseActorSystemData } from "../types/actor-system";
 import { applyDamageToActor } from "../utils/damage-application";
+import type { ArmorPiercingResult } from "../utils/armor-piercing";
 import { getEffectiveAttributeData } from "../utils/stat-debuffs";
 import { applyTemporaryModifier } from "../utils/temp-effects";
 
@@ -35,6 +36,24 @@ interface ApplyDamageBuffData {
   targetTokenId?: string;
   chartShift: number;
   roundsRemaining: number;
+  sourcePowerId?: string;
+  sourcePowerName?: string;
+  sourceWeaponId?: string;
+  sourceWeaponName?: string;
+  durationFormula?: string;
+  combatId?: string | null;
+}
+
+interface ApplyDotData {
+  targetActorId: string;
+  targetTokenId?: string;
+  dotRank: string;
+  /** Fixed per-tick damage, when the triggering roll's actual damage should be used instead of RANK_VALUES[dotRank]. */
+  dotDamage?: number;
+  armorPiercing?: string | null;
+  roundsRemaining: number;
+  indefinite?: boolean;
+  casterActorId?: string | null;
   sourcePowerId?: string;
   sourcePowerName?: string;
   sourceWeaponId?: string;
@@ -147,6 +166,8 @@ export function initializeSocket(): void {
   socket.register("applyDamage", handleApplyDamage);
   socket.register("applyStatDebuff", handleApplyStatDebuff);
   socket.register("applyDamageBuff", handleApplyDamageBuff);
+  socket.register("applyDot", handleApplyDot);
+  socket.register("removeDot", handleRemoveDot);
 }
 
 /**
@@ -722,6 +743,7 @@ export async function requestDamageApplication(
   healthDamage: number;
   newArmorValue: number;
   newHealthValue: number;
+  piercingResult?: ArmorPiercingResult;
 } | null> {
   if (!socket) {
     console.warn(
@@ -732,6 +754,7 @@ export async function requestDamageApplication(
     if (game.user?.isGM || targetActor.isOwner) {
       return await handleApplyDamage({
         targetActorId: targetActor.id!,
+        targetTokenId,
         damage,
         damageType,
         powerName,
@@ -803,6 +826,7 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   healthDamage: number;
   newArmorValue: number;
   newHealthValue: number;
+  piercingResult?: ArmorPiercingResult;
 } | null> {
   // Get the target actor - prioritize token actor for unlinked tokens
   let targetActor: FaseripActor | undefined;
@@ -1052,7 +1076,8 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     armorDamage: result.armorDamage,
     healthDamage: result.healthDamage,
     newArmorValue: result.newArmorValue,
-    newHealthValue: result.newHealthValue
+    newHealthValue: result.newHealthValue,
+    piercingResult: result.piercingResult
   };
 
   return returnResult;
@@ -1169,4 +1194,165 @@ export async function requestDamageBuffApplication(
   }
 
   return await socket.executeAsUser("applyDamageBuff", owner.id, data);
+}
+
+async function handleApplyDot(data: ApplyDotData): Promise<ApplyDotData | null> {
+  let targetActor: FaseripActor | undefined;
+
+  if (data.targetTokenId) {
+    const token = canvas?.tokens?.placeables.find(
+      (t: Token) => t.id === data.targetTokenId
+    );
+    if (token) {
+      targetActor = token.actor as FaseripActor;
+    }
+  }
+
+  if (!targetActor) {
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.targetActorId
+    ) as FaseripActor | undefined;
+  }
+
+  if (!targetActor) {
+    console.error("FASERIP Socket | Target actor not found for DoT");
+    return null;
+  }
+
+  // @ts-expect-error - Foundry game.user global
+  if (!game.user?.isGM && !targetActor.isOwner) {
+    console.warn("FASERIP Socket | User doesn't own target - cannot apply DoT");
+    return null;
+  }
+
+  await applyTemporaryModifier(targetActor, {
+    kind: "dot",
+    chartShift: 0,
+    roundsRemaining: data.roundsRemaining,
+    indefinite: data.indefinite,
+    dotRank: data.dotRank,
+    dotDamage: data.dotDamage,
+    dotArmorPiercing: data.armorPiercing ?? null,
+    dotCasterActorId: data.casterActorId ?? null,
+    sourceName: data.sourcePowerName,
+    sourcePowerId: data.sourcePowerId,
+    sourceWeaponId: data.sourceWeaponId,
+    sourceWeaponName: data.sourceWeaponName
+  });
+
+  return data;
+}
+
+export async function requestDotApplication(
+  targetActor: FaseripActor,
+  data: ApplyDotData
+): Promise<ApplyDotData | null> {
+  if (!socket) {
+    // @ts-expect-error - Foundry game.user global
+    if (game.user?.isGM || targetActor.isOwner) {
+      return await handleApplyDot(data);
+    }
+    return null;
+  }
+
+  const owner = findTokenControllers(targetActor)[0];
+  if (!owner) {
+    return await handleApplyDot(data);
+  }
+
+  return await socket.executeAsUser("applyDot", owner.id, data);
+}
+
+interface RemoveDotData {
+  targetActorId: string;
+  targetTokenId?: string | null;
+  effectId: string;
+}
+
+/**
+ * Removes a DoT ActiveEffect. Unlike other temporary-modifier removal (which
+ * is GM-only via EffectsTab), any connected player may request this - a DoT
+ * is meant to be curable by an ally's character, not just the GM or the
+ * afflicted actor's own owner. Permission is enforced by always executing the
+ * actual delete on a client that does have write access to the target
+ * (its owner, or the GM as fallback), never on the requesting player's own
+ * client.
+ *
+ * Resolves the target the same way handleApplyDamage/handleApplyDot do:
+ * prefer the token's synthetic actor when a token ID is given, since an
+ * unlinked token's effects live on its synthetic actor, not the world/base
+ * actor that game.actors.find() would return.
+ */
+async function handleRemoveDot(
+  data: RemoveDotData
+): Promise<{ removed: boolean }> {
+  let targetActor: FaseripActor | undefined;
+
+  if (data.targetTokenId) {
+    const token = canvas?.tokens?.placeables.find(
+      (t: Token) => t.id === data.targetTokenId
+    );
+    if (token) {
+      targetActor = token.actor as FaseripActor;
+    }
+  }
+
+  if (!targetActor) {
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.targetActorId
+    ) as FaseripActor | undefined;
+  }
+
+  if (!targetActor) {
+    console.error("FASERIP Socket | Target actor not found for DoT removal");
+    return { removed: false };
+  }
+
+  const effect = targetActor.effects.get(data.effectId);
+  if (!effect) {
+    // Already removed (e.g. round-tick expiry raced the request) - treat as success.
+    return { removed: true };
+  }
+
+  await effect.delete();
+  return { removed: true };
+}
+
+export async function requestDotRemoval(
+  targetActor: FaseripActor,
+  effectId: string
+): Promise<boolean> {
+  // @ts-expect-error - Foundry token property may exist on synthetic actors
+  const targetTokenId: string | null = targetActor.token?.id ?? null;
+  const data: RemoveDotData = {
+    targetActorId: targetActor.id!,
+    targetTokenId,
+    effectId
+  };
+
+  if (!socket) {
+    // @ts-expect-error - Foundry game.user global
+    if (game.user?.isGM || targetActor.isOwner) {
+      const result = await handleRemoveDot(data);
+      return result.removed;
+    }
+    return false;
+  }
+
+  // @ts-expect-error - Foundry game.user global
+  if (game.user?.isGM || targetActor.isOwner) {
+    const result = await handleRemoveDot(data);
+    return result.removed;
+  }
+
+  const owner = findTokenControllers(targetActor)[0];
+  if (!owner) {
+    // No connected owner/GM to route the delete through.
+    return false;
+  }
+
+  const result = await socket.executeAsUser("removeDot", owner.id, data);
+  return result?.removed ?? false;
 }

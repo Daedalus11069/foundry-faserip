@@ -299,6 +299,26 @@ export function definePowerRefSchema() {
         required: false,
         initial: "1d3"
       })
+    }),
+    dot: new SchemaField({
+      enabled: new BooleanField({
+        required: false,
+        initial: false
+      }),
+      rank: new StringField({
+        required: false,
+        blank: true,
+        initial: ""
+      }),
+      armorPiercing: new StringField({
+        required: false,
+        blank: true,
+        initial: ""
+      }),
+      durationFormula: new StringField({
+        required: false,
+        initial: "1d3"
+      })
     })
   });
 }

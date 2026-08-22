@@ -55,9 +55,9 @@ export function initTurnActionsTracker(): void {
       await resetActionsThisTurn(current.actor);
     }
 
-    // Temporary stat/damage modifiers now live as combat-linked ActiveEffects
-    // and expire automatically via Foundry's native duration.rounds tracking —
-    // no manual decrement needed here.
+    // Temporary stat/damage modifiers are ticked separately by
+    // tickTemporaryModifiers, called from the updateCombat hook in faserip.ts
+    // (deliberately NOT via Foundry's native duration.rounds - see temp-effects.ts).
 
     // Clear exhaustion stuns from all combatants — they last one round only
     for (const combatant of combat.combatants ?? []) {

@@ -15,18 +15,24 @@ import {
   showAttackOptionsDialog
 } from "../../applications/dialog-utils";
 import { snapshotTemporaryModifiers } from "../../utils/temp-effects";
+import {
+  isPowersNegated,
+  onPowersNegationChange
+} from "../../utils/power-negation";
 import type { Talent } from "../../types";
 import {
   executeCombatAttack,
   applyPendingDamages,
   applyHitStatDebuff,
   applyHitDamageBuff,
+  applyHitDamageOverTime,
   type PendingDamage
 } from "../../combat/combat-flow";
 import type {
   ReactiveActorData,
   PowerData,
-  PowerStatDebuffData
+  PowerStatDebuffData,
+  PowerDotData
 } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 import { VueDialog } from "../../applications/vue-dialog";
@@ -54,6 +60,7 @@ interface Weapon {
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
   statDebuff?: PowerData["statDebuff"];
+  dot?: PowerDotData;
 }
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -124,7 +131,8 @@ const weapons = computed<Weapon[]>(() => {
     applicableTalents: item.system.talents || [],
     armorPiercing: item.system.armorPiercing || "", // Add armor piercing
     multiHit: item.system.multiHit || false,
-    statDebuff: item.system.statDebuff as PowerStatDebuffData | undefined
+    statDebuff: item.system.statDebuff as PowerStatDebuffData | undefined,
+    dot: item.system.dot as PowerDotData | undefined
   }));
 
   // Merge both sources
@@ -185,16 +193,28 @@ const handleItemDelete = (item: Item) => {
   }
 };
 
+const isGM = game.user?.isGM ?? false;
+const gmPowerOverride = ref(false);
+const powersNegated = ref(isPowersNegated(actor));
+const powersEffectivelyNegated = computed(
+  () => powersNegated.value && !(isGM && gmPowerOverride.value)
+);
+let unsubscribePowersNegation: (() => void) | undefined;
+
 onMounted(() => {
   Hooks.on("createItem", handleItemCreate);
   Hooks.on("updateItem", handleItemUpdate);
   Hooks.on("deleteItem", handleItemDelete);
+  unsubscribePowersNegation = onPowersNegationChange(actor, () => {
+    powersNegated.value = isPowersNegated(actor);
+  });
 });
 
 onUnmounted(() => {
   Hooks.off("createItem", handleItemCreate);
   Hooks.off("updateItem", handleItemUpdate);
   Hooks.off("deleteItem", handleItemDelete);
+  unsubscribePowersNegation?.();
 });
 
 const faseAttributes = [
@@ -1099,6 +1119,7 @@ async function rollWeapon(weapon: Weapon) {
         comboTotal: comboResult.comboCount,
         multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
         statDebuff: weapon.statDebuff,
+        dot: weapon.dot,
         deferDamageApplication: true, // Defer damage for cumulative application
         comboBotchCount // Pass current botch count
       });
@@ -1184,6 +1205,7 @@ async function rollWeapon(weapon: Weapon) {
       },
       multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
       statDebuff: weapon.statDebuff,
+      dot: weapon.dot,
       actionsBeforeThisCombo: actionsBeforeWeapon
     });
     if (singleResult !== null) {
@@ -1333,6 +1355,13 @@ async function toggleEquip(weapon: Weapon) {
 
 async function rollPower(power: any) {
   if (!currentForm.value) return;
+
+  if (powersEffectivelyNegated.value) {
+    ui.notifications?.warn(
+      `Powers are negated in this area. ${power.name} cannot be used.`
+    );
+    return;
+  }
 
   const rank = stringToRank(power.rank);
   const rankValue = power.value || 6;
@@ -1731,7 +1760,7 @@ async function rollPower(power: any) {
       // NOW apply the healing/repair after chat message is posted
       if (healthToApply > 0) {
         // Update healthByForm (source of truth) so the watcher persists it correctly
-        const newHealthValue = applyHealingToActor(reactiveActor.system, actualHealingAmount);
+        const newHealthValue = await applyHealingToActor(reactiveActor.system, actualHealingAmount, actor);
         // Also update the derived value for immediate UI feedback
         reactiveActor.system.resources.health.value = newHealthValue;
         ui.notifications?.info(
@@ -1875,6 +1904,7 @@ async function rollPower(power: any) {
           multiHit: power.multiHit || false,
           armorPiercing: power.armorPiercing, // Add armor piercing
           statDebuff: power.statDebuff,
+          dot: power.dot,
           deferDamageApplication: true, // Defer damage for cumulative application
           comboBotchCount // Pass current botch count
         });
@@ -1943,6 +1973,7 @@ async function rollPower(power: any) {
         multiHit: power.multiHit || false,
         armorPiercing: power.armorPiercing, // Add armor piercing
         statDebuff: power.statDebuff,
+        dot: power.dot,
         actionsBeforeThisCombo: actionsBeforePower
       });
       if (singleResult !== null) {
@@ -2089,6 +2120,15 @@ async function rollPower(power: any) {
           },
           faseripRoll
         );
+      }
+
+      // Apply damage-over-time if enabled
+      if (power.dot?.enabled) {
+        await applyHitDamageOverTime(targetActor, token.id, {
+          powerName: power.name,
+          powerRank: rank,
+          dot: power.dot
+        });
       }
     }
   }
@@ -2381,15 +2421,30 @@ async function rollPower(power: any) {
             class="text-sm font-bold text-purple-400 mb-2 uppercase tracking-wider"
           >
             POWERS
+            <span v-if="powersNegated" class="text-red-400 normal-case tracking-normal ml-1">
+              (Negated)
+            </span>
+            <label
+              v-if="powersNegated && isGM"
+              class="normal-case tracking-normal ml-2 text-xs text-gray-300 font-normal inline-flex items-center gap-1"
+              title="GM override: allow this actor to use powers despite the negation region"
+            >
+              <input type="checkbox" v-model="gmPowerOverride" />
+              Allow anyway
+            </label>
           </h3>
           <div class="flex flex-col gap-2">
             <button
               v-for="power in powers"
               :key="power.id"
               @click="rollPower(power)"
+              :disabled="powersEffectivelyNegated"
               class="fsr-btn fsr-btn-secondary text-xs px-3 py-1 text-left"
-              :title="`${power.name} (${formatRankDisplay(power.rank)})${mpEnabled && power.mpCost ? ` - MP Cost: ${power.mpCost}` : ''
-                }`"
+              :class="{ 'opacity-40 cursor-not-allowed grayscale': powersEffectivelyNegated }"
+              :title="powersEffectivelyNegated
+                ? `Powers are negated in this area.`
+                : `${power.name} (${formatRankDisplay(power.rank)})${mpEnabled && power.mpCost ? ` - MP Cost: ${power.mpCost}` : ''
+                  }`"
             >
               ⚡ {{ power.name }}
               <span

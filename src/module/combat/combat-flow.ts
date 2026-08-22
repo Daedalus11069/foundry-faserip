@@ -10,7 +10,8 @@ import {
   requestDamageApplication,
   requestCounterAttackResponse,
   requestStatDebuffApplication,
-  requestDamageBuffApplication
+  requestDamageBuffApplication,
+  requestDotApplication
 } from "../socket/faserip-socket";
 import { showAttackOptionsDialog } from "../applications/dialog-utils";
 import {
@@ -23,6 +24,7 @@ import {
 import { type ArmorItem, isArmorItem } from "../types/items";
 import { createRoll } from "../utils/manual-roll-handler";
 import { getCharmanService } from "../charman-service";
+import { isPowersNegated } from "../utils/power-negation";
 import {
   getEffectiveAttributeData,
   getStatDebuffShiftForResult,
@@ -31,7 +33,8 @@ import {
 } from "../utils/stat-debuffs";
 import type {
   PowerStatDebuffData,
-  PowerDamageDebuffData
+  PowerDamageDebuffData,
+  PowerDotData
 } from "../types/actor-system";
 import {
   getActiveDamageModifierEffects,
@@ -68,6 +71,7 @@ interface AttackData {
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   statDebuff?: PowerStatDebuffData; // Optional temporary stat debuff to apply on hit
   damageBuff?: PowerDamageDebuffData; // Optional temporary damage buff/debuff to apply on hit
+  dot?: PowerDotData; // Optional damage-over-time effect to apply on hit
   deferDamageApplication?: boolean; // True to accumulate damage without applying (for cumulative combo damage)
   comboBotchCount?: number; // Optional: Number of botches so far in this combo (for cumulative penalty)
 }
@@ -154,6 +158,13 @@ interface AppliedStatDebuffResult {
 
 interface AppliedDamageBuffResult {
   chartShift: number;
+  roundsRemaining: number;
+  durationFormula: string;
+}
+
+interface AppliedDotResult {
+  dotRank: string;
+  armorPiercing?: string | null;
   roundsRemaining: number;
   durationFormula: string;
 }
@@ -302,6 +313,85 @@ export async function applyHitStatDebuff(
   return {
     attribute: attackData.statDebuff.attribute,
     chartShift,
+    roundsRemaining,
+    durationFormula
+  };
+}
+
+export async function applyHitDamageOverTime(
+  targetActor: FaseripActor,
+  targetTokenId: string,
+  attackData: Partial<AttackData>,
+  /**
+   * The actual damage this attack dealt (post chart-shift reduction and
+   * tier formula), when a DoT rank isn't explicitly configured on the
+   * power/weapon - "damage at rank according to the original roll" means
+   * the roll's own final damage, not the power's unreduced base rank.
+   * Omitted on paths with no attack/defense damage roll (e.g. effectType
+   * "none" automatic powers), where the configured/base rank is used as-is.
+   */
+  rolledDamage?: number
+): Promise<AppliedDotResult | null> {
+  if (!attackData.dot?.enabled) {
+    return null;
+  }
+
+  const explicitDotRank = attackData.dot.rank?.trim();
+  const dotRank = explicitDotRank || attackData.powerRank;
+  if (!dotRank) {
+    return null;
+  }
+
+  // Use the roll's actual final damage unless the power/weapon pins the DoT
+  // to a specific rank regardless of how the triggering attack resolved.
+  const dotDamage =
+    !explicitDotRank && rolledDamage !== undefined && rolledDamage > 0
+      ? rolledDamage
+      : undefined;
+
+  const indefinite = attackData.dot.durationFormula?.trim() === "indefinite";
+  const durationFormula = indefinite
+    ? "indefinite"
+    : attackData.dot.durationFormula?.trim() || "1d3";
+
+  let roundsRemaining = 0;
+  if (!indefinite) {
+    // Use simple Roll.create for duration (don't use createRoll - it triggers critical botch table on low rolls)
+    const durationRoll = Roll.create(durationFormula);
+    await durationRoll.evaluate();
+
+    await durationRoll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor: targetActor }),
+      flavor: `<strong>${attackData.powerName || "Damage Over Time"}</strong> Duration Roll (${durationFormula})`
+    });
+
+    roundsRemaining = Math.max(1, Math.floor(Number(durationRoll.total || 0)));
+  }
+
+  const sourceName = attackData.powerName || "Unknown Source";
+
+  const applied = await requestDotApplication(targetActor, {
+    targetActorId: targetActor.id!,
+    targetTokenId,
+    dotRank,
+    dotDamage,
+    armorPiercing: attackData.dot.armorPiercing || null,
+    roundsRemaining,
+    indefinite,
+    casterActorId: attackData.attacker?.id ?? null,
+    sourcePowerId: attackData.powerName,
+    sourcePowerName: sourceName,
+    durationFormula,
+    combatId: (game as any).combat?.id ?? null
+  });
+
+  if (!applied) {
+    return null;
+  }
+
+  return {
+    dotRank,
+    armorPiercing: attackData.dot.armorPiercing || null,
     roundsRemaining,
     durationFormula
   };
@@ -517,13 +607,17 @@ export async function applyDamageToActor(
   const degradingArmorEnabled =
     game.settings.get("faserip", "degradingArmor") ?? false;
 
-  // Armor is derived from body armor power + equipped armor items
+  // Armor is derived from body armor power + equipped armor items.
+  // If powers are negated for this actor (e.g. inside a power-negation
+  // region), Body Armor stops soaking damage entirely.
   const activeFormId = system.currentFormId;
-  const bodyArmorPower = (system.powers || []).find(
-    (p: any) =>
-      p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
-      (!p.formIds?.length || p.formIds.includes(activeFormId))
-  );
+  const bodyArmorPower = isPowersNegated(actor)
+    ? undefined
+    : (system.powers || []).find(
+        (p: any) =>
+          p.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor" &&
+          (!p.formIds?.length || p.formIds.includes(activeFormId))
+      );
 
   // Find equipped armor from actor.items collection (Item documents)
   const equippedArmorItems = actor.items.filter(
@@ -629,6 +723,11 @@ export async function applyDamageToActor(
     await actor.update(updates);
   } catch (error) {
     console.error("FASERIP Combat | Error updating actor:", error);
+  }
+
+  // Mark actor as dead once health reaches the -20 death threshold
+  if (newHealthValue <= -20) {
+    await actor.toggleStatusEffect("dead", { active: true });
   }
 
   return {
@@ -1496,6 +1595,12 @@ export async function executeCombatAttack(
         attackData,
         attackRoll
       );
+      await applyHitDamageOverTime(
+        targetActor,
+        target.id,
+        attackData,
+        damageResult.damage
+      );
       const statModifierStyle = appliedStatDebuff
         ? getStatModifierStyle(appliedStatDebuff.chartShift)
         : null;
@@ -1765,6 +1870,13 @@ export async function executeCombatAttack(
             (game.settings.get("faserip", "degradingArmor") as string) ??
             "none";
 
+          // Show armor-piercing breakdown when it actually reduced armor
+          let piercingText = "";
+          const pr = damageApplication.piercingResult;
+          if (pr && pr.piercingValue > 0) {
+            piercingText = `<div style="font-size: 0.75rem; font-style: italic; background: #fee2e2; color: #991b1b; padding: 0.2rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">Armor Piercing: ${pr.originalArmor} armor − ${pr.piercingValue} AP = ${pr.effectiveArmor} effective armor</div>`;
+          }
+
           if (
             damageApplication.armorDamage > 0 &&
             damageApplication.healthDamage > 0
@@ -1779,7 +1891,7 @@ export async function executeCombatAttack(
               // "full" mode
               armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
             }
-            damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+            damageApplicationText = `${piercingText}<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
           } else if (damageApplication.armorDamage > 0) {
             // Show "remaining" based on degradation mode
             let armorText = "";
@@ -1791,9 +1903,9 @@ export async function executeCombatAttack(
               // "full" mode
               armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
             }
-            damageApplicationText = `<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}</div>`;
+            damageApplicationText = `${piercingText}<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}</div>`;
           } else if (damageApplication.healthDamage > 0) {
-            damageApplicationText = `<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+            damageApplicationText = `${piercingText}<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
           }
         }
 
@@ -1932,6 +2044,7 @@ export async function executeCombatAttack(
         attackData,
         attackRoll
       );
+      await applyHitDamageOverTime(targetActor, target.id, attackData);
       const statModifierStyle = appliedStatDebuff
         ? getStatModifierStyle(appliedStatDebuff.chartShift)
         : null;
@@ -2105,6 +2218,13 @@ export async function applyPendingDamages(
 
     let damageApplicationText = "";
     if (damageApplication) {
+      // Show armor-piercing breakdown when it actually reduced armor
+      let piercingText = "";
+      const pr = damageApplication.piercingResult;
+      if (pr && pr.piercingValue > 0) {
+        piercingText = `<div style="font-size: 0.75rem; font-style: italic; background: #fee2e2; color: #991b1b; padding: 0.2rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">Armor Piercing: ${pr.originalArmor} armor − ${pr.piercingValue} AP = ${pr.effectiveArmor} effective armor</div>`;
+      }
+
       if (
         damageApplication.armorDamage > 0 &&
         damageApplication.healthDamage > 0
@@ -2119,7 +2239,7 @@ export async function applyPendingDamages(
           // "full" mode
           armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
         }
-        damageApplicationText = `<div style="font-size: 0.85rem; background: #fef3c7; color: #92400e; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+        damageApplicationText = `${piercingText}<div style="font-size: 0.85rem; background: #fef3c7; color: #92400e; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${armorText}, ${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
       } else if (damageApplication.armorDamage > 0) {
         // Show "remaining" based on degradation mode
         let armorText = "";
@@ -2131,9 +2251,9 @@ export async function applyPendingDamages(
           // "full" mode
           armorText = `${damageApplication.armorDamage} to armor (${damageApplication.newArmorValue} remaining)`;
         }
-        damageApplicationText = `<div style="font-size: 0.85rem; background: #fef3c7; color: #92400e; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${armorText}</div>`;
+        damageApplicationText = `${piercingText}<div style="font-size: 0.85rem; background: #fef3c7; color: #92400e; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${armorText}</div>`;
       } else if (damageApplication.healthDamage > 0) {
-        damageApplicationText = `<div style="font-size: 0.85rem; background: #fee2e2; color: #991b1b; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+        damageApplicationText = `${piercingText}<div style="font-size: 0.85rem; background: #fee2e2; color: #991b1b; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
       }
     }
 

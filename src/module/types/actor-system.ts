@@ -112,6 +112,13 @@ export interface TemporaryDamageModifierData {
   combatId?: string | null;
 }
 
+export interface PowerDotData {
+  enabled: boolean;
+  rank: string; // Rank the DoT ticks at each round; blank uses the power/weapon's own rank
+  armorPiercing?: string; // Armor-piercing rank applied on every tick
+  durationFormula: string;
+}
+
 export interface PowerData {
   id: string;
   name: string;
@@ -133,6 +140,7 @@ export interface PowerData {
   armorPiercing?: string | null; // Armor-piercing rank (for damage powers that pierce armor)
   statDebuff?: PowerStatDebuffData;
   damageBuff?: PowerDamageDebuffData;
+  dot?: PowerDotData;
 }
 
 export interface TalentData {

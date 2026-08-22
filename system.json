@@ -36,6 +36,9 @@
       "contact": {},
       "armor": {},
       "weapon": {}
+    },
+    "RegionBehavior": {
+      "powerNegation": {}
     }
   },
   "url": "",

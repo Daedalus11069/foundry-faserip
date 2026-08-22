@@ -4,6 +4,24 @@
     "npc": "Non-Player Character"
   },
   "FASERIP": {
+    "ActorType": {
+      "Pc": "Player Character",
+      "Npc": "Non-Player Character"
+    },
+    "BEHAVIOR": {
+      "TYPES": {
+        "powerNegation": {
+          "label": "Power Negation",
+          "hint": "While a token of a matching actor type is inside this region, that actor cannot use any Power items.",
+          "FIELDS": {
+            "actorTypes": {
+              "label": "Affected Actor Types",
+              "hint": "Which actor types have their powers negated while inside this region."
+            }
+          }
+        }
+      }
+    },
     "Attributes": {
       "fighting": "Fighting",
       "agility": "Agility",

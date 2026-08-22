@@ -1,7 +1,8 @@
 import { Rank } from "../enums";
 import type {
   PowerStatDebuffData,
-  PowerDamageDebuffData
+  PowerDamageDebuffData,
+  PowerDotData
 } from "../types/actor-system";
 
 const { ArrayField, BooleanField, NumberField, StringField } =
@@ -35,6 +36,7 @@ export class PowerDataModel extends ItemDataModel {
   declare armorPiercing?: string;
   declare statDebuff?: PowerStatDebuffData;
   declare damageBuff?: PowerDamageDebuffData;
+  declare dot?: PowerDotData;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -104,6 +106,28 @@ export class PowerDataModel extends ItemDataModel {
           required: false,
           integer: true,
           initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
+      }),
+      dot: new foundry.data.fields.SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        rank: new StringField({
+          required: false,
+          blank: true,
+          initial: "",
+          choices: ["", ...Object.values(Rank)]
+        }),
+        armorPiercing: new StringField({
+          required: false,
+          blank: true,
+          initial: "",
+          choices: ["", ...Object.values(Rank)]
         }),
         durationFormula: new StringField({
           required: false,
@@ -208,6 +232,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare multiHit?: boolean;
   declare statDebuff?: PowerStatDebuffData;
   declare damageBuff?: PowerDamageDebuffData;
+  declare dot?: PowerDotData;
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -300,6 +325,28 @@ export class WeaponDataModel extends ItemDataModel {
           required: false,
           integer: true,
           initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
+      }),
+      dot: new foundry.data.fields.SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        rank: new StringField({
+          required: false,
+          blank: true,
+          initial: "",
+          choices: ["", ...Object.values(Rank)]
+        }),
+        armorPiercing: new StringField({
+          required: false,
+          blank: true,
+          initial: "",
+          choices: ["", ...Object.values(Rank)]
         }),
         durationFormula: new StringField({
           required: false,
