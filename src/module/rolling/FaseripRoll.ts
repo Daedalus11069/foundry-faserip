@@ -13,6 +13,7 @@ import type { FaseripActor } from "../documents";
 import { createRoll } from "../utils/manual-roll-handler";
 import {
   consumeTriggeredModifiers,
+  consumeForcedResult,
   drawCriticalTableEffect
 } from "../utils/temp-effects";
 
@@ -27,6 +28,20 @@ export class FaseripRoll {
   chartShift: number;
   result: RollResult;
   modifiedTotal?: number; // Karma-modified roll total (for botch detection in combos)
+  /**
+   * Set when a "forcedResult" temporary effect (see temp-effects.ts) was
+   * consumed for this roll. Rather than overriding the displayed
+   * tier/color independently of the roll total (which would desync from
+   * everything downstream that reads roll.total directly - damage tier
+   * lookups, bonus-damage-roll thresholds, botch detection, etc.),
+   * rollAttribute clamps modifiedTotal into a real value inside the
+   * shifted rank's actual Red or White zone on the Universal Table before
+   * constructing this roll, so evaluateResult naturally lands on the
+   * forced tier via the normal table lookup. This field is kept only for
+   * display (e.g. distinguishing a forced "Failure" from a natural botch
+   * in the chat card), not to drive evaluation.
+   */
+  forcedOutcome?: "critical" | "failure";
 
   constructor(
     roll: Roll,
@@ -34,7 +49,8 @@ export class FaseripRoll {
     rank: Rank,
     baseRank?: Rank,
     chartShift: number = 0,
-    modifiedTotal?: number
+    modifiedTotal?: number,
+    forcedOutcome?: "critical" | "failure"
   ) {
     this.roll = roll;
     this.targetValue = targetValue;
@@ -42,6 +58,7 @@ export class FaseripRoll {
     this.baseRank = baseRank || rank;
     this.chartShift = chartShift;
     this.modifiedTotal = modifiedTotal;
+    this.forcedOutcome = forcedOutcome;
     this.result = this.evaluateResult();
   }
 
@@ -317,6 +334,7 @@ export class FaseripRoll {
     // Consume any "next attack"/"next dodge"/"next action" triggered
     // modifiers (e.g. from a critical-success table draw) that match this
     // roll, folding their chart shift in before the rank is looked up.
+    let forcedOutcome: "critical" | "failure" | null = null;
     if (actor) {
       const triggerKind = additionalFlags?.attackRoll
         ? "nextAttack"
@@ -324,14 +342,44 @@ export class FaseripRoll {
           ? "nextDodge"
           : "nextAction";
       totalChartShift += await consumeTriggeredModifiers(actor, triggerKind);
+
+      // Applies to any roll (attack, defense, FEAT, power use, etc.) -
+      // overrides the die-based result entirely rather than shifting it.
+      forcedOutcome = await consumeForcedResult(actor);
     }
 
     // Apply Chart Shift to the rank used for Universal Table lookup
     const shiftedRank = applyChartShift(attributeRank, totalChartShift);
 
-    // Don't create a new roll for post-roll karma - just use the modified rollTotal
-    // The modified total was already calculated above
-    const finalRoll = roll;
+    // A forced outcome must land in a REAL Red or White zone for the
+    // shifted rank on the Universal Table, not just be painted red/white -
+    // everything downstream (damage tier, bonus-damage-roll thresholds,
+    // the roll-card total shown in chat) reads rollTotal/result together,
+    // so they'd disagree if we only overrode the displayed tier. The
+    // landing value is randomized across the FULL zone (Critical: redStart
+    // to 100; Failure: 1 to greenStart - 1, which includes the Botch/
+    // Ultimate Botch sub-ranges) via a real dice roll, rather than pinned
+    // to one fixed edge value every time.
+    let finalRoll = roll;
+    if (forcedOutcome) {
+      const shortRank = RANK_SHORTS[shiftedRank];
+      const ranges = UNIVERSAL_TABLE[shortRank];
+      if (ranges) {
+        const [greenStart, , redStart] = ranges;
+        const [rangeMin, rangeMax] =
+          forcedOutcome === "critical" ? [redStart, 100] : [1, greenStart - 1];
+        const span = rangeMax - rangeMin + 1;
+
+        // A genuine dice roll (1d<span> + offset) that lands uniformly
+        // somewhere in [rangeMin, rangeMax], rather than a fixed edge value.
+        const formula =
+          rangeMin > 1 ? `1d${span} + ${rangeMin - 1}` : `1d${span}`;
+        // @ts-expect-error - Roll class has a static create method that returns a Promise
+        finalRoll = Roll.create(formula);
+        await finalRoll.evaluate();
+        rollTotal = finalRoll.total || rangeMin;
+      }
+    }
 
     const faseripRoll = new FaseripRoll(
       finalRoll,
@@ -339,7 +387,8 @@ export class FaseripRoll {
       shiftedRank,
       attributeRank,
       totalChartShift,
-      rollTotal // Pass the karma-modified total for botch detection
+      rollTotal, // Pass the karma-modified total for botch detection
+      forcedOutcome ?? undefined
     );
 
     // Store metadata on the roll for later use (e.g., combo attacks)

@@ -37,6 +37,45 @@ export async function resetActionsThisTurn(actor: any): Promise<void> {
 }
 
 /**
+ * Clear exhaustion stuns from all combatants — they last one round only.
+ * Called from the updateCombat hook in faserip.ts (keyed on changes.round,
+ * like tickTemporaryModifiers) rather than Foundry's native "combatRound"
+ * hook, because "combatRound" doesn't reliably fire for every round-changing
+ * update - e.g. a GM jumping several rounds at once via the combat tracker -
+ * which let exhaustion stuns linger past their one-round duration.
+ */
+export async function clearExhaustionStuns(combat: any): Promise<void> {
+  for (const combatant of combat.combatants ?? []) {
+    const actor = combatant.token?.actor || combatant.actor;
+    if (!actor) continue;
+    const hasExhaustionStun = actor.getFlag("faserip", "exhaustionStun");
+    if (hasExhaustionStun) {
+      await actor.toggleStatusEffect("stun", { active: false });
+      await actor.unsetFlag("faserip", "exhaustionStun");
+    }
+  }
+}
+
+/**
+ * Reset actionsThisTurn for every given combatant. Called from the
+ * updateCombat hook in faserip.ts with the active combatant plus any
+ * combatants a "Next Round"/multi-round jump skipped past (see
+ * getSkippedCombatants), so a skipped combatant's stale action count from
+ * before the jump doesn't carry into their next real turn and trigger
+ * exhaustion early.
+ */
+export async function resetActionsThisTurnForCombatants(
+  combatants: any[]
+): Promise<void> {
+  for (const combatant of combatants) {
+    const actor = combatant.token?.actor || combatant.actor;
+    if (actor) {
+      await resetActionsThisTurn(actor);
+    }
+  }
+}
+
+/**
  * Register Foundry combat hooks that auto-reset an actor's count at the start
  * of their turn and when combat ends. Call once from the system init handler.
  */
@@ -58,17 +97,10 @@ export function initTurnActionsTracker(): void {
     // Temporary stat/damage modifiers are ticked separately by
     // tickTemporaryModifiers, called from the updateCombat hook in faserip.ts
     // (deliberately NOT via Foundry's native duration.rounds - see temp-effects.ts).
-
-    // Clear exhaustion stuns from all combatants — they last one round only
-    for (const combatant of combat.combatants ?? []) {
-      const actor = combatant.actor;
-      if (!actor) continue;
-      const hasExhaustionStun = actor.getFlag("faserip", "exhaustionStun");
-      if (hasExhaustionStun) {
-        await actor.toggleStatusEffect("stun", { active: false });
-        await actor.unsetFlag("faserip", "exhaustionStun");
-      }
-    }
+    // Exhaustion stuns are cleared there too now - see clearExhaustionStuns.
+    // Skipped combatants' actionsThisTurn is also reset there now - see
+    // resetActionsThisTurnForCombatants - since this hook only ever sees
+    // the FINAL combatant of a multi-round jump, not everyone skipped over.
   });
 
   Hooks.on("deleteCombat", async (combat: any) => {

@@ -38,7 +38,10 @@
       "weapon": {}
     },
     "RegionBehavior": {
-      "powerNegation": {}
+      "powerNegation": {},
+      "powerDampening": {},
+      "powerEnhancement": {},
+      "forceNextRoll": {}
     }
   },
   "url": "",

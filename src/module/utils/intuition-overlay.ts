@@ -22,6 +22,19 @@ const lastIntuitionRolls = new Map<
 
 let hoverListenerRegistered = false;
 
+let iconFontReady = false;
+const ICON_FONT_SPEC = '900 28px "FontAwesome"';
+
+async function ensureIconFontLoaded(): Promise<void> {
+  if (iconFontReady) return;
+  try {
+    await (document as any).fonts.load(ICON_FONT_SPEC, "");
+    iconFontReady = true;
+  } catch (err) {
+    console.warn("[IntuitionOverlay] Failed to preload icon font:", err);
+  }
+}
+
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 export function initIntuitionHoverListener(): void {
@@ -38,14 +51,17 @@ export function initIntuitionHoverListener(): void {
       const lastRoll = lastIntuitionRolls.get(tokenId);
       if (!lastRoll) return;
 
-      _showOverlay(
-        tokenId,
-        token,
-        lastRoll.total,
-        lastRoll.colorClass,
-        null,
-        true
-      );
+      ensureIconFontLoaded().then(() => {
+        if (activeOverlays.has(tokenId)) return;
+        _showOverlay(
+          tokenId,
+          token,
+          lastRoll.total,
+          lastRoll.colorClass,
+          null,
+          true
+        );
+      });
     } else {
       const entry = activeOverlays.get(tokenId);
       if (entry?.isHoverOverlay) {
@@ -55,15 +71,17 @@ export function initIntuitionHoverListener(): void {
   });
 }
 
-export function showIntuitionOverlay(
+export async function showIntuitionOverlay(
   tokenId: string,
   total: number,
   colorClass: string,
   durationMs: number
-): void {
+): Promise<void> {
   lastIntuitionRolls.set(tokenId, { total, colorClass });
   initIntuitionHoverListener();
   removeIntuitionOverlay(tokenId);
+
+  await ensureIconFontLoaded();
 
   const token: any = (canvas as any)?.tokens?.get(tokenId);
 
@@ -189,7 +207,7 @@ function buildEyeIcon(): PIXI.Text {
     // fa-eye
     fontSize: ICON_SIZE,
     fill: color,
-    fontFamily: "Font Awesome 6 Pro"
+    fontFamily: "FontAwesome"
   });
   return icon;
 }

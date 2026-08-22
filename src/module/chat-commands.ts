@@ -9,7 +9,10 @@ import {
 import { stringToRank } from "./utils";
 import { FaseripRoll } from "./rolling/FaseripRoll";
 import type { FaseripActor } from "./documents";
-import { isPowersNegated } from "./utils/power-negation";
+import {
+  isPowersNegated,
+  getPowerChartShift
+} from "./utils/power-negation";
 
 /**
  * Parse a rank expression like "good", "good+2", "remarkable-1", "ex+2k", "gd@20", "ex[reason]"
@@ -583,12 +586,13 @@ export async function handleCharacterRollCommand(
 
         const rank = stringToRank(power.rank);
         const value = power.value || RANK_VALUES[rank];
+        const regionShift = getPowerChartShift(actor);
 
         await FaseripRoll.rollAttribute(
           `${actor.name} - ${power.name}`,
           rank,
           value,
-          parsed.karmaShifts, // Use karma shifts as chart shift for powers
+          parsed.karmaShifts + regionShift, // Use karma shifts as chart shift for powers
           // @ts-expect-error - actor exists at runtime
           actor as Actor,
           undefined,

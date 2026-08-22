@@ -385,7 +385,7 @@ function handleCancel() {
       class="mb-4 p-3 bg-orange-900/30 rounded border border-orange-700"
     >
       <div class="text-sm text-orange-300">
-        <strong>Talent Bonus:</strong>
+        <strong>Chart Shift:</strong>
         <span class="ml-2">{{ talentCS > 0 ? "+" : "" }}{{ talentCS }} CS</span>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { VueDialog } from "./vue-dialog";
 import TalentSelectionDialog from "./dialogs/TalentSelectionDialog.vue";
 import KarmaSpendDialog from "./dialogs/KarmaSpendDialog.vue";
+import IntuitionCheckOptionsDialog from "./dialogs/IntuitionCheckOptionsDialog.vue";
 import ComboDialog from "./dialogs/ComboDialog.vue";
 import AttackOptionsDialog from "./dialogs/AttackOptionsDialog.vue";
 import DefenseOptionsDialog from "./dialogs/DefenseOptionsDialog.vue";
@@ -84,6 +85,51 @@ export async function showKarmaSpendDialog(
   );
 
   return result as KarmaSpendResult | null;
+}
+
+/**
+ * Show combined chart shift + result shift dialog (used for quick attribute
+ * checks like the token HUD intuition roll, where both are decided up front
+ * in a single dialog instead of separate pre-roll/post-roll prompts).
+ */
+export async function showIntuitionCheckOptionsDialog(
+  availableKarma: number,
+  currentRank?: string
+): Promise<{
+  karmaSpent: number;
+  columnShifts?: number;
+  resultShift?: number;
+  manualChartShift?: number;
+} | null> {
+  if (availableKarma <= 0) {
+    return null;
+  }
+
+  const result = await VueDialog.show(
+    IntuitionCheckOptionsDialog,
+    {
+      availableKarma,
+      currentRank
+    },
+    {
+      window: {
+        title: "Intuition Check Options",
+        icon: "fas fa-eye",
+        minimizable: false,
+        resizable: false
+      },
+      position: {
+        width: 450
+      }
+    }
+  );
+
+  return result as {
+    karmaSpent: number;
+    columnShifts?: number;
+    resultShift?: number;
+    manualChartShift?: number;
+  } | null;
 }
 
 /**

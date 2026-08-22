@@ -30,7 +30,7 @@ export type TemporaryModifierTrigger =
   | "nextAction";
 
 export interface TemporaryModifierFlags {
-  kind: "stat" | "damage" | "incoming" | "dot";
+  kind: "stat" | "damage" | "incoming" | "dot" | "forcedResult" | "roll";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
@@ -69,10 +69,17 @@ export interface TemporaryModifierFlags {
    * until removed manually (EffectsTab, or requestDotRemoval by any player).
    */
   indefinite?: boolean;
+  /**
+   * kind: "forcedResult" only - the outcome the next matching roll (any
+   * roll, consumed via the "nextAction" trigger) is forced to produce,
+   * overriding the die entirely: "critical" forces Red/Ultimate-Critical
+   * tier, "failure" forces White (any-white) tier.
+   */
+  forcedOutcome?: "critical" | "failure";
 }
 
 export interface ApplyTemporaryModifierOptions {
-  kind: "stat" | "damage" | "incoming" | "dot";
+  kind: "stat" | "damage" | "incoming" | "dot" | "forcedResult" | "roll";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
@@ -87,6 +94,7 @@ export interface ApplyTemporaryModifierOptions {
   dotArmorPiercing?: string | null;
   dotCasterActorId?: string | null;
   indefinite?: boolean;
+  forcedOutcome?: "critical" | "failure";
 }
 
 /**
@@ -111,7 +119,11 @@ export async function applyTemporaryModifier(
         ? `${sourceName} (Damage ${chartShift > 0 ? "+" : ""}${chartShift}CS)`
         : options.kind === "dot"
           ? `${sourceName} (${options.dotRank} DoT${options.indefinite ? ", until removed" : ""})`
-          : `${sourceName} (Foes ${chartShift > 0 ? "+" : ""}${chartShift}CS to hit)`;
+          : options.kind === "forcedResult"
+            ? `${sourceName} (Next Roll: Auto-${options.forcedOutcome === "failure" ? "Fail" : "Critical"})`
+            : options.kind === "roll"
+              ? `${sourceName} (Next Roll ${chartShift > 0 ? "+" : ""}${chartShift}CS)`
+              : `${sourceName} (Foes ${chartShift > 0 ? "+" : ""}${chartShift}CS to hit)`;
 
   const usesRemaining = options.usesRemaining
     ? Math.max(1, Math.floor(Number(options.usesRemaining) || 1))
@@ -132,7 +144,8 @@ export async function applyTemporaryModifier(
     dotDamage: options.dotDamage,
     dotArmorPiercing: options.dotArmorPiercing ?? null,
     dotCasterActorId: options.dotCasterActorId ?? null,
-    indefinite: options.indefinite
+    indefinite: options.indefinite,
+    forcedOutcome: options.forcedOutcome
   };
 
   const [created] = await actor.createEmbeddedDocuments("ActiveEffect", [
@@ -141,9 +154,13 @@ export async function applyTemporaryModifier(
       img:
         options.kind === "dot"
           ? "icons/svg/poison.svg"
-          : chartShift >= 0
-            ? "icons/svg/upgrade.svg"
-            : "icons/svg/downgrade.svg",
+          : options.kind === "forcedResult"
+            ? options.forcedOutcome === "failure"
+              ? "icons/svg/downgrade.svg"
+              : "icons/svg/upgrade.svg"
+            : chartShift >= 0
+              ? "icons/svg/upgrade.svg"
+              : "icons/svg/downgrade.svg", // covers "roll" alongside stat/damage/incoming
       changes: [],
       flags: {
         faserip: flags
@@ -169,7 +186,7 @@ export async function consumeTriggeredModifiers(
 
   const matches = Array.from(actor.effects).filter((effect: any) => {
     const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
-    if (!flags || flags.kind !== "stat") return false;
+    if (!flags || (flags.kind !== "stat" && flags.kind !== "roll")) return false;
     if (!isModifierActive(effect)) return false;
     return flags.trigger === triggerKind || flags.trigger === "nextAction";
   }) as any[];
@@ -177,6 +194,32 @@ export async function consumeTriggeredModifiers(
   if (!matches.length) return 0;
 
   return consumeModifierEffects(actor, matches);
+}
+
+/**
+ * Consume (delete or decrement usesRemaining on) the actor's forced-result
+ * effect, if any, for the next roll - any roll, since forcedResult effects
+ * are always applied with trigger "nextAction". Returns the forced outcome
+ * ("critical"/"failure") so the caller can override FaseripRoll's normal
+ * die-based evaluation, or null if no such effect is active.
+ */
+export async function consumeForcedResult(
+  actor: any
+): Promise<"critical" | "failure" | null> {
+  if (!actor?.effects) return null;
+
+  const match = Array.from(actor.effects).find((effect: any) => {
+    const flags = effect.flags?.faserip as TemporaryModifierFlags | undefined;
+    return flags?.kind === "forcedResult" && isModifierActive(effect);
+  }) as any;
+
+  if (!match) return null;
+
+  const outcome = match.flags.faserip.forcedOutcome as
+    | "critical"
+    | "failure";
+  await consumeModifierEffects(actor, [match]);
+  return outcome ?? null;
 }
 
 /**

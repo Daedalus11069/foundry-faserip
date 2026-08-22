@@ -20,7 +20,13 @@ import {
   onPowersNegationChange,
   canAttemptNegationResist,
   hasActiveNegationResist,
-  grantNegationResist
+  grantNegationResist,
+  getPowerDampeningShift,
+  getPowerEnhancementShift,
+  getPowerChartShift,
+  canAttemptDampeningResist,
+  hasActiveDampeningResist,
+  grantDampeningResist
 } from "../../utils/power-negation";
 import type { Talent } from "../../types";
 import {
@@ -204,6 +210,10 @@ const powersEffectivelyNegated = computed(
 );
 const canResistNegation = ref(canAttemptNegationResist(actor));
 const isResistingNegation = ref(hasActiveNegationResist(actor));
+const powerDampeningShift = ref(getPowerDampeningShift(actor));
+const powerEnhancementShift = ref(getPowerEnhancementShift(actor));
+const canResistDampening = ref(canAttemptDampeningResist(actor));
+const isResistingDampening = ref(hasActiveDampeningResist(actor));
 let unsubscribePowersNegation: (() => void) | undefined;
 
 onMounted(() => {
@@ -214,6 +224,10 @@ onMounted(() => {
     powersNegated.value = isPowersNegated(actor);
     canResistNegation.value = canAttemptNegationResist(actor);
     isResistingNegation.value = hasActiveNegationResist(actor);
+    powerDampeningShift.value = getPowerDampeningShift(actor);
+    powerEnhancementShift.value = getPowerEnhancementShift(actor);
+    canResistDampening.value = canAttemptDampeningResist(actor);
+    isResistingDampening.value = hasActiveDampeningResist(actor);
   });
 });
 
@@ -235,6 +249,38 @@ async function resistPowerNegation() {
 
   powersNegated.value = isPowersNegated(actor);
   isResistingNegation.value = hasActiveNegationResist(actor);
+}
+
+async function resistPowerDampening() {
+  const attr = getEffectiveAttributeData(actor, "endurance");
+  if (!attr) return;
+
+  const faseripRoll = await FaseripRoll.rollAttribute(
+    `${actor.name} - Resist Power Dampening (Endurance)`,
+    attr.rank,
+    attr.value,
+    0,
+    actor
+  );
+
+  const offsetByResult: Record<string, number> = {
+    [RollResult.Green]: 1,
+    [RollResult.Yellow]: 2,
+    [RollResult.Red]: 3
+  };
+  // A natural 100 (Ultimate Critical) fully negates the dampening rather
+  // than just the usual Red-tier +3CS. 1000 is well beyond any realistic
+  // dampening penalty, so it fully zeroes out getPowerDampeningShift's
+  // Math.min(0, ...) floor without needing a non-JSON-safe Infinity flag.
+  const offset =
+    faseripRoll.roll.total === 100 ? 1000 : offsetByResult[faseripRoll.result];
+
+  if (offset) {
+    await grantDampeningResist(actor, offset);
+  }
+
+  powerDampeningShift.value = getPowerDampeningShift(actor);
+  isResistingDampening.value = hasActiveDampeningResist(actor);
 }
 
 onUnmounted(() => {
@@ -1419,7 +1465,7 @@ async function rollPower(power: any) {
   }
 
   // Initialize CS and talent tracking (quick-roll doesn't show talent dialog)
-  let totalCS = 0;
+  let totalCS = getPowerChartShift(actor);
   let talentNames: string[] = [];
 
   // Route healing powers - must be rolled first
@@ -2470,6 +2516,20 @@ async function rollPower(power: any) {
               <input type="checkbox" v-model="gmPowerOverride" />
               Allow anyway
             </label>
+            <span v-if="!powersNegated && powerDampeningShift < 0" class="text-orange-400 normal-case tracking-normal ml-1">
+              (Dampened {{ powerDampeningShift }}CS)
+            </span>
+            <button
+              v-if="!powersNegated && powerDampeningShift < 0 && canResistDampening"
+              @click="resistPowerDampening"
+              class="normal-case tracking-normal ml-2 text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200"
+              title="Attempt an Endurance FEAT roll to lessen this region's power dampening"
+            >
+              🎲 Resist Dampening
+            </button>
+            <span v-if="powerEnhancementShift > 0" class="text-cyan-400 normal-case tracking-normal ml-1">
+              (Enhanced +{{ powerEnhancementShift }}CS)
+            </span>
           </h3>
           <div class="flex flex-col gap-2">
             <button

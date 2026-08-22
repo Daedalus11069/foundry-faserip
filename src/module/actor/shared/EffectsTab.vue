@@ -9,24 +9,44 @@
       </div>
     </div>
 
-    <div v-if="canManageEffects" class="flex gap-2 mb-4">
+    <div v-if="canManageEffects" class="flex flex-wrap gap-2 mb-4">
       <button
         @click="showAddStatModifier = !showAddStatModifier"
-        class="fsr-btn fsr-btn-sm bg-indigo-900 hover:bg-indigo-950 text-white"
+        class="fsr-btn fsr-btn-sm bg-indigo-900 hover:bg-indigo-950 text-white whitespace-normal text-center"
       >
         + Add Stat Modifier
       </button>
       <button
         @click="showAddDamageModifier = !showAddDamageModifier"
-        class="fsr-btn fsr-btn-sm bg-purple-900 hover:bg-purple-950 text-white"
+        class="fsr-btn fsr-btn-sm bg-purple-900 hover:bg-purple-950 text-white whitespace-normal text-center"
       >
         + Add Damage Modifier
       </button>
       <button
         @click="showAddIncomingModifier = !showAddIncomingModifier"
-        class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white"
+        class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white whitespace-normal text-center"
       >
         + Add Incoming Attack Modifier
+      </button>
+      <button
+        @click="showAddNextRollModifier = !showAddNextRollModifier"
+        class="fsr-btn fsr-btn-sm bg-teal-900 hover:bg-teal-950 text-white whitespace-normal text-center"
+      >
+        + Add Next Roll Modifier
+      </button>
+      <button
+        @click="toggleForceNextRoll('critical')"
+        class="fsr-btn fsr-btn-sm bg-yellow-900 hover:bg-yellow-950 text-white whitespace-normal text-center"
+        :title="'Force this actor\'s next roll (any roll) to be an automatic Critical'"
+      >
+        Force Next Roll: Critical
+      </button>
+      <button
+        @click="toggleForceNextRoll('failure')"
+        class="fsr-btn fsr-btn-sm bg-gray-700 hover:bg-gray-800 text-white whitespace-normal text-center"
+        :title="'Force this actor\'s next roll (any roll) to be an automatic Failure'"
+      >
+        Force Next Roll: Failure
       </button>
     </div>
 
@@ -234,6 +254,57 @@
       </div>
     </div>
 
+    <div
+      v-if="showAddNextRollModifier"
+      class="mb-4 p-3 bg-gray-900/50 rounded-lg border border-teal-800 space-y-2"
+    >
+      <h3 class="text-sm font-semibold text-teal-300">New Next Roll Modifier</h3>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="fsr-label">Source Name</label>
+          <input v-model="newNextRollModifier.sourceName" type="text" class="fsr-input" />
+        </div>
+        <div>
+          <label class="fsr-label">Chart Shift</label>
+          <input
+            v-model.number="newNextRollModifier.chartShift"
+            type="number"
+            class="fsr-input"
+            placeholder="-1"
+          />
+        </div>
+        <div>
+          <label class="fsr-label">Number of Rolls</label>
+          <input
+            v-model.number="newNextRollModifier.usesRemaining"
+            type="number"
+            min="1"
+            class="fsr-input"
+          />
+        </div>
+      </div>
+      <div class="text-xs text-gray-400">
+        Applies to this actor's next roll - any roll (attack, defense, FEAT, power use,
+        etc.), not just one attribute. Positive values buff, negative values debuff.
+        "Number of Rolls" lets it survive multiple matching rolls before it falls off.
+        Persists until consumed - never expires on a round tick.
+      </div>
+      <div class="flex gap-2">
+        <button
+          @click="addNextRollModifier"
+          class="fsr-btn fsr-btn-sm bg-teal-700 hover:bg-teal-800 text-white"
+        >
+          Add
+        </button>
+        <button
+          @click="showAddNextRollModifier = false"
+          class="fsr-btn fsr-btn-sm bg-gray-700 hover:bg-gray-800 text-white"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+
     <div v-if="!hasAnyEffects" class="text-center text-gray-400 py-8">
       No active statuses or effects.
     </div>
@@ -317,6 +388,70 @@
               @click="removeTemporaryDamageModifier(modifier.id)"
               class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white px-2 shrink-0"
               :title="'Remove temporary damage modifier'"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="forcedResultEffect"
+        class="bg-gray-900/50 rounded-lg p-4 border border-yellow-900"
+      >
+        <h3 class="text-lg font-semibold text-yellow-300 mb-3">
+          Forced Next Roll
+        </h3>
+        <div class="flex items-center justify-between gap-3 bg-gray-800/80 rounded p-3">
+          <div>
+            <div class="font-medium text-white">
+              Next roll (any roll) is an automatic
+              {{ forcedResultEffect.forcedOutcome === "failure" ? "Failure" : "Critical" }}
+            </div>
+            <div class="text-sm text-gray-300">
+              {{ forcedResultEffect.sourcePowerName || "GM Applied" }}
+            </div>
+          </div>
+          <button
+            v-if="canManageEffects"
+            @click="removeForcedResult(forcedResultEffect.id)"
+            class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white px-2 shrink-0"
+            :title="'Remove forced-result effect'"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-if="temporaryNextRollModifiers.length > 0"
+        class="bg-gray-900/50 rounded-lg p-4 border border-teal-900"
+      >
+        <h3 class="text-lg font-semibold text-teal-300 mb-3">
+          Next Roll Modifiers
+        </h3>
+        <div class="space-y-2">
+          <div
+            v-for="modifier in temporaryNextRollModifiers"
+            :key="modifier.id"
+            class="flex items-center justify-between gap-3 bg-gray-800/80 rounded p-3"
+          >
+            <div>
+              <div class="font-medium text-white">
+                {{ modifier.sourcePowerName || 'Next Roll Modifier' }}
+              </div>
+              <div class="text-sm text-gray-300">
+                {{ modifier.chartShift > 0 ? '+' : '' }}{{ modifier.chartShift }} CS next roll
+                <span v-if="modifier.usesRemaining" class="ml-1 px-1.5 py-0.5 rounded bg-teal-800 text-teal-200 text-xs">
+                  {{ modifier.usesRemaining }} roll{{ modifier.usesRemaining === 1 ? '' : 's' }} left
+                </span>
+              </div>
+            </div>
+            <button
+              v-if="canManageEffects"
+              @click="removeNextRollModifier(modifier.id)"
+              class="fsr-btn fsr-btn-sm bg-red-900 hover:bg-red-950 text-white px-2 shrink-0"
+              :title="'Remove next-roll modifier'"
             >
               ✕
             </button>
@@ -525,6 +660,13 @@ const newIncomingModifier = ref({
   usesRemaining: 1
 });
 
+const showAddNextRollModifier = ref(false);
+const newNextRollModifier = ref({
+  chartShift: -1,
+  sourceName: "GM Applied",
+  usesRemaining: 1
+});
+
 async function addStatModifier() {
   if (!canManageEffects.value) return;
 
@@ -569,6 +711,52 @@ async function addDamageModifier() {
     trigger: "",
     usesRemaining: 1
   };
+}
+
+async function addNextRollModifier() {
+  if (!canManageEffects.value) return;
+
+  await applyTemporaryModifier(actor, {
+    kind: "roll",
+    chartShift: Number(newNextRollModifier.value.chartShift) || 0,
+    roundsRemaining: 0,
+    indefinite: true,
+    trigger: "nextAction",
+    sourceName: newNextRollModifier.value.sourceName,
+    usesRemaining: Number(newNextRollModifier.value.usesRemaining) || 1
+  });
+
+  showAddNextRollModifier.value = false;
+  newNextRollModifier.value = {
+    chartShift: -1,
+    sourceName: "GM Applied",
+    usesRemaining: 1
+  };
+}
+
+async function toggleForceNextRoll(outcome: "critical" | "failure") {
+  if (!canManageEffects.value) return;
+
+  const existing = Array.from(actor.effects || []).find(
+    (effect: any) => !effect.disabled && effect.flags?.faserip?.kind === "forcedResult"
+  ) as any;
+
+  // Clicking the same outcome again removes it; clicking the other outcome replaces it.
+  if (existing) {
+    await existing.delete();
+    if (existing.flags?.faserip?.forcedOutcome === outcome) return;
+  }
+
+  await applyTemporaryModifier(actor, {
+    kind: "forcedResult",
+    chartShift: 0,
+    roundsRemaining: 0,
+    indefinite: true,
+    trigger: "nextAction",
+    usesRemaining: 1,
+    forcedOutcome: outcome,
+    sourceName: "GM Applied"
+  });
 }
 
 async function addIncomingModifier() {
@@ -650,6 +838,34 @@ const temporaryDamageModifiers = computed(() => {
     }));
 });
 
+const temporaryNextRollModifiers = computed(() => {
+  void effectsUpdateKey.value;
+
+  return Array.from(actor.effects || [])
+    .filter((effect: any) => !effect.disabled && effect.flags?.faserip?.kind === "roll")
+    .map((effect: any) => ({
+      id: effect.id,
+      chartShift: effect.flags.faserip.chartShift,
+      sourcePowerName: effect.flags.faserip.sourcePowerName || effect.name,
+      usesRemaining: effect.flags.faserip.usesRemaining ?? null
+    }));
+});
+
+const forcedResultEffect = computed(() => {
+  void effectsUpdateKey.value;
+
+  const effect: any = Array.from(actor.effects || []).find(
+    (effect: any) => !effect.disabled && effect.flags?.faserip?.kind === "forcedResult"
+  );
+  if (!effect) return null;
+
+  return {
+    id: effect.id,
+    forcedOutcome: effect.flags.faserip.forcedOutcome,
+    sourcePowerName: effect.flags.faserip.sourcePowerName || effect.name
+  };
+});
+
 const dotEffects = computed(() => {
   void effectsUpdateKey.value;
 
@@ -685,7 +901,9 @@ const hasAnyEffects = computed(() => {
     temporaryStatModifiers.value.length > 0 ||
     temporaryDamageModifiers.value.length > 0 ||
     dotEffects.value.length > 0 ||
-    incomingAttackModifiers.value.length > 0
+    incomingAttackModifiers.value.length > 0 ||
+    forcedResultEffect.value !== null ||
+    temporaryNextRollModifiers.value.length > 0
   );
 });
 
@@ -732,6 +950,35 @@ async function removeTemporaryDamageModifier(modifierId: string) {
   if (!confirmed) return;
 
   if (!actor.effects.get(modifierId)) return;
+
+  await effect.delete();
+}
+
+async function removeNextRollModifier(modifierId: string) {
+  if (!canManageEffects.value) return;
+
+  const effect = actor.effects.get(modifierId);
+  if (!effect) return;
+
+  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove next-roll modifier from <strong>${effect.flags?.faserip?.sourcePowerName || effect.name || 'Unknown Source'}</strong>?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
+
+  if (!actor.effects.get(modifierId)) return;
+
+  await effect.delete();
+}
+
+async function removeForcedResult(modifierId: string) {
+  if (!canManageEffects.value) return;
+
+  const effect = actor.effects.get(modifierId);
+  if (!effect) return;
 
   await effect.delete();
 }

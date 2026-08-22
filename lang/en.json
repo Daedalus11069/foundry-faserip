@@ -3,6 +3,12 @@
     "pc": "Player Character",
     "npc": "Non-Player Character"
   },
+  "TYPES.RegionBehavior": {
+    "powerNegation": "Power Negation",
+    "powerDampening": "Power Dampening",
+    "powerEnhancement": "Power Enhancement",
+    "forceNextRoll": "Force Next Roll"
+  },
   "FASERIP": {
     "ActorType": {
       "Pc": "Player Character",
@@ -21,6 +27,54 @@
             "allowEnduranceResist": {
               "label": "Allow Endurance Resist",
               "hint": "Let affected actors attempt an Endurance FEAT roll to temporarily resist this region's power negation."
+            }
+          }
+        },
+        "powerDampening": {
+          "label": "Power Dampening",
+          "hint": "While a token of a matching actor type is inside this region, that actor's power-based rolls take a chart-shift penalty.",
+          "FIELDS": {
+            "actorTypes": {
+              "label": "Affected Actor Types",
+              "hint": "Which actor types have their power rolls dampened while inside this region."
+            },
+            "chartShift": {
+              "label": "Chart Shift Penalty",
+              "hint": "Negative chart-shift applied to power rolls made while inside this region (e.g. -1)."
+            },
+            "allowEnduranceResist": {
+              "label": "Allow Endurance Resist",
+              "hint": "Let affected actors attempt an Endurance FEAT roll to temporarily lessen this region's dampening penalty."
+            }
+          }
+        },
+        "powerEnhancement": {
+          "label": "Power Enhancement",
+          "hint": "While a token of a matching actor type is inside this region, that actor's power-based rolls get a chart-shift bonus.",
+          "FIELDS": {
+            "actorTypes": {
+              "label": "Affected Actor Types",
+              "hint": "Which actor types have their power rolls enhanced while inside this region."
+            },
+            "chartShift": {
+              "label": "Chart Shift Bonus",
+              "hint": "Positive chart-shift applied to power rolls made while inside this region (e.g. +1)."
+            }
+          }
+        },
+        "forceNextRoll": {
+          "label": "Force Next Roll",
+          "hint": "When a token of a matching actor type enters this region, that actor's next roll (any roll) is forced to an automatic Critical or Failure, bypassing the die.",
+          "OutcomeCritical": "Critical",
+          "OutcomeFailure": "Failure",
+          "FIELDS": {
+            "actorTypes": {
+              "label": "Affected Actor Types",
+              "hint": "Which actor types have their next roll forced upon entering this region."
+            },
+            "outcome": {
+              "label": "Forced Outcome",
+              "hint": "Whether the affected actor's next roll is forced to a Critical or a Failure."
             }
           }
         }

@@ -7,7 +7,10 @@
  * exist and carry its `actorTypes` config; it also best-effort maintains a
  * cosmetic "Powers Negated" status effect on enter/exit for visibility.
  */
-import { setPowersNegatedIndicator } from "../utils/power-negation";
+import {
+  setPowersNegatedIndicator,
+  clearNegationResist
+} from "../utils/power-negation";
 
 const { StringField, SetField, BooleanField } = foundry.data.fields;
 
@@ -34,6 +37,7 @@ export class PowerNegationRegionBehaviorType extends foundry.data.regionBehavior
   static override events: Record<string, (this: any, event: any) => Promise<void>> = {
     async tokenEnter(this: PowerNegationRegionBehaviorType, event: any) {
       await this._setIndicator(event, true);
+      await this._clearResist(event);
     },
     async tokenExit(this: PowerNegationRegionBehaviorType, event: any) {
       await this._setIndicator(event, false);
@@ -52,5 +56,24 @@ export class PowerNegationRegionBehaviorType extends foundry.data.regionBehavior
     if (declaredTypes.length && !declaredTypes.includes(actor.type)) return;
 
     await setPowersNegatedIndicator(actor, negated);
+  }
+
+  /**
+   * Reset any lingering "resisting this negation" state the moment the
+   * actor (re-)enters the field, so a resist earned on a prior visit - or in
+   * a different negation region - never silently carries forward.
+   */
+  private async _clearResist(event: any): Promise<void> {
+    if (!game.user?.isGM) return;
+
+    const actor = event?.data?.token?.actor;
+    if (!actor) return;
+
+    const declaredTypes: string[] = Array.from(
+      (this as any).actorTypes ?? []
+    );
+    if (declaredTypes.length && !declaredTypes.includes(actor.type)) return;
+
+    await clearNegationResist(actor);
   }
 }

@@ -45,8 +45,15 @@ import {
   showTableEffectsEditor
 } from "./module/applications/dialog-utils";
 import { initializeSocket } from "./module/socket/faserip-socket";
-import { initTurnActionsTracker } from "./module/utils/turn-actions-tracker";
+import {
+  initTurnActionsTracker,
+  clearExhaustionStuns,
+  resetActionsThisTurnForCombatants
+} from "./module/utils/turn-actions-tracker";
 import { PowerNegationRegionBehaviorType } from "./module/region/PowerNegationRegionBehaviorType";
+import { PowerDampeningRegionBehaviorType } from "./module/region/PowerDampeningRegionBehaviorType";
+import { PowerEnhancementRegionBehaviorType } from "./module/region/PowerEnhancementRegionBehaviorType";
+import { ForceNextRollRegionBehaviorType } from "./module/region/ForceNextRollRegionBehaviorType";
 
 // ─── Movement Settings Menu ─────────────────────────────────────────────────────
 
@@ -529,12 +536,61 @@ const initHandler = () => {
   CONFIG.RegionBehavior.dataModels.powerNegation =
     PowerNegationRegionBehaviorType;
   CONFIG.RegionBehavior.typeIcons.powerNegation = "icons/svg/blind.svg";
+  // @ts-expect-error - TypeScript doesn't recognize custom CONFIG property
+  CONFIG.RegionBehavior.dataModels.powerDampening =
+    PowerDampeningRegionBehaviorType;
+  CONFIG.RegionBehavior.typeIcons.powerDampening = "icons/svg/downgrade.svg";
+  // @ts-expect-error - TypeScript doesn't recognize custom CONFIG property
+  CONFIG.RegionBehavior.dataModels.powerEnhancement =
+    PowerEnhancementRegionBehaviorType;
+  CONFIG.RegionBehavior.typeIcons.powerEnhancement = "icons/svg/upgrade.svg";
+  // @ts-expect-error - TypeScript doesn't recognize custom CONFIG property
+  CONFIG.RegionBehavior.dataModels.forceNextRoll =
+    ForceNextRollRegionBehaviorType;
+  CONFIG.RegionBehavior.typeIcons.forceNextRoll = "icons/svg/upgrade.svg";
 
   // Register the "Powers Negated" status so it shows a labeled icon on tokens
   CONFIG.statusEffects.push({
     id: "faseripPowersNegated",
     name: "Powers Negated",
     img: "icons/svg/blind.svg"
+  });
+
+  // Register "Force Next Roll: Critical/Failure" statuses - toggling them via
+  // the token HUD applies the same flags.faserip.kind "forcedResult" temp
+  // effect data as the Effects tab buttons (see EffectsTab.vue), so
+  // consumeForcedResult (temp-effects.ts) picks them up identically.
+  CONFIG.statusEffects.push({
+    id: "faseripForceNextRollCritical",
+    name: "Force Next Roll: Critical",
+    img: "icons/svg/upgrade.svg",
+    flags: {
+      faserip: {
+        kind: "forcedResult",
+        chartShift: 0,
+        roundsRemaining: 0,
+        indefinite: true,
+        trigger: "nextAction",
+        usesRemaining: 1,
+        forcedOutcome: "critical"
+      }
+    }
+  });
+  CONFIG.statusEffects.push({
+    id: "faseripForceNextRollFailure",
+    name: "Force Next Roll: Failure",
+    img: "icons/svg/downgrade.svg",
+    flags: {
+      faserip: {
+        kind: "forcedResult",
+        chartShift: 0,
+        roundsRemaining: 0,
+        indefinite: true,
+        trigger: "nextAction",
+        usesRemaining: 1,
+        forcedOutcome: "failure"
+      }
+    }
   });
 
   // Configure trackable attributes for tokens
@@ -940,6 +996,7 @@ Hooks.on("updateCombat", async (combat: any, changes: any) => {
 
   if (changes.round !== undefined) {
     await tickTemporaryModifiers(combat);
+    await clearExhaustionStuns(combat);
   }
 
   if (changes.turn !== undefined || changes.round !== undefined) {
@@ -956,6 +1013,7 @@ Hooks.on("updateCombat", async (combat: any, changes: any) => {
 
     if (combatantsToTick.length > 0) {
       await tickDotEffectsForCombatant(combat, combatantsToTick);
+      await resetActionsThisTurnForCombatants(combatantsToTick);
     }
   }
 
