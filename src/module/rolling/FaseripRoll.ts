@@ -374,13 +374,19 @@ export class FaseripRoll {
     // Draw from the configured critical botch/success table, if any, and
     // apply any effect configured on the drawn result to the actor.
     const resultText = faseripRoll.getResultText();
-    if (resultText === "Botch" || resultText === "Ultimate Botch!") {
+    if (
+      additionalFlags?.attackRoll &&
+      (resultText === "Botch" || resultText === "Ultimate Botch!")
+    ) {
       await drawCriticalTableEffect(
         actor,
         "criticalBotchTable",
         "Critical Botch Effect"
       );
-    } else if (resultText === "Critical" || resultText === "Ultimate Critical!") {
+    } else if (
+      additionalFlags?.attackRoll &&
+      (resultText === "Critical" || resultText === "Ultimate Critical!")
+    ) {
       await drawCriticalTableEffect(
         actor,
         "criticalSuccessTable",

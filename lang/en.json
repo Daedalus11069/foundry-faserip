@@ -17,6 +17,10 @@
             "actorTypes": {
               "label": "Affected Actor Types",
               "hint": "Which actor types have their powers negated while inside this region."
+            },
+            "allowEnduranceResist": {
+              "label": "Allow Endurance Resist",
+              "hint": "Let affected actors attempt an Endurance FEAT roll to temporarily resist this region's power negation."
             }
           }
         }

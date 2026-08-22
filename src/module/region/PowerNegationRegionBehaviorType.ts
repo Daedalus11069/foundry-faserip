@@ -9,7 +9,7 @@
  */
 import { setPowersNegatedIndicator } from "../utils/power-negation";
 
-const { StringField, SetField } = foundry.data.fields;
+const { StringField, SetField, BooleanField } = foundry.data.fields;
 
 export class PowerNegationRegionBehaviorType extends foundry.data.regionBehaviors.RegionBehaviorType {
   static override LOCALIZATION_PREFIXES = ["FASERIP.BEHAVIOR.TYPES.powerNegation"];
@@ -26,7 +26,8 @@ export class PowerNegationRegionBehaviorType extends foundry.data.regionBehavior
           choices: { pc: "FASERIP.ActorType.Pc", npc: "FASERIP.ActorType.Npc" }
         }),
         { initial: ["pc", "npc"] }
-      )
+      ),
+      allowEnduranceResist: new BooleanField({ initial: false })
     };
   }
 

@@ -9,8 +9,14 @@
  * Every player-facing power-use entry point (StatsTab quick-roll, the
  * chat-command power roller, and the passive Body Armor soak in
  * combat-flow.ts) checks isPowersNegated() before proceeding.
+ *
+ * Exception: a behavior with allowEnduranceResist checked lets the actor
+ * attempt an Endurance FEAT roll (see grantNegationResist) to hold off the
+ * negation for one round via a stored ActiveEffect flag, checked first here.
  */
 export function isPowersNegated(actor: any): boolean {
+  if (hasActiveNegationResist(actor)) return false;
+
   const tokens: any[] = actor?.getActiveTokens?.(true) ?? [];
 
   for (const token of tokens) {
@@ -33,6 +39,86 @@ export function isPowersNegated(actor: any): boolean {
   }
 
   return false;
+}
+
+/**
+ * Whether the actor currently sits inside at least one enabled powerNegation
+ * region (matching their actor type) that has allowEnduranceResist checked -
+ * i.e. whether an "attempt to resist" Endurance roll is currently offered.
+ * Does NOT itself consider whether the actor already has an active resist
+ * effect - callers combine this with hasActiveNegationResist as needed.
+ */
+export function canAttemptNegationResist(actor: any): boolean {
+  const tokens: any[] = actor?.getActiveTokens?.(true) ?? [];
+
+  for (const token of tokens) {
+    const regions: Set<any> | null = token.document?.regions ?? null;
+    if (!regions) continue;
+
+    for (const region of regions) {
+      for (const behavior of region.behaviors ?? []) {
+        if (behavior.type !== "powerNegation") continue;
+        if (behavior.disabled) continue;
+        if (!behavior.system?.allowEnduranceResist) continue;
+
+        const actorTypes: string[] = Array.from(
+          behavior.system?.actorTypes ?? []
+        );
+        if (!actorTypes.length || actorTypes.includes(actor.type)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+function isNegationResistEffect(effect: any): boolean {
+  return effect?.flags?.faserip?.negationResist === true;
+}
+
+/** Whether the actor currently holds an active (non-expired) negation-resist effect. */
+export function hasActiveNegationResist(actor: any): boolean {
+  return Array.from(actor?.effects ?? []).some(
+    (effect: any) =>
+      isNegationResistEffect(effect) &&
+      !effect.disabled &&
+      Number(effect.flags?.faserip?.roundsRemaining ?? 1) > 0
+  );
+}
+
+/**
+ * Grant the actor a temporary effect that makes isPowersNegated() return
+ * false for them, lasting until the start of their next turn (tracked via
+ * flags.faserip.roundsRemaining, decremented by the same combatRound hook
+ * that ticks every other temporary modifier - see utils/temp-effects.ts).
+ * Outside combat it simply lasts until manually removed or combat begins.
+ */
+export async function grantNegationResist(actor: any): Promise<void> {
+  const existing =
+    actor.effects?.filter((effect: any) => isNegationResistEffect(effect)) ??
+    [];
+  if (existing.length) {
+    await actor.deleteEmbeddedDocuments(
+      "ActiveEffect",
+      existing.map((effect: any) => effect.id)
+    );
+  }
+
+  await actor.createEmbeddedDocuments("ActiveEffect", [
+    {
+      name: "Resisting Power Negation",
+      img: "icons/svg/regen.svg",
+      changes: [],
+      flags: {
+        faserip: {
+          negationResist: true,
+          roundsRemaining: 1
+        }
+      }
+    }
+  ]);
 }
 
 /**

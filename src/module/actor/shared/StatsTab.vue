@@ -17,7 +17,10 @@ import {
 import { snapshotTemporaryModifiers } from "../../utils/temp-effects";
 import {
   isPowersNegated,
-  onPowersNegationChange
+  onPowersNegationChange,
+  canAttemptNegationResist,
+  hasActiveNegationResist,
+  grantNegationResist
 } from "../../utils/power-negation";
 import type { Talent } from "../../types";
 import {
@@ -199,6 +202,8 @@ const powersNegated = ref(isPowersNegated(actor));
 const powersEffectivelyNegated = computed(
   () => powersNegated.value && !(isGM && gmPowerOverride.value)
 );
+const canResistNegation = ref(canAttemptNegationResist(actor));
+const isResistingNegation = ref(hasActiveNegationResist(actor));
 let unsubscribePowersNegation: (() => void) | undefined;
 
 onMounted(() => {
@@ -207,8 +212,30 @@ onMounted(() => {
   Hooks.on("deleteItem", handleItemDelete);
   unsubscribePowersNegation = onPowersNegationChange(actor, () => {
     powersNegated.value = isPowersNegated(actor);
+    canResistNegation.value = canAttemptNegationResist(actor);
+    isResistingNegation.value = hasActiveNegationResist(actor);
   });
 });
+
+async function resistPowerNegation() {
+  const attr = getEffectiveAttributeData(actor, "endurance");
+  if (!attr) return;
+
+  const faseripRoll = await FaseripRoll.rollAttribute(
+    `${actor.name} - Resist Power Negation (Endurance)`,
+    attr.rank,
+    attr.value,
+    0,
+    actor
+  );
+
+  if (faseripRoll.result !== RollResult.White) {
+    await grantNegationResist(actor);
+  }
+
+  powersNegated.value = isPowersNegated(actor);
+  isResistingNegation.value = hasActiveNegationResist(actor);
+}
 
 onUnmounted(() => {
   Hooks.off("createItem", handleItemCreate);
@@ -2424,6 +2451,17 @@ async function rollPower(power: any) {
             <span v-if="powersNegated" class="text-red-400 normal-case tracking-normal ml-1">
               (Negated)
             </span>
+            <span v-if="isResistingNegation" class="text-green-400 normal-case tracking-normal ml-1">
+              (Resisting)
+            </span>
+            <button
+              v-if="powersNegated && canResistNegation && !isResistingNegation"
+              @click="resistPowerNegation"
+              class="normal-case tracking-normal ml-2 text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200"
+              title="Attempt an Endurance FEAT roll to temporarily resist this region's power negation"
+            >
+              🎲 Resist Negation
+            </button>
             <label
               v-if="powersNegated && isGM"
               class="normal-case tracking-normal ml-2 text-xs text-gray-300 font-normal inline-flex items-center gap-1"
