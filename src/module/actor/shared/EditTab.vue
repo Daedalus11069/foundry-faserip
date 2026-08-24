@@ -361,6 +361,21 @@ async function browseTokenImage() {
       </p>
     </div>
 
+    <!-- Token Alias -->
+    <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+      <h3 class="text-sm font-bold text-yellow-400 mb-2">Token Alias</h3>
+      <input
+        v-model="reactiveActor.system.alias"
+        type="text"
+        class="fsr-input"
+        placeholder="e.g. Mysterious Stranger"
+      />
+      <p class="text-xs text-gray-500 mt-1">
+        Shown on tokens instead of the character's name. Leave blank to use
+        the character's name.
+      </p>
+    </div>
+
     <!-- Weapon Slots -->
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
       <h3 class="text-sm font-bold text-yellow-400 mb-2">Weapon Slots (Default)</h3>

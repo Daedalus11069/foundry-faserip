@@ -183,6 +183,7 @@ export interface BaseActorSystemData {
   resources: ResourcesData;
   healthByForm: Record<string, number>; // Stores HP per form ID
   callname: string;
+  alias: string;
   biography: string;
   notes: string;
   publicNotes: string;

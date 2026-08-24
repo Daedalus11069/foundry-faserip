@@ -361,6 +361,7 @@ export class ActorDataModel extends TypeDataModel<
   declare resources: ResourcesData;
   declare healthByForm: Record<string, number>;
   declare callname: string;
+  declare alias: string;
   declare biography: string;
   declare notes: string;
   declare publicNotes: string;
@@ -423,6 +424,9 @@ export class ActorDataModel extends TypeDataModel<
 
       // Character callname (displayed under the main name)
       callname: new StringField({ initial: "" }),
+
+      // Token alias (displayed on tokens instead of the actor's name)
+      alias: new StringField({ initial: "" }),
 
       // Biography and notes
       biography: new StringField({ initial: "" }),

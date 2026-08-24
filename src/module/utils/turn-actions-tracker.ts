@@ -12,16 +12,24 @@
 /**
  * Return how many attacks this actor has already made this turn.
  * Pass reactiveActor.system for an immediate, reactive read.
+ *
+ * Returns 0 outside of an active combat encounter — multiple-action CS
+ * penalties only apply mid-combat, not to attacks rolled before combat
+ * has started or after it has ended.
  */
 export function getActionsThisTurn(actorSystem: any): number {
+  if (!(game as any).combat) return 0;
   return actorSystem.actionsThisTurn ?? 0;
 }
 
 /**
  * Record that this actor completed `count` more attacks this turn.
  * Mutates the reactive system directly; FsrBaseSheet watchIgnorable persists it.
+ * No-ops outside of an active combat encounter, since actions are only
+ * tracked for the purpose of mid-combat CS penalties.
  */
 export function addActionsThisTurn(actorSystem: any, count: number): void {
+  if (!(game as any).combat) return;
   const current = actorSystem.actionsThisTurn ?? 0;
   actorSystem.actionsThisTurn = current + count;
 }

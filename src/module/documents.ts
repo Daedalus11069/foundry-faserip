@@ -109,6 +109,11 @@ export class FaseripActor<
       data.prototypeToken = tokenConfig;
     }
 
+    // If an alias was provided at creation, use it for the token name
+    if (data.system?.alias && data.prototypeToken && !data.prototypeToken.name) {
+      data.prototypeToken.name = data.system.alias;
+    }
+
     // Initialize forms if not present
     if (!data.system?.forms || data.system.forms.length === 0) {
       if (!data.system) data.system = {};
@@ -155,6 +160,43 @@ export class FaseripActor<
 
   override prepareBaseData() {
     super.prepareBaseData();
+  }
+
+  /**
+   * Keep the prototype token and any placed tokens in sync with the actor's
+   * alias (or name, if no alias is set) whenever either changes outside of
+   * switchForm() — e.g. editing the alias field or renaming the actor.
+   */
+  protected override _onUpdate(
+    changed: any,
+    options: any,
+    userId: string
+  ): void {
+    super._onUpdate(changed, options, userId);
+
+    const aliasChanged = foundry.utils.hasProperty(changed, "system.alias");
+    const nameChanged = foundry.utils.hasProperty(changed, "name");
+    if (!aliasChanged && !nameChanged) return;
+
+    const displayName = (this.system as any).alias || this.name;
+
+    if (game.user?.isGM) {
+      this.update(
+        { "prototypeToken.name": displayName },
+        { render: false }
+      );
+
+      // @ts-expect-error - game.scenes type not fully recognized
+      for (const scene of game.scenes!) {
+        const tokens = scene.tokens.filter((t: any) => t.actor?.id === this.id);
+        if (!tokens.length) continue;
+        const updates = tokens.map((t: any) => ({
+          _id: t.id,
+          name: displayName
+        }));
+        scene.updateEmbeddedDocuments("Token", updates);
+      }
+    }
   }
 
   override prepareDerivedData() {
@@ -390,8 +432,9 @@ export class FaseripActor<
       "system.resources.health.value": targetHealth
     };
 
-    // Update token name to match actor name
-    updateData["prototypeToken.name"] = this.name;
+    // Update token name to match the actor's alias (falls back to actor name)
+    updateData["prototypeToken.name"] =
+      (this.system as any).alias || this.name;
 
     // For PCs, always display name
     if (this.type === "pc") {
@@ -426,7 +469,8 @@ export class FaseripActor<
       for (const token of tokens) {
         const tokenUpdate: Record<string, any> = {
           _id: token.id,
-          name: this.name // Always update token name to match actor
+          // Always update token name to match the actor's alias (or name if unset)
+          name: (this.system as any).alias || this.name
         };
 
         // For PCs, always display name
