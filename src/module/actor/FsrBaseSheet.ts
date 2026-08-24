@@ -178,6 +178,22 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
             }
           }
 
+          // Third-party modules (e.g. tokenmagic-automatic-wounds) key off
+          // system.resources.health.value in the preUpdateActor diff to detect
+          // HP changes. healthByForm is our source of truth and health.value is
+          // normally re-derived by prepareDerivedData, but since nothing else
+          // sends it through, include the already-resolved value here so it
+          // rides along in the same update instead of racing a later recompute.
+          const currentFormId = (this.#reactiveActor!.system as any)
+            .currentFormId;
+          const healthByFormKey = currentFormId
+            ? `system.healthByForm.${currentFormId}`
+            : undefined;
+          if (healthByFormKey && healthByFormKey in filteredUpdateData) {
+            filteredUpdateData["system.resources.health.value"] =
+              filteredUpdateData[healthByFormKey];
+          }
+
           // Skip if no real changes after filtering
           if (Object.keys(filteredUpdateData).length === 0) {
             return;

@@ -752,17 +752,27 @@ Hooks.on("preUpdateActor", (actor: any, changes: any, _options: any) => {
     return;
   }
 
+  const currentFormId = actor.system.currentFormId;
+  if (!currentFormId) {
+    return;
+  }
+
   // If health value is being updated, also update the healthByForm for current form
   if (changes.system?.resources?.health?.value !== undefined) {
-    const currentFormId = actor.system.currentFormId;
-    if (currentFormId) {
-      // Clone the existing healthByForm and update it
-      const updatedHealthByForm = {
-        ...(actor.system.healthByForm || {}),
-        [currentFormId]: changes.system.resources.health.value
-      };
-      changes.system.healthByForm = updatedHealthByForm;
-    }
+    // Clone the existing healthByForm and update it
+    const updatedHealthByForm = {
+      ...(actor.system.healthByForm || {}),
+      [currentFormId]: changes.system.resources.health.value
+    };
+    changes.system.healthByForm = updatedHealthByForm;
+  } else if (changes.system?.healthByForm?.[currentFormId] !== undefined) {
+    // healthByForm was updated directly (e.g. damage application) without
+    // touching health.value - some consumers of preUpdateActor (third-party
+    // modules) key off resources.health.value, so mirror it back in.
+    changes.system.resources ??= {};
+    changes.system.resources.health ??= {};
+    changes.system.resources.health.value =
+      changes.system.healthByForm[currentFormId];
   }
 });
 
