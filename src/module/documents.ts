@@ -110,7 +110,11 @@ export class FaseripActor<
     }
 
     // If an alias was provided at creation, use it for the token name
-    if (data.system?.alias && data.prototypeToken && !data.prototypeToken.name) {
+    if (
+      data.system?.alias &&
+      data.prototypeToken &&
+      !data.prototypeToken.name
+    ) {
       data.prototypeToken.name = data.system.alias;
     }
 
@@ -180,8 +184,10 @@ export class FaseripActor<
 
     const displayName = (this.system as any).alias || this.name;
 
+    // @ts-expect-error - game.user type not fully recognized
     if (game.user?.isGM) {
       this.update(
+        // @ts-expect-error - prototypeToken type not fully recognized
         { "prototypeToken.name": displayName },
         { render: false }
       );
@@ -433,8 +439,7 @@ export class FaseripActor<
     };
 
     // Update token name to match the actor's alias (falls back to actor name)
-    updateData["prototypeToken.name"] =
-      (this.system as any).alias || this.name;
+    updateData["prototypeToken.name"] = (this.system as any).alias || this.name;
 
     // For PCs, always display name
     if (this.type === "pc") {
