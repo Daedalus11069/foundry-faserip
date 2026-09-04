@@ -41,6 +41,7 @@ import type {
   ReactiveActorData,
   PowerData,
   PowerStatDebuffData,
+  PowerDamageDebuffData,
   PowerDotData
 } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
@@ -68,8 +69,9 @@ interface Weapon {
   equipped?: boolean;
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
-  statDebuff?: PowerData["statDebuff"];
-  dot?: PowerDotData;
+  statDebuffs?: PowerStatDebuffData[];
+  damageBuffs?: PowerDamageDebuffData[];
+  dots?: PowerDotData[];
 }
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -140,8 +142,11 @@ const weapons = computed<Weapon[]>(() => {
     applicableTalents: item.system.talents || [],
     armorPiercing: item.system.armorPiercing || "", // Add armor piercing
     multiHit: item.system.multiHit || false,
-    statDebuff: item.system.statDebuff as PowerStatDebuffData | undefined,
-    dot: item.system.dot as PowerDotData | undefined
+    statDebuffs: item.system.statDebuffs as PowerStatDebuffData[] | undefined,
+    damageBuffs: item.system.damageBuffs as
+      | PowerDamageDebuffData[]
+      | undefined,
+    dots: item.system.dots as PowerDotData[] | undefined
   }));
 
   // Merge both sources
@@ -1191,8 +1196,9 @@ async function rollWeapon(weapon: Weapon) {
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount,
         multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
-        statDebuff: weapon.statDebuff,
-        dot: weapon.dot,
+        statDebuffs: weapon.statDebuffs,
+        damageBuffs: weapon.damageBuffs,
+        dots: weapon.dots,
         deferDamageApplication: true, // Defer damage for cumulative application
         comboBotchCount // Pass current botch count
       });
@@ -1277,8 +1283,9 @@ async function rollWeapon(weapon: Weapon) {
         damageBonus: firstAttackKarma?.damageBonus ?? 0
       },
       multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
-      statDebuff: weapon.statDebuff,
-      dot: weapon.dot,
+      statDebuffs: weapon.statDebuffs,
+      damageBuffs: weapon.damageBuffs,
+      dots: weapon.dots,
       actionsBeforeThisCombo: actionsBeforeWeapon
     });
     if (singleResult !== null) {
@@ -1976,8 +1983,9 @@ async function rollPower(power: any) {
           comboTotal: comboResult.comboCount,
           multiHit: power.multiHit || false,
           armorPiercing: power.armorPiercing, // Add armor piercing
-          statDebuff: power.statDebuff,
-          dot: power.dot,
+          statDebuffs: power.statDebuffs,
+          damageBuffs: power.damageBuffs,
+          dots: power.dots,
           deferDamageApplication: true, // Defer damage for cumulative application
           comboBotchCount // Pass current botch count
         });
@@ -2045,8 +2053,9 @@ async function rollPower(power: any) {
         manualChartShift: comboResult.manualChartShift ?? 0,
         multiHit: power.multiHit || false,
         armorPiercing: power.armorPiercing, // Add armor piercing
-        statDebuff: power.statDebuff,
-        dot: power.dot,
+        statDebuffs: power.statDebuffs,
+        damageBuffs: power.damageBuffs,
+        dots: power.dots,
         actionsBeforeThisCombo: actionsBeforePower
       });
       if (singleResult !== null) {
@@ -2169,38 +2178,36 @@ async function rollPower(power: any) {
       const targetActor = token.actor;
       if (!targetActor) continue;
 
-      // Apply stat debuff if enabled
-      if (power.statDebuff?.enabled) {
+      // Apply stat debuffs
+      for (const sd of power.statDebuffs ?? []) {
+        if (!sd.enabled) continue;
         await applyHitStatDebuff(
           targetActor,
           token.id,
-          {
-            powerName: power.name,
-            statDebuff: power.statDebuff
-          },
+          sd,
+          { powerName: power.name },
           faseripRoll
         );
       }
 
-      // Apply damage buff if enabled
-      if (power.damageBuff?.enabled) {
+      // Apply damage buffs
+      for (const db of power.damageBuffs ?? []) {
+        if (!db.enabled) continue;
         await applyHitDamageBuff(
           targetActor,
           token.id,
-          {
-            powerName: power.name,
-            damageBuff: power.damageBuff
-          },
+          db,
+          { powerName: power.name },
           faseripRoll
         );
       }
 
-      // Apply damage-over-time if enabled
-      if (power.dot?.enabled) {
-        await applyHitDamageOverTime(targetActor, token.id, {
+      // Apply damage-over-time effects
+      for (const d of power.dots ?? []) {
+        if (!d.enabled) continue;
+        await applyHitDamageOverTime(targetActor, token.id, d, {
           powerName: power.name,
-          powerRank: rank,
-          dot: power.dot
+          powerRank: rank
         });
       }
     }

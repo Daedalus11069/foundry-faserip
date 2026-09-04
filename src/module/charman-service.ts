@@ -89,6 +89,13 @@ export interface CharmanPowerDamageBuff {
   durationFormula: string;
 }
 
+export interface CharmanPowerDot {
+  enabled: boolean;
+  rank: string;
+  armorPiercing?: string;
+  durationFormula: string;
+}
+
 export interface CharmanPower {
   name: string;
   rank: string | number | Record<string, string | number>; // Can be simple rank, numeric value, or form-specific ranks
@@ -105,8 +112,9 @@ export interface CharmanPower {
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   targetType?: "any" | "others" | "self"; // Who this power can target
-  statDebuff?: CharmanPowerStatDebuff; // Temporary stat debuff applied on hit
-  damageBuff?: CharmanPowerDamageBuff; // Temporary damage buff/debuff applied on hit
+  statDebuffs?: CharmanPowerStatDebuff[]; // Temporary stat debuffs applied on hit
+  damageBuffs?: CharmanPowerDamageBuff[]; // Temporary damage buffs/debuffs applied on hit
+  dots?: CharmanPowerDot[]; // Damage-over-time effects applied on hit
 }
 
 export interface CharmanTalent {
@@ -141,7 +149,9 @@ export interface CharmanWeapon {
   description?: string;
   equipped?: boolean;
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
-  statDebuff?: CharmanPowerStatDebuff; // Temporary stat debuff applied on hit
+  statDebuffs?: CharmanPowerStatDebuff[]; // Temporary stat debuffs applied on hit
+  damageBuffs?: CharmanPowerDamageBuff[]; // Temporary damage buffs/debuffs applied on hit
+  dots?: CharmanPowerDot[]; // Damage-over-time effects applied on hit
 }
 
 export interface CharmanContact {
@@ -581,25 +591,27 @@ export class CharmanService {
         multiHit: power.multiHit || false,
         armorPiercing: power.armorPiercing || null,
         targetType: power.targetType || "any",
-        statDebuff: power.statDebuff
-          ? {
-              enabled: power.statDebuff.enabled ?? false,
-              attribute: power.statDebuff.attribute,
-              greenShift: power.statDebuff.greenShift ?? 0,
-              yellowShift: power.statDebuff.yellowShift ?? 0,
-              redShift: power.statDebuff.redShift ?? 0,
-              durationFormula: power.statDebuff.durationFormula ?? ""
-            }
-          : undefined,
-        damageBuff: power.damageBuff
-          ? {
-              enabled: power.damageBuff.enabled ?? false,
-              greenShift: power.damageBuff.greenShift ?? 0,
-              yellowShift: power.damageBuff.yellowShift ?? 0,
-              redShift: power.damageBuff.redShift ?? 0,
-              durationFormula: power.damageBuff.durationFormula ?? ""
-            }
-          : undefined,
+        statDebuffs: (power.statDebuffs || []).map(sd => ({
+          enabled: sd.enabled ?? false,
+          attribute: sd.attribute,
+          greenShift: sd.greenShift ?? 0,
+          yellowShift: sd.yellowShift ?? 0,
+          redShift: sd.redShift ?? 0,
+          durationFormula: sd.durationFormula ?? ""
+        })),
+        damageBuffs: (power.damageBuffs || []).map(db => ({
+          enabled: db.enabled ?? false,
+          greenShift: db.greenShift ?? 0,
+          yellowShift: db.yellowShift ?? 0,
+          redShift: db.redShift ?? 0,
+          durationFormula: db.durationFormula ?? ""
+        })),
+        dots: (power.dots || []).map(d => ({
+          enabled: d.enabled ?? false,
+          rank: d.rank ?? "",
+          armorPiercing: d.armorPiercing ?? "",
+          durationFormula: d.durationFormula ?? ""
+        })),
         value: power.value || getRankValue(rankName),
         maxValue: power.maxValue || getRankValue(rankName)
       };
@@ -743,16 +755,27 @@ export class CharmanService {
             description: weapon.description || "",
             equipped: weapon.equipped || false,
             multiHit: weapon.multiHit || false,
-            statDebuff: weapon.statDebuff
-              ? {
-                  enabled: weapon.statDebuff.enabled ?? false,
-                  attribute: weapon.statDebuff.attribute,
-                  greenShift: weapon.statDebuff.greenShift ?? 0,
-                  yellowShift: weapon.statDebuff.yellowShift ?? 0,
-                  redShift: weapon.statDebuff.redShift ?? 0,
-                  durationFormula: weapon.statDebuff.durationFormula ?? ""
-                }
-              : undefined
+            statDebuffs: (weapon.statDebuffs || []).map(sd => ({
+              enabled: sd.enabled ?? false,
+              attribute: sd.attribute,
+              greenShift: sd.greenShift ?? 0,
+              yellowShift: sd.yellowShift ?? 0,
+              redShift: sd.redShift ?? 0,
+              durationFormula: sd.durationFormula ?? ""
+            })),
+            damageBuffs: (weapon.damageBuffs || []).map(db => ({
+              enabled: db.enabled ?? false,
+              greenShift: db.greenShift ?? 0,
+              yellowShift: db.yellowShift ?? 0,
+              redShift: db.redShift ?? 0,
+              durationFormula: db.durationFormula ?? ""
+            })),
+            dots: (weapon.dots || []).map(d => ({
+              enabled: d.enabled ?? false,
+              rank: d.rank ?? "",
+              armorPiercing: d.armorPiercing ?? "",
+              durationFormula: d.durationFormula ?? ""
+            }))
           };
         }),
         charman: {

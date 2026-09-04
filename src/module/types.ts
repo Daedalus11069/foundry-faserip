@@ -23,42 +23,6 @@ export interface SelectedTalent {
 }
 
 /**
- * Represents a character power with rank and description
- */
-export interface Power {
-  id: string;
-  name: string;
-  rank: string;
-  category?: string;
-  value: number;
-  maxValue: number; // Maximum value (used when degrading armor is enabled)
-  description?: string;
-  mpCost?: number; // Mental Points cost (houserule: MP system)
-  formIds?: string[]; // Form IDs this power applies to; empty = all forms
-  skipDialogs?: boolean; // Roll directly without talent/combo dialogs
-  effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // What effect this power has (uses power's rank)
-  attackType?: "none" | "melee" | "ranged" | "psyche"; // Attack type for defense attribute selection (Fighting, Agility, Psyche)
-  damageType?: string; // Damage type (fire, cold, energy, etc.) - defaults to "none"
-  resistanceType?: string; // If this is a resistance power, what type it resists
-  vulnerabilityType?: string; // If this is a vulnerability/weakness power, what type increases damage
-  statDebuff?: {
-    enabled: boolean;
-    attribute:
-      | "fighting"
-      | "agility"
-      | "strength"
-      | "endurance"
-      | "reasoning"
-      | "intuition"
-      | "psyche";
-    greenShift: number;
-    yellowShift: number;
-    redShift: number;
-    durationFormula: string;
-  };
-}
-
-/**
  * Represents a character attribute with rank and value
  */
 export interface AttributeData {

@@ -5,8 +5,23 @@ import type {
   PowerDotData
 } from "../types/actor-system";
 
-const { ArrayField, BooleanField, NumberField, StringField } =
+const { ArrayField, BooleanField, NumberField, SchemaField, StringField } =
   foundry.data.fields;
+
+function migrateBuffDebuffArrayFields(source: any): any {
+  const renames: Array<[string, string]> = [
+    ["statDebuff", "statDebuffs"],
+    ["damageBuff", "damageBuffs"],
+    ["dot", "dots"]
+  ];
+  for (const [oldKey, newKey] of renames) {
+    if (source[oldKey] && !Array.isArray(source[newKey])) {
+      source[newKey] = [source[oldKey]];
+    }
+    delete source[oldKey];
+  }
+  return source;
+}
 
 const { TypeDataModel } = foundry.abstract;
 
@@ -34,9 +49,14 @@ export class PowerDataModel extends ItemDataModel {
   declare rank: string;
   declare category: string;
   declare armorPiercing?: string;
-  declare statDebuff?: PowerStatDebuffData;
-  declare damageBuff?: PowerDamageDebuffData;
-  declare dot?: PowerDotData;
+  declare statDebuffs?: PowerStatDebuffData[];
+  declare damageBuffs?: PowerDamageDebuffData[];
+  declare dots?: PowerDotData[];
+
+  static override migrateData(source: any): any {
+    source = super.migrateData(source);
+    return migrateBuffDebuffArrayFields(source);
+  }
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -49,91 +69,100 @@ export class PowerDataModel extends ItemDataModel {
         initial: "",
         choices: ["", ...Object.values(Rank)]
       }),
-      statDebuff: new foundry.data.fields.SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
+      statDebuffs: new ArrayField(
+        new SchemaField({
+          enabled: new BooleanField({
+            required: false,
+            initial: false
+          }),
+          attribute: new StringField({
+            required: false,
+            initial: "intuition",
+            choices: [
+              "fighting",
+              "agility",
+              "strength",
+              "endurance",
+              "reasoning",
+              "intuition",
+              "psyche"
+            ]
+          }),
+          greenShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          yellowShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          redShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          durationFormula: new StringField({
+            required: false,
+            initial: "1d3"
+          })
         }),
-        attribute: new StringField({
-          required: false,
-          initial: "intuition",
-          choices: [
-            "fighting",
-            "agility",
-            "strength",
-            "endurance",
-            "reasoning",
-            "intuition",
-            "psyche"
-          ]
+        { required: false, initial: [] }
+      ),
+      damageBuffs: new ArrayField(
+        new SchemaField({
+          enabled: new BooleanField({
+            required: false,
+            initial: false
+          }),
+          greenShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          yellowShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          redShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          durationFormula: new StringField({
+            required: false,
+            initial: "1d3"
+          })
         }),
-        greenShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
+        { required: false, initial: [] }
+      ),
+      dots: new ArrayField(
+        new SchemaField({
+          enabled: new BooleanField({
+            required: false,
+            initial: false
+          }),
+          rank: new StringField({
+            required: false,
+            blank: true,
+            initial: "",
+            choices: ["", ...Object.values(Rank)]
+          }),
+          armorPiercing: new StringField({
+            required: false,
+            blank: true,
+            initial: "",
+            choices: ["", ...Object.values(Rank)]
+          }),
+          durationFormula: new StringField({
+            required: false,
+            initial: "1d3"
+          })
         }),
-        yellowShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        redShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      damageBuff: new foundry.data.fields.SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        greenShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        yellowShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        redShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      dot: new foundry.data.fields.SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        rank: new StringField({
-          required: false,
-          blank: true,
-          initial: "",
-          choices: ["", ...Object.values(Rank)]
-        }),
-        armorPiercing: new StringField({
-          required: false,
-          blank: true,
-          initial: "",
-          choices: ["", ...Object.values(Rank)]
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      })
+        { required: false, initial: [] }
+      )
     };
   }
 }
@@ -230,9 +259,14 @@ export class WeaponDataModel extends ItemDataModel {
   declare talents?: string[];
   declare armorPiercing?: string;
   declare multiHit?: boolean;
-  declare statDebuff?: PowerStatDebuffData;
-  declare damageBuff?: PowerDamageDebuffData;
-  declare dot?: PowerDotData;
+  declare statDebuffs?: PowerStatDebuffData[];
+  declare damageBuffs?: PowerDamageDebuffData[];
+  declare dots?: PowerDotData[];
+
+  static override migrateData(source: any): any {
+    source = super.migrateData(source);
+    return migrateBuffDebuffArrayFields(source);
+  }
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
@@ -268,91 +302,100 @@ export class WeaponDataModel extends ItemDataModel {
         initial: false,
         label: "Multi-Hit (AoE)"
       }),
-      statDebuff: new foundry.data.fields.SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
+      statDebuffs: new ArrayField(
+        new SchemaField({
+          enabled: new BooleanField({
+            required: false,
+            initial: false
+          }),
+          attribute: new StringField({
+            required: false,
+            initial: "intuition",
+            choices: [
+              "fighting",
+              "agility",
+              "strength",
+              "endurance",
+              "reasoning",
+              "intuition",
+              "psyche"
+            ]
+          }),
+          greenShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          yellowShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          redShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          durationFormula: new StringField({
+            required: false,
+            initial: "1d3"
+          })
         }),
-        attribute: new StringField({
-          required: false,
-          initial: "intuition",
-          choices: [
-            "fighting",
-            "agility",
-            "strength",
-            "endurance",
-            "reasoning",
-            "intuition",
-            "psyche"
-          ]
+        { required: false, initial: [] }
+      ),
+      damageBuffs: new ArrayField(
+        new SchemaField({
+          enabled: new BooleanField({
+            required: false,
+            initial: false
+          }),
+          greenShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          yellowShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          redShift: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
+          }),
+          durationFormula: new StringField({
+            required: false,
+            initial: "1d3"
+          })
         }),
-        greenShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
+        { required: false, initial: [] }
+      ),
+      dots: new ArrayField(
+        new SchemaField({
+          enabled: new BooleanField({
+            required: false,
+            initial: false
+          }),
+          rank: new StringField({
+            required: false,
+            blank: true,
+            initial: "",
+            choices: ["", ...Object.values(Rank)]
+          }),
+          armorPiercing: new StringField({
+            required: false,
+            blank: true,
+            initial: "",
+            choices: ["", ...Object.values(Rank)]
+          }),
+          durationFormula: new StringField({
+            required: false,
+            initial: "1d3"
+          })
         }),
-        yellowShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        redShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      damageBuff: new foundry.data.fields.SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        greenShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        yellowShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        redShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      dot: new foundry.data.fields.SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        rank: new StringField({
-          required: false,
-          blank: true,
-          initial: "",
-          choices: ["", ...Object.values(Rank)]
-        }),
-        armorPiercing: new StringField({
-          required: false,
-          blank: true,
-          initial: "",
-          choices: ["", ...Object.values(Rank)]
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      })
+        { required: false, initial: [] }
+      )
     };
   }
 }

@@ -13,6 +13,7 @@ import { isWeaponItem } from "../../types/items";
 import type {
   ReactiveActorData,
   PowerStatDebuffData,
+  PowerDamageDebuffData,
   PowerDotData
 } from "../../types/actor-system";
 
@@ -27,8 +28,9 @@ interface DisplayWeapon {
   talents?: string[];
   armorPiercing?: string;
   multiHit?: boolean;
-  statDebuff?: PowerStatDebuffData;
-  dot?: PowerDotData;
+  statDebuffs?: PowerStatDebuffData[];
+  damageBuffs?: PowerDamageDebuffData[];
+  dots?: PowerDotData[];
   isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
   itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
   systemIndex?: number; // Array index in system.weapons for synced weapons
@@ -70,8 +72,9 @@ const weaponItems = computed((): DisplayWeapon[] => {
       talents: item.system.talents || [],
       armorPiercing: item.system.armorPiercing,
       multiHit: item.system.multiHit || false,
-      statDebuff: item.system.statDebuff,
-      dot: item.system.dot,
+      statDebuffs: item.system.statDebuffs,
+      damageBuffs: item.system.damageBuffs,
+      dots: item.system.dots,
       isItem: true,
       itemRef: item
     });
@@ -279,52 +282,112 @@ function editWeapon(weaponId: string, isItem: boolean) {
   }
 }
 
-function ensureWeaponStatDebuff(weapon: DisplayWeapon) {
-  if (!weapon.itemRef) return null;
-
-  if (!weapon.itemRef.system.statDebuff) {
-    weapon.itemRef.system.statDebuff = {
-      enabled: false,
-      attribute: "fighting",
-      greenShift: 0,
-      yellowShift: 0,
-      redShift: 0,
-      durationFormula: "1d3"
-    } as PowerStatDebuffData;
-  }
-
-  return weapon.itemRef.system.statDebuff as PowerStatDebuffData;
+function newWeaponStatDebuff(): PowerStatDebuffData {
+  return {
+    enabled: false,
+    attribute: "fighting",
+    greenShift: 0,
+    yellowShift: 0,
+    redShift: 0,
+    durationFormula: "1d3"
+  };
 }
 
-function ensureWeaponDamageBuff(weapon: DisplayWeapon) {
-  if (!weapon.itemRef) return null;
-
-  if (!weapon.itemRef.system.damageBuff) {
-    weapon.itemRef.system.damageBuff = {
-      enabled: false,
-      greenShift: 0,
-      yellowShift: 0,
-      redShift: 0,
-      durationFormula: "1d3"
-    };
-  }
-
-  return weapon.itemRef.system.damageBuff;
+function newWeaponDamageBuff(): PowerDamageDebuffData {
+  return {
+    enabled: false,
+    greenShift: 0,
+    yellowShift: 0,
+    redShift: 0,
+    durationFormula: "1d3"
+  };
 }
 
-function ensureWeaponDot(weapon: DisplayWeapon) {
+function newWeaponDot(): PowerDotData {
+  return {
+    enabled: false,
+    rank: "",
+    armorPiercing: "",
+    durationFormula: "1d3"
+  };
+}
+
+function ensureWeaponStatDebuffs(weapon: DisplayWeapon) {
   if (!weapon.itemRef) return null;
 
-  if (!weapon.itemRef.system.dot) {
-    weapon.itemRef.system.dot = {
-      enabled: false,
-      rank: "",
-      armorPiercing: "",
-      durationFormula: "1d3"
-    };
+  if (!weapon.itemRef.system.statDebuffs) {
+    weapon.itemRef.system.statDebuffs = [];
   }
 
-  return weapon.itemRef.system.dot;
+  return weapon.itemRef.system.statDebuffs as PowerStatDebuffData[];
+}
+
+function ensureWeaponDamageBuffs(weapon: DisplayWeapon) {
+  if (!weapon.itemRef) return null;
+
+  if (!weapon.itemRef.system.damageBuffs) {
+    weapon.itemRef.system.damageBuffs = [];
+  }
+
+  return weapon.itemRef.system.damageBuffs as PowerDamageDebuffData[];
+}
+
+function ensureWeaponDots(weapon: DisplayWeapon) {
+  if (!weapon.itemRef) return null;
+
+  if (!weapon.itemRef.system.dots) {
+    weapon.itemRef.system.dots = [];
+  }
+
+  return weapon.itemRef.system.dots as PowerDotData[];
+}
+
+async function addWeaponStatDebuff(weaponId: string) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+  const arr = foundry.utils.deepClone(item.system.statDebuffs ?? []);
+  arr.push(newWeaponStatDebuff());
+  await item.update({ "system.statDebuffs": arr } as Record<string, unknown>);
+}
+
+async function removeWeaponStatDebuff(weaponId: string, index: number) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+  const arr = foundry.utils.deepClone(item.system.statDebuffs ?? []);
+  arr.splice(index, 1);
+  await item.update({ "system.statDebuffs": arr } as Record<string, unknown>);
+}
+
+async function addWeaponDamageBuff(weaponId: string) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+  const arr = foundry.utils.deepClone(item.system.damageBuffs ?? []);
+  arr.push(newWeaponDamageBuff());
+  await item.update({ "system.damageBuffs": arr } as Record<string, unknown>);
+}
+
+async function removeWeaponDamageBuff(weaponId: string, index: number) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+  const arr = foundry.utils.deepClone(item.system.damageBuffs ?? []);
+  arr.splice(index, 1);
+  await item.update({ "system.damageBuffs": arr } as Record<string, unknown>);
+}
+
+async function addWeaponDot(weaponId: string) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+  const arr = foundry.utils.deepClone(item.system.dots ?? []);
+  arr.push(newWeaponDot());
+  await item.update({ "system.dots": arr } as Record<string, unknown>);
+}
+
+async function removeWeaponDot(weaponId: string, index: number) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+  const arr = foundry.utils.deepClone(item.system.dots ?? []);
+  arr.splice(index, 1);
+  await item.update({ "system.dots": arr } as Record<string, unknown>);
 }
 
 async function updateWeaponName(
@@ -566,6 +629,7 @@ async function updateWeaponMultiHit(
 
 async function updateWeaponStatDebuff(
   weaponId: string,
+  index: number,
   field:
     | "enabled"
     | "attribute"
@@ -578,13 +642,16 @@ async function updateWeaponStatDebuff(
   const item = actor.items.get(weaponId) as WeaponItem | undefined;
   if (!item) return;
 
-  await item.update({
-    [`system.statDebuff.${field}`]: value
-  } as Record<string, unknown>);
+  const arr = foundry.utils.deepClone(item.system.statDebuffs ?? []);
+  if (!arr[index]) return;
+  (arr[index] as Record<string, unknown>)[field] = value;
+
+  await item.update({ "system.statDebuffs": arr } as Record<string, unknown>);
 }
 
 async function updateWeaponDamageBuff(
   weaponId: string,
+  index: number,
   field:
     | "enabled"
     | "greenShift"
@@ -596,22 +663,27 @@ async function updateWeaponDamageBuff(
   const item = actor.items.get(weaponId) as WeaponItem | undefined;
   if (!item) return;
 
-  await item.update({
-    [`system.damageBuff.${field}`]: value
-  } as Record<string, unknown>);
+  const arr = foundry.utils.deepClone(item.system.damageBuffs ?? []);
+  if (!arr[index]) return;
+  (arr[index] as Record<string, unknown>)[field] = value;
+
+  await item.update({ "system.damageBuffs": arr } as Record<string, unknown>);
 }
 
 async function updateWeaponDot(
   weaponId: string,
+  index: number,
   field: "enabled" | "rank" | "armorPiercing" | "durationFormula",
   value: boolean | string
 ) {
   const item = actor.items.get(weaponId) as WeaponItem | undefined;
   if (!item) return;
 
-  await item.update({
-    [`system.dot.${field}`]: value
-  } as Record<string, unknown>);
+  const arr = foundry.utils.deepClone(item.system.dots ?? []);
+  if (!arr[index]) return;
+  (arr[index] as Record<string, unknown>)[field] = value;
+
+  await item.update({ "system.dots": arr } as Record<string, unknown>);
 }
 
 async function updateWeaponDescription(
@@ -945,359 +1017,444 @@ function toggleItem(id: string) {
           </div>
 
           <div
-            v-if="weapon.isItem && ensureWeaponStatDebuff(weapon)"
-            class="mt-3 p-3 bg-indigo-950/30 border border-indigo-800 rounded"
+            v-if="weapon.isItem && ensureWeaponStatDebuffs(weapon)"
+            class="mt-3 p-3 bg-indigo-950/30 border border-indigo-800 rounded space-y-2"
           >
-            <label class="flex items-center gap-2 cursor-pointer mb-2">
-              <input
-                :checked="ensureWeaponStatDebuff(weapon)?.enabled"
-                @change="
-                  e =>
-                    updateWeaponStatDebuff(
-                      weapon.id,
-                      'enabled',
-                      (e.target as HTMLInputElement).checked
-                    )
-                "
-                type="checkbox"
-                class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
-              />
-              <span class="text-sm font-medium text-indigo-200">Temporary Stat (De)buff</span>
-            </label>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium text-indigo-200">Temporary Stat (De)buffs</span>
+              <button
+                @click="addWeaponStatDebuff(weapon.id)"
+                class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs"
+              >
+                + Add
+              </button>
+            </div>
 
             <div
-              v-if="ensureWeaponStatDebuff(weapon)?.enabled"
-              class="space-y-3"
+              v-for="(entry, idx) in ensureWeaponStatDebuffs(weapon)"
+              :key="idx"
+              class="border border-indigo-700 rounded p-2 space-y-2"
             >
-              <div>
-                <label class="text-xs text-gray-400 block mb-1">Target Attribute</label>
-                <select
-                  :value="ensureWeaponStatDebuff(weapon)?.attribute"
-                  @change="
-                    e =>
-                      updateWeaponStatDebuff(
-                        weapon.id,
-                        'attribute',
-                        (e.target as HTMLSelectElement).value
-                      )
-                  "
-                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              <div class="flex items-center justify-between">
+                <label class="flex items-center gap-2 cursor-pointer mb-0">
+                  <input
+                    :checked="entry.enabled"
+                    @change="
+                      e =>
+                        updateWeaponStatDebuff(
+                          weapon.id,
+                          idx,
+                          'enabled',
+                          (e.target as HTMLInputElement).checked
+                        )
+                    "
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <span class="text-sm font-medium text-indigo-200">Enabled</span>
+                </label>
+                <button
+                  @click="removeWeaponStatDebuff(weapon.id, idx)"
+                  class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                  title="Remove"
                 >
-                  <option
-                    v-for="option in attributeChoices"
-                    :key="option.value"
-                    :value="option.value"
+                  ✕
+                </button>
+              </div>
+
+              <div v-if="entry.enabled" class="space-y-3">
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Target Attribute</label>
+                  <select
+                    :value="entry.attribute"
+                    @change="
+                      e =>
+                        updateWeaponStatDebuff(
+                          weapon.id,
+                          idx,
+                          'attribute',
+                          (e.target as HTMLSelectElement).value
+                        )
+                    "
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
                   >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </div>
+                    <option
+                      v-for="option in attributeChoices"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </div>
 
-              <div class="grid grid-cols-3 gap-2">
+                <div class="grid grid-cols-3 gap-2">
+                  <div>
+                    <label class="text-xs text-gray-400 block mb-1">Half Success</label>
+                    <input
+                      type="number"
+                      :value="entry.greenShift"
+                      @blur="
+                        e =>
+                          updateWeaponStatDebuff(
+                            weapon.id,
+                            idx,
+                            'greenShift',
+                            Number((e.target as HTMLInputElement).value)
+                          )
+                      "
+                      @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                      placeholder="-1"
+                    />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400 block mb-1">Yellow</label>
+                    <input
+                      type="number"
+                      :value="entry.yellowShift"
+                      @blur="
+                        e =>
+                          updateWeaponStatDebuff(
+                            weapon.id,
+                            idx,
+                            'yellowShift',
+                            Number((e.target as HTMLInputElement).value)
+                          )
+                      "
+                      @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                      placeholder="-2"
+                    />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400 block mb-1">Red</label>
+                    <input
+                      type="number"
+                      :value="entry.redShift"
+                      @blur="
+                        e =>
+                          updateWeaponStatDebuff(
+                            weapon.id,
+                            idx,
+                            'redShift',
+                            Number((e.target as HTMLInputElement).value)
+                          )
+                      "
+                      @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                      placeholder="-3"
+                    />
+                  </div>
+                </div>
+
+                <div class="text-xs text-gray-400">
+                  Positive values apply a buff. Negative values apply a debuff.
+                </div>
+
                 <div>
-                  <label class="text-xs text-gray-400 block mb-1">Half Success</label>
+                  <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
                   <input
-                    type="number"
-                    :value="ensureWeaponStatDebuff(weapon)?.greenShift"
+                    type="text"
+                    :value="entry.durationFormula"
                     @blur="
                       e =>
                         updateWeaponStatDebuff(
                           weapon.id,
-                          'greenShift',
-                          Number((e.target as HTMLInputElement).value)
+                          idx,
+                          'durationFormula',
+                          (e.target as HTMLInputElement).value
                         )
                     "
                     @keyup.enter="e => (e.target as HTMLInputElement).blur()"
                     class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                    placeholder="-1"
+                    placeholder="1d3"
                   />
                 </div>
-                <div>
-                  <label class="text-xs text-gray-400 block mb-1">Yellow</label>
-                  <input
-                    type="number"
-                    :value="ensureWeaponStatDebuff(weapon)?.yellowShift"
-                    @blur="
-                      e =>
-                        updateWeaponStatDebuff(
-                          weapon.id,
-                          'yellowShift',
-                          Number((e.target as HTMLInputElement).value)
-                        )
-                    "
-                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                    placeholder="-2"
-                  />
-                </div>
-                <div>
-                  <label class="text-xs text-gray-400 block mb-1">Red</label>
-                  <input
-                    type="number"
-                    :value="ensureWeaponStatDebuff(weapon)?.redShift"
-                    @blur="
-                      e =>
-                        updateWeaponStatDebuff(
-                          weapon.id,
-                          'redShift',
-                          Number((e.target as HTMLInputElement).value)
-                        )
-                    "
-                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                    placeholder="-3"
-                  />
-                </div>
-              </div>
-
-              <div class="text-xs text-gray-400">
-                Positive values apply a buff. Negative values apply a debuff.
-              </div>
-
-              <div>
-                <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
-                <input
-                  type="text"
-                  :value="ensureWeaponStatDebuff(weapon)?.durationFormula"
-                  @blur="
-                    e =>
-                      updateWeaponStatDebuff(
-                        weapon.id,
-                        'durationFormula',
-                        (e.target as HTMLInputElement).value
-                      )
-                  "
-                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="1d3"
-                />
               </div>
             </div>
           </div>
 
           <div
-            v-if="weapon.isItem && ensureWeaponDamageBuff(weapon)"
-            class="mt-3 p-3 bg-purple-950/30 border border-purple-800 rounded"
+            v-if="weapon.isItem && ensureWeaponDamageBuffs(weapon)"
+            class="mt-3 p-3 bg-purple-950/30 border border-purple-800 rounded space-y-2"
           >
-            <label class="flex items-center gap-2 cursor-pointer mb-2">
-              <input
-                :checked="ensureWeaponDamageBuff(weapon)?.enabled"
-                @change="
-                  e =>
-                    updateWeaponDamageBuff(
-                      weapon.id,
-                      'enabled',
-                      (e.target as HTMLInputElement).checked
-                    )
-                "
-                type="checkbox"
-                class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
-              />
-              <span class="text-sm font-medium text-purple-200">Temporary Damage (De)buff</span>
-            </label>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium text-purple-200">Temporary Damage (De)buffs</span>
+              <button
+                @click="addWeaponDamageBuff(weapon.id)"
+                class="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs"
+              >
+                + Add
+              </button>
+            </div>
 
             <div
-              v-if="ensureWeaponDamageBuff(weapon)?.enabled"
-              class="space-y-3"
+              v-for="(entry, idx) in ensureWeaponDamageBuffs(weapon)"
+              :key="idx"
+              class="border border-purple-700 rounded p-2 space-y-2"
             >
-              <div class="grid grid-cols-3 gap-2">
-                <div>
-                  <label class="text-xs text-gray-400 block mb-1">Half Success</label>
+              <div class="flex items-center justify-between">
+                <label class="flex items-center gap-2 cursor-pointer mb-0">
                   <input
-                    type="number"
-                    :value="ensureWeaponDamageBuff(weapon)?.greenShift"
-                    @blur="
+                    :checked="entry.enabled"
+                    @change="
                       e =>
                         updateWeaponDamageBuff(
                           weapon.id,
-                          'greenShift',
-                          Number((e.target as HTMLInputElement).value)
+                          idx,
+                          'enabled',
+                          (e.target as HTMLInputElement).checked
                         )
                     "
-                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                    placeholder="-1"
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
                   />
-                </div>
-                <div>
-                  <label class="text-xs text-gray-400 block mb-1">Yellow</label>
-                  <input
-                    type="number"
-                    :value="ensureWeaponDamageBuff(weapon)?.yellowShift"
-                    @blur="
-                      e =>
-                        updateWeaponDamageBuff(
-                          weapon.id,
-                          'yellowShift',
-                          Number((e.target as HTMLInputElement).value)
-                        )
-                    "
-                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                    placeholder="-2"
-                  />
-                </div>
-                <div>
-                  <label class="text-xs text-gray-400 block mb-1">Red</label>
-                  <input
-                    type="number"
-                    :value="ensureWeaponDamageBuff(weapon)?.redShift"
-                    @blur="
-                      e =>
-                        updateWeaponDamageBuff(
-                          weapon.id,
-                          'redShift',
-                          Number((e.target as HTMLInputElement).value)
-                        )
-                    "
-                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                    placeholder="-3"
-                  />
-                </div>
+                  <span class="text-sm font-medium text-purple-200">Enabled</span>
+                </label>
+                <button
+                  @click="removeWeaponDamageBuff(weapon.id, idx)"
+                  class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                  title="Remove"
+                >
+                  ✕
+                </button>
               </div>
 
-              <div class="text-xs text-gray-400">
-                Affects target's damage output. Positive values buff damage, negative values debuff damage.
-              </div>
+              <div v-if="entry.enabled" class="space-y-3">
+                <div class="grid grid-cols-3 gap-2">
+                  <div>
+                    <label class="text-xs text-gray-400 block mb-1">Half Success</label>
+                    <input
+                      type="number"
+                      :value="entry.greenShift"
+                      @blur="
+                        e =>
+                          updateWeaponDamageBuff(
+                            weapon.id,
+                            idx,
+                            'greenShift',
+                            Number((e.target as HTMLInputElement).value)
+                          )
+                      "
+                      @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                      placeholder="-1"
+                    />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400 block mb-1">Yellow</label>
+                    <input
+                      type="number"
+                      :value="entry.yellowShift"
+                      @blur="
+                        e =>
+                          updateWeaponDamageBuff(
+                            weapon.id,
+                            idx,
+                            'yellowShift',
+                            Number((e.target as HTMLInputElement).value)
+                          )
+                      "
+                      @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                      placeholder="-2"
+                    />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400 block mb-1">Red</label>
+                    <input
+                      type="number"
+                      :value="entry.redShift"
+                      @blur="
+                        e =>
+                          updateWeaponDamageBuff(
+                            weapon.id,
+                            idx,
+                            'redShift',
+                            Number((e.target as HTMLInputElement).value)
+                          )
+                      "
+                      @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                      placeholder="-3"
+                    />
+                  </div>
+                </div>
 
-              <div>
-                <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
-                <input
-                  type="text"
-                  :value="ensureWeaponDamageBuff(weapon)?.durationFormula"
-                  @blur="
-                    e =>
-                      updateWeaponDamageBuff(
-                        weapon.id,
-                        'durationFormula',
-                        (e.target as HTMLInputElement).value
-                      )
-                  "
-                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="1d3"
-                />
-                <div class="text-xs text-gray-400 mt-1">
-                  Rolled when the effect lands, in rounds.
+                <div class="text-xs text-gray-400">
+                  Affects target's damage output. Positive values buff damage, negative values debuff damage.
+                </div>
+
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
+                  <input
+                    type="text"
+                    :value="entry.durationFormula"
+                    @blur="
+                      e =>
+                        updateWeaponDamageBuff(
+                          weapon.id,
+                          idx,
+                          'durationFormula',
+                          (e.target as HTMLInputElement).value
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="1d3"
+                  />
+                  <div class="text-xs text-gray-400 mt-1">
+                    Rolled when the effect lands, in rounds.
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           <div
-            v-if="weapon.isItem && ensureWeaponDot(weapon)"
-            class="mt-3 p-3 bg-green-950/30 border border-green-800 rounded"
+            v-if="weapon.isItem && ensureWeaponDots(weapon)"
+            class="mt-3 p-3 bg-green-950/30 border border-green-800 rounded space-y-2"
           >
-            <label class="flex items-center gap-2 cursor-pointer mb-2">
-              <input
-                :checked="ensureWeaponDot(weapon)?.enabled"
-                @change="
-                  e =>
-                    updateWeaponDot(
-                      weapon.id,
-                      'enabled',
-                      (e.target as HTMLInputElement).checked
-                    )
-                "
-                type="checkbox"
-                class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
-              />
+            <div class="flex items-center justify-between mb-1">
               <span class="text-sm font-medium text-green-200">Damage Over Time</span>
-            </label>
+              <button
+                @click="addWeaponDot(weapon.id)"
+                class="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+              >
+                + Add
+              </button>
+            </div>
 
-            <div v-if="ensureWeaponDot(weapon)?.enabled" class="space-y-3">
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="text-xs text-gray-400 block mb-1">Rank</label>
-                  <select
-                    :value="ensureWeaponDot(weapon)?.rank || ''"
+            <div
+              v-for="(entry, idx) in ensureWeaponDots(weapon)"
+              :key="idx"
+              class="border border-green-700 rounded p-2 space-y-2"
+            >
+              <div class="flex items-center justify-between">
+                <label class="flex items-center gap-2 cursor-pointer mb-0">
+                  <input
+                    :checked="entry.enabled"
                     @change="
                       e =>
                         updateWeaponDot(
                           weapon.id,
-                          'rank',
-                          (e.target as HTMLSelectElement).value
+                          idx,
+                          'enabled',
+                          (e.target as HTMLInputElement).checked
                         )
                     "
-                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">Use Weapon's Damage Rank</option>
-                    <option
-                      v-for="rank in Object.values(Rank)"
-                      :key="rank"
-                      :value="rank"
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+                  />
+                  <span class="text-sm font-medium text-green-200">Enabled</span>
+                </label>
+                <button
+                  @click="removeWeaponDot(weapon.id, idx)"
+                  class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div v-if="entry.enabled" class="space-y-3">
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="text-xs text-gray-400 block mb-1">Rank</label>
+                    <select
+                      :value="entry.rank || ''"
+                      @change="
+                        e =>
+                          updateWeaponDot(
+                            weapon.id,
+                            idx,
+                            'rank',
+                            (e.target as HTMLSelectElement).value
+                          )
+                      "
+                      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
                     >
-                      {{ formatRankDisplay(rank) }} ({{ RANK_VALUES[rank] }})
-                    </option>
-                  </select>
+                      <option value="">Use Weapon's Damage Rank</option>
+                      <option
+                        v-for="rank in Object.values(Rank)"
+                        :key="rank"
+                        :value="rank"
+                      >
+                        {{ formatRankDisplay(rank) }} ({{ RANK_VALUES[rank] }})
+                      </option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400 block mb-1">Armor Piercing</label>
+                    <select
+                      :value="entry.armorPiercing || ''"
+                      @change="
+                        e =>
+                          updateWeaponDot(
+                            weapon.id,
+                            idx,
+                            'armorPiercing',
+                            (e.target as HTMLSelectElement).value
+                          )
+                      "
+                      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="">None</option>
+                      <option
+                        v-for="rank in Object.values(Rank)"
+                        :key="rank"
+                        :value="rank"
+                      >
+                        {{ formatRankDisplay(rank) }} ({{ RANK_VALUES[rank] }})
+                      </option>
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label class="text-xs text-gray-400 block mb-1">Armor Piercing</label>
-                  <select
-                    :value="ensureWeaponDot(weapon)?.armorPiercing || ''"
+
+                <div class="text-xs text-gray-400">
+                  Deals damage at this rank to the target at the start of each of their rounds, using the same armor-piercing rules as a normal hit, until it is removed or its duration expires.
+                </div>
+
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    :checked="entry.durationFormula === 'indefinite'"
                     @change="
                       e =>
                         updateWeaponDot(
                           weapon.id,
-                          'armorPiercing',
-                          (e.target as HTMLSelectElement).value
+                          idx,
+                          'durationFormula',
+                          (e.target as HTMLInputElement).checked ? 'indefinite' : '1d3'
                         )
                     "
+                    class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+                  />
+                  <span class="text-sm text-green-200">Until Removed (no duration limit)</span>
+                </label>
+
+                <div v-if="entry.durationFormula !== 'indefinite'">
+                  <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
+                  <input
+                    type="text"
+                    :value="entry.durationFormula"
+                    @blur="
+                      e =>
+                        updateWeaponDot(
+                          weapon.id,
+                          idx,
+                          'durationFormula',
+                          (e.target as HTMLInputElement).value
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
                     class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">None</option>
-                    <option
-                      v-for="rank in Object.values(Rank)"
-                      :key="rank"
-                      :value="rank"
-                    >
-                      {{ formatRankDisplay(rank) }} ({{ RANK_VALUES[rank] }})
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="text-xs text-gray-400">
-                Deals damage at this rank to the target at the start of each of their rounds, using the same armor-piercing rules as a normal hit, until it is removed or its duration expires.
-              </div>
-
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  :checked="ensureWeaponDot(weapon)?.durationFormula === 'indefinite'"
-                  @change="
-                    e =>
-                      updateWeaponDot(
-                        weapon.id,
-                        'durationFormula',
-                        (e.target as HTMLInputElement).checked ? 'indefinite' : '1d3'
-                      )
-                  "
-                  class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
-                />
-                <span class="text-sm text-green-200">Until Removed (no duration limit)</span>
-              </label>
-
-              <div v-if="ensureWeaponDot(weapon)?.durationFormula !== 'indefinite'">
-                <label class="text-xs text-gray-400 block mb-1">Duration Formula</label>
-                <input
-                  type="text"
-                  :value="ensureWeaponDot(weapon)?.durationFormula"
-                  @blur="
-                    e =>
-                      updateWeaponDot(
-                        weapon.id,
-                        'durationFormula',
-                        (e.target as HTMLInputElement).value
-                      )
-                  "
-                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
-                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="1d3"
-                />
-                <div class="text-xs text-gray-400 mt-1">
-                  Rolled when the effect lands, in rounds.
+                    placeholder="1d3"
+                  />
+                  <div class="text-xs text-gray-400 mt-1">
+                    Rolled when the effect lands, in rounds.
+                  </div>
                 </div>
               </div>
             </div>

@@ -138,9 +138,9 @@ export interface PowerData {
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   armorPiercing?: string | null; // Armor-piercing rank (for damage powers that pierce armor)
-  statDebuff?: PowerStatDebuffData;
-  damageBuff?: PowerDamageDebuffData;
-  dot?: PowerDotData;
+  statDebuffs?: PowerStatDebuffData[];
+  damageBuffs?: PowerDamageDebuffData[];
+  dots?: PowerDotData[];
 }
 
 export interface TalentData {

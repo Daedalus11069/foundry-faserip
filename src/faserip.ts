@@ -41,6 +41,10 @@ import {
   forceMigrateItems
 } from "./module/utils/migrate-items";
 import {
+  migratePowerArrayFields,
+  forceMigratePowerArrayFields
+} from "./module/utils/migrate-power-arrays";
+import {
   showMovementSettingsDialog,
   showTableEffectsEditor
 } from "./module/applications/dialog-utils";
@@ -477,6 +481,17 @@ const initHandler = () => {
   game.settings.register("faserip", "itemsMigrationCompleted", {
     name: "Items Migration Completed",
     hint: "Internal flag tracking whether embedded armors/weapons have been migrated to Item documents.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false
+  });
+
+  // Migration flag for converting legacy statDebuff/damageBuff/dot fields
+  // on plain-data actor powers/weapons to arrays
+  game.settings.register("faserip", "powerArrayFieldsMigrationCompleted", {
+    name: "Power Array Fields Migration Completed",
+    hint: "Internal flag tracking whether legacy statDebuff/damageBuff/dot fields have been migrated to arrays.",
     scope: "world",
     config: false,
     type: Boolean,
@@ -1158,11 +1173,13 @@ Hooks.once("ready", async () => {
   // @ts-expect-error - TypeScript doesn't recognize game.user.isGM
   if (game.user?.isGM) {
     await migrateEmbeddedItemsToDocuments();
+    await migratePowerArrayFields();
   }
 
   // Set up game.faserip namespace for console access
   game.faserip = {
-    forceMigrateItems
+    forceMigrateItems,
+    forceMigratePowerArrayFields
   };
 });
 
@@ -1291,3 +1308,4 @@ export { ActorType, Rank, Attribute } from "./module/enums";
 export { getCharmanService } from "./module/charman-service";
 export { FaseripRoll } from "./module/rolling/index";
 export { forceMigrateItems } from "./module/utils/migrate-items";
+export { forceMigratePowerArrayFields } from "./module/utils/migrate-power-arrays";
