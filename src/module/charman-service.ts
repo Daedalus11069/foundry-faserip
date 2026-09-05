@@ -837,6 +837,7 @@ export class CharmanService {
         "system.notes": actorData.system.notes,
         "system.powers": actorData.system.powers,
         "system.talents": actorData.system.talents,
+        "system.weaponSlots": actorData.system.weaponSlots,
         "system.charman": actorData.system.charman,
         "system.armors": [], // Clear old armors array - Items are created below
         "system.weapons": [] // Clear old weapons array - Items are created below

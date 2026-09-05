@@ -1355,7 +1355,15 @@ async function toggleEquip(weapon: Weapon) {
         }
       }
     } else if (newEquipped) {
-      // Equipping a non-melee weapon: unequip all others of the same type
+      // Equipping a non-melee weapon: same slot limit as melee applies
+      const slots = (currentForm.value?.weaponSlots ?? (reactiveActor.system.weaponSlots as number)) ?? 1;
+      const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
+        (t: any) => t.grantsDualWield
+      );
+      const maxWeaponSlots = hasDualWield
+        ? slots
+        : Math.max(1, Math.floor(slots / 2));
+
       const otherWeaponsOfType = actor.items.filter(
         (item: any) =>
           item.type === "weapon" &&
@@ -1363,9 +1371,9 @@ async function toggleEquip(weapon: Weapon) {
           item.system.weaponType === weaponType &&
           item.system.equipped
       );
-      for (const other of otherWeaponsOfType) {
+      while (otherWeaponsOfType.length >= maxWeaponSlots) {
         // @ts-expect-error - system properties are dynamic
-        await other.update({ "system.equipped": false });
+        await otherWeaponsOfType.shift()!.update({ "system.equipped": false });
       }
     }
 
@@ -1414,12 +1422,22 @@ async function toggleEquip(weapon: Weapon) {
         });
       }
     } else if (newEquippedState) {
-      // Non-melee: unequip all others of the same type
-      reactiveActor.system.weapons.forEach((w: Weapon, idx: number) => {
-        if (idx !== weaponIndex && w.type === weapon.type && w.equipped) {
-          w.equipped = false;
-        }
-      });
+      // Non-melee: same slot limit as melee applies
+      const slots = (currentForm.value?.weaponSlots ?? (reactiveActor.system.weaponSlots as number)) ?? 1;
+      const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
+        (t: any) => t.grantsDualWield
+      );
+      const maxWeaponSlots = hasDualWield
+        ? slots
+        : Math.max(1, Math.floor(slots / 2));
+
+      const equippedOfType = (reactiveActor.system.weapons as Weapon[])
+        .map((w, idx) => ({ w, idx }))
+        .filter(({ w, idx }) => idx !== weaponIndex && w.type === weapon.type && w.equipped);
+      while (equippedOfType.length >= maxWeaponSlots) {
+        const victim = equippedOfType.shift()!;
+        (reactiveActor.system.weapons as Weapon[])[victim.idx].equipped = false;
+      }
     }
 
     // Toggle this weapon's equipped state
