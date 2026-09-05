@@ -27,7 +27,7 @@ import {
   parseRankExpression
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
-import { presentHackToActor } from "./module/integrations/holosuite-hacking";
+import { presentHackToActor, isHoloSuiteActive } from "./module/integrations/holosuite-hacking";
 import {
   tickTemporaryModifiers,
   tickDotEffectsForCombatant
@@ -929,6 +929,7 @@ Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
 Hooks.on("getSceneControlButtons", (controls: any) => {
   // @ts-expect-error - TypeScript doesn't recognize game.user.isGM
   if (!game.user?.isGM) return;
+  if (!isHoloSuiteActive()) return;
 
   const tokenControls = Array.isArray(controls)
     ? controls.find((group: any) => group.name === "tokens")
