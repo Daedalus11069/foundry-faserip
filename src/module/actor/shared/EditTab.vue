@@ -394,6 +394,38 @@ async function browseTokenImage() {
       </div>
     </div>
 
+    <!-- HoloSuite Hacking: Hackable Target -->
+    <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+      <h3 class="text-sm font-bold text-cyan-400 mb-2">
+        <i class="fas fa-terminal mr-1"></i>Hackable Target
+      </h3>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input
+          v-model="reactiveActor.system.hackable"
+          type="checkbox"
+          class="w-4 h-4 rounded border-gray-600 text-cyan-500 focus:ring-2 focus:ring-cyan-500"
+        />
+        <span class="text-sm">Can be targeted with a hacking challenge</span>
+      </label>
+      <p class="text-xs text-gray-500 mt-1">
+        Target this actor (e.g. a robot) with Foundry's Target tool, then use
+        the "Present Hacking Challenge" scene control on a controlled hacker
+        token. The hacker's roll must reach at least the color below to
+        succeed.
+      </p>
+      <div v-if="reactiveActor.system.hackable" class="mt-2">
+        <label class="text-xs font-semibold text-gray-400">Required Roll Color</label>
+        <select
+          v-model="reactiveActor.system.hackRequiredColor"
+          class="fsr-select"
+        >
+          <option value="green">Green (any success)</option>
+          <option value="yellow">Yellow (Good success or better)</option>
+          <option value="red">Red (Amazing success only)</option>
+        </select>
+      </div>
+    </div>
+
     <!-- Charman Link Section -->
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
       <h3 class="text-sm font-bold text-blue-400 mb-2">Charman Integration</h3>

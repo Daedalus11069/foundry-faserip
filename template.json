@@ -31,7 +31,7 @@
             "id": "",
             "name": "",
             "type": "melee",
-            "damage": 0,
+            "damage": "",
             "equipped": false
           }
         ],
@@ -69,7 +69,15 @@
     },
     "equipment": {
       "templates": ["base"],
-      "quantity": 1
+      "quantity": 1,
+      "locked": false,
+      "hack": {
+        "enabled": false,
+        "minigameType": "node-intrusion",
+        "attribute": "reasoning",
+        "difficultyRank": "",
+        "liveAudience": "everyone"
+      }
     },
     "contact": {
       "templates": ["base"],
@@ -85,7 +93,7 @@
     "weapon": {
       "templates": ["base"],
       "weaponType": "melee",
-      "damage": 0,
+      "damage": "",
       "damageRank": "typical",
       "equipped": false,
       "armorPiercing": ""

@@ -1,6 +1,7 @@
 import { FsrItemBaseSheet } from "./FsrItemBaseSheet";
 import ArmorSheetComponent from "./sheets/ArmorSheet.vue";
 import WeaponSheetComponent from "./sheets/WeaponSheet.vue";
+import EquipmentSheetComponent from "./sheets/EquipmentSheet.vue";
 import type { Component } from "vue";
 
 /**
@@ -52,6 +53,32 @@ export class WeaponSheet extends FsrItemBaseSheet {
   get title(): string {
     // @ts-expect-error - item property exists
     return this.item.name || "Weapon";
+  }
+}
+
+/**
+ * Equipment Item Sheet
+ */
+export class EquipmentSheet extends FsrItemBaseSheet {
+  static DEFAULT_OPTIONS = {
+    classes: ["faserip", "sheet", "item", "equipment"],
+    position: {
+      width: 500,
+      height: "auto"
+    },
+    window: {
+      resizable: true,
+      title: "Equipment"
+    }
+  };
+
+  override get vueComponent(): Component {
+    return EquipmentSheetComponent;
+  }
+
+  get title(): string {
+    // @ts-expect-error - item property exists
+    return this.item.name || "Equipment";
   }
 }
 

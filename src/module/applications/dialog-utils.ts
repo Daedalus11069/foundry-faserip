@@ -2,6 +2,7 @@ import { VueDialog } from "./vue-dialog";
 import TalentSelectionDialog from "./dialogs/TalentSelectionDialog.vue";
 import KarmaSpendDialog from "./dialogs/KarmaSpendDialog.vue";
 import IntuitionCheckOptionsDialog from "./dialogs/IntuitionCheckOptionsDialog.vue";
+import HackOptionsDialog from "./dialogs/HackOptionsDialog.vue";
 import ComboDialog from "./dialogs/ComboDialog.vue";
 import AttackOptionsDialog from "./dialogs/AttackOptionsDialog.vue";
 import DefenseOptionsDialog from "./dialogs/DefenseOptionsDialog.vue";
@@ -130,6 +131,79 @@ export async function showIntuitionCheckOptionsDialog(
     resultShift?: number;
     manualChartShift?: number;
   } | null;
+}
+
+/**
+ * Show combined chart shift + result shift dialog for a HoloSuite Hacking
+ * check (the initial roll or an individual node attempt) - one dialog
+ * instead of separate pre-roll/post-roll karma prompts, same pattern as
+ * showIntuitionCheckOptionsDialog.
+ */
+export async function showHackCheckOptionsDialog(
+  availableKarma: number,
+  currentRank?: string
+): Promise<{
+  karmaSpent: number;
+  columnShifts?: number;
+  resultShift?: number;
+  manualChartShift?: number;
+} | null> {
+  if (availableKarma <= 0) {
+    return null;
+  }
+
+  const result = await VueDialog.show(
+    IntuitionCheckOptionsDialog,
+    {
+      availableKarma,
+      currentRank
+    },
+    {
+      window: {
+        title: "Hacking Check Options",
+        icon: "fas fa-terminal",
+        minimizable: false,
+        resizable: false
+      },
+      position: {
+        width: 450
+      }
+    }
+  );
+
+  return result as {
+    karmaSpent: number;
+    columnShifts?: number;
+    resultShift?: number;
+    manualChartShift?: number;
+  } | null;
+}
+
+/**
+ * Show the token-HUD "Present Hack" options dialog (minigame + check
+ * attribute). Returns null if cancelled.
+ */
+export async function showHackOptionsDialog(): Promise<{
+  minigameType: string;
+  attribute: string;
+} | null> {
+  const result = await VueDialog.show(
+    HackOptionsDialog,
+    {},
+    {
+      window: {
+        title: "Present Hacking Challenge",
+        icon: "fas fa-terminal",
+        minimizable: false,
+        resizable: false
+      },
+      position: {
+        width: 400
+      }
+    }
+  );
+
+  return result as { minigameType: string; attribute: string } | null;
 }
 
 /**

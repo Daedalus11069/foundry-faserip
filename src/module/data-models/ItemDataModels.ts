@@ -186,11 +186,57 @@ export class TalentDataModel extends ItemDataModel {
  */
 export class EquipmentDataModel extends ItemDataModel {
   declare quantity: number;
+  declare locked: boolean;
+  declare hack: {
+    enabled: boolean;
+    minigameType: string;
+    attribute: string;
+    difficultyRank: string;
+    liveAudience: string;
+  };
 
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
       ...super.defineSchema(),
-      quantity: new NumberField({ integer: true, initial: 1, min: 0 })
+      quantity: new NumberField({ integer: true, initial: 1, min: 0 }),
+      locked: new BooleanField({ required: false, initial: false }),
+      hack: new SchemaField({
+        enabled: new BooleanField({ required: false, initial: false }),
+        minigameType: new StringField({
+          required: false,
+          initial: "node-intrusion",
+          choices: [
+            "node-intrusion",
+            "signal-alignment",
+            "packet-switchboard",
+            "prism-lock"
+          ]
+        }),
+        attribute: new StringField({
+          required: false,
+          initial: "reasoning",
+          choices: [
+            "fighting",
+            "agility",
+            "strength",
+            "endurance",
+            "reasoning",
+            "intuition",
+            "psyche"
+          ]
+        }),
+        difficultyRank: new StringField({
+          required: false,
+          blank: true,
+          initial: "",
+          choices: ["", ...Object.values(Rank)]
+        }),
+        liveAudience: new StringField({
+          required: false,
+          initial: "everyone",
+          choices: ["everyone", "gm", "none"]
+        })
+      })
     };
   }
 }
@@ -253,7 +299,7 @@ export class ArmorDataModel extends ItemDataModel {
  */
 export class WeaponDataModel extends ItemDataModel {
   declare weaponType: string;
-  declare damage: number;
+  declare damage: string;
   declare damageRank: string;
   declare equipped: boolean;
   declare talents?: string[];
@@ -276,10 +322,10 @@ export class WeaponDataModel extends ItemDataModel {
         initial: "melee",
         choices: ["melee", "ranged", "thrown"]
       }),
-      damage: new NumberField({
+      damage: new StringField({
         required: true,
-        integer: true,
-        initial: 0
+        blank: true,
+        initial: ""
       }),
       damageRank: new StringField({
         required: true,

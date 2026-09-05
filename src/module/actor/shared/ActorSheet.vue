@@ -9,6 +9,7 @@ import BiographyTab from "./BiographyTab.vue";
 import ArmorTab from "./ArmorTab.vue";
 import EffectsTab from "./EffectsTab.vue";
 import WeaponsTab from "./WeaponsTab.vue";
+import EquipmentTab from "./EquipmentTab.vue";
 import { calculateHealth, stringToRank } from "../../utils";
 import { Rank } from "../../enums";
 import { getCharmanService } from "../../charman-service";
@@ -125,6 +126,7 @@ const tabs = computed(() => [
   { id: "talents", label: "Talents" },
   ...(weaponsEnabled.value ? [{ id: "weapons", label: "Weapons" }] : []),
   ...(armorEnabled.value ? [{ id: "armor", label: "Armor" }] : []),
+  { id: "equipment", label: "Equipment" },
   {
     id: "effects",
     label: "Effects",
@@ -643,6 +645,7 @@ onUnmounted(() => {
       <TalentsTab v-if="activeTab === 'talents'" />
       <WeaponsTab v-if="activeTab === 'weapons'" />
       <ArmorTab v-if="activeTab === 'armor'" />
+      <EquipmentTab v-if="activeTab === 'equipment'" />
       <EffectsTab v-if="activeTab === 'effects'" />
       <BiographyTab v-if="activeTab === 'biography'" />
       <EditTab v-if="activeTab === 'edit'" />

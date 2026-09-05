@@ -120,7 +120,104 @@ export function defineWeaponSchema() {
       initial: []
     }),
     description: new StringField({ required: false, initial: "" }),
-    equipped: new BooleanField({ required: true, initial: false })
+    equipped: new BooleanField({ required: true, initial: false }),
+    multiHit: new BooleanField({
+      required: false,
+      initial: false,
+      label: "Multi-Hit (AoE)"
+    }),
+    statDebuffs: new ArrayField(
+      new SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        attribute: new StringField({
+          required: false,
+          initial: "intuition",
+          choices: [
+            "fighting",
+            "agility",
+            "strength",
+            "endurance",
+            "reasoning",
+            "intuition",
+            "psyche"
+          ]
+        }),
+        greenShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        yellowShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        redShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
+      }),
+      { required: false, initial: () => [] }
+    ),
+    damageBuffs: new ArrayField(
+      new SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        greenShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        yellowShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        redShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
+      }),
+      { required: false, initial: () => [] }
+    ),
+    dots: new ArrayField(
+      new SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        rank: new StringField({
+          required: false,
+          blank: true,
+          initial: ""
+        }),
+        armorPiercing: new StringField({
+          required: false,
+          blank: true,
+          initial: ""
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
+      }),
+      { required: false, initial: () => [] }
+    )
   });
 }
 
@@ -237,89 +334,98 @@ export function definePowerRefSchema() {
       required: false,
       initial: false
     }),
-    statDebuff: new SchemaField({
-      enabled: new BooleanField({
-        required: false,
-        initial: false
+    statDebuffs: new ArrayField(
+      new SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        attribute: new StringField({
+          required: false,
+          initial: "intuition",
+          choices: [
+            "fighting",
+            "agility",
+            "strength",
+            "endurance",
+            "reasoning",
+            "intuition",
+            "psyche"
+          ]
+        }),
+        greenShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        yellowShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        redShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
       }),
-      attribute: new StringField({
-        required: false,
-        initial: "intuition",
-        choices: [
-          "fighting",
-          "agility",
-          "strength",
-          "endurance",
-          "reasoning",
-          "intuition",
-          "psyche"
-        ]
+      { required: false, initial: () => [] }
+    ),
+    damageBuffs: new ArrayField(
+      new SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        greenShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        yellowShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        redShift: new NumberField({
+          required: false,
+          integer: true,
+          initial: 0
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
       }),
-      greenShift: new NumberField({
-        required: false,
-        integer: true,
-        initial: 0
+      { required: false, initial: () => [] }
+    ),
+    dots: new ArrayField(
+      new SchemaField({
+        enabled: new BooleanField({
+          required: false,
+          initial: false
+        }),
+        rank: new StringField({
+          required: false,
+          blank: true,
+          initial: ""
+        }),
+        armorPiercing: new StringField({
+          required: false,
+          blank: true,
+          initial: ""
+        }),
+        durationFormula: new StringField({
+          required: false,
+          initial: "1d3"
+        })
       }),
-      yellowShift: new NumberField({
-        required: false,
-        integer: true,
-        initial: 0
-      }),
-      redShift: new NumberField({
-        required: false,
-        integer: true,
-        initial: 0
-      }),
-      durationFormula: new StringField({
-        required: false,
-        initial: "1d3"
-      })
-    }),
-    damageBuff: new SchemaField({
-      enabled: new BooleanField({
-        required: false,
-        initial: false
-      }),
-      greenShift: new NumberField({
-        required: false,
-        integer: true,
-        initial: 0
-      }),
-      yellowShift: new NumberField({
-        required: false,
-        integer: true,
-        initial: 0
-      }),
-      redShift: new NumberField({
-        required: false,
-        integer: true,
-        initial: 0
-      }),
-      durationFormula: new StringField({
-        required: false,
-        initial: "1d3"
-      })
-    }),
-    dot: new SchemaField({
-      enabled: new BooleanField({
-        required: false,
-        initial: false
-      }),
-      rank: new StringField({
-        required: false,
-        blank: true,
-        initial: ""
-      }),
-      armorPiercing: new StringField({
-        required: false,
-        blank: true,
-        initial: ""
-      }),
-      durationFormula: new StringField({
-        required: false,
-        initial: "1d3"
-      })
-    })
+      { required: false, initial: () => [] }
+    )
   });
 }
 
@@ -373,6 +479,8 @@ export class ActorDataModel extends TypeDataModel<
   declare temporaryDamageModifiers: any[];
   declare charman: CharmanData;
   declare actionsThisTurn: number;
+  declare hackable: boolean;
+  declare hackRequiredColor: string;
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
       // Current form (active form for characters with multiple forms)
@@ -566,6 +674,17 @@ export class ActorDataModel extends TypeDataModel<
         integer: true,
         min: 0,
         initial: 0
+      }),
+
+      // HoloSuite Hacking integration: whether this actor (e.g. a robot or
+      // computer system) can be targeted with a hacking challenge, and the
+      // minimum Universal Table color a hacker's roll must reach to
+      // succeed - a robot might require at least a Yellow result.
+      hackable: new BooleanField({ required: false, initial: false }),
+      hackRequiredColor: new StringField({
+        required: false,
+        initial: "green",
+        choices: ["green", "yellow", "red"]
       })
     };
   }

@@ -17,6 +17,7 @@ import { PcSheet, NpcSheet } from "./module/actor/ActorSheets";
 import {
   ArmorSheet,
   WeaponSheet,
+  EquipmentSheet,
   GenericItemSheet
 } from "./module/item/ItemSheets";
 import { initCharmanService } from "./module/charman-service";
@@ -26,6 +27,7 @@ import {
   parseRankExpression
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
+import { presentHackToActor } from "./module/integrations/holosuite-hacking";
 import {
   tickTemporaryModifiers,
   tickDotEffectsForCombatant
@@ -192,6 +194,7 @@ class FsrTokenHUD extends foundry.applications.hud.TokenHUD {
       }
     }
   }
+
 }
 
 // ─── System Initialization ──────────────────────────────────────────────────────
@@ -662,6 +665,13 @@ const initHandler = () => {
     label: "FASERIP.ItemType.weapon"
   });
 
+  // @ts-expect-error - Type definitions don't match Foundry v13 runtime
+  foundry.documents.collections.Items.registerSheet("faserip", EquipmentSheet, {
+    types: [ItemType.Equipment],
+    makeDefault: true,
+    label: "FASERIP.ItemType.equipment"
+  });
+
   foundry.documents.collections.Items.registerSheet(
     "faserip",
     // @ts-expect-error - Type definitions don't match Foundry v13 runtime
@@ -670,7 +680,6 @@ const initHandler = () => {
       types: [
         ItemType.Power,
         ItemType.Talent,
-        ItemType.Equipment,
         ItemType.Contact
       ],
       makeDefault: true,
@@ -906,6 +915,52 @@ Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
   intuitionBtn.dataset.tooltip = "Roll Intuition Check";
   intuitionBtn.innerHTML = `<i class="fas fa-eye"></i>`;
   leftCol.appendChild(intuitionBtn);
+});
+
+// ─── Scene Controls: Present Hack Tool ──────────────────────────────────────────
+
+/**
+ * Adds a "Present Hack" tool button to the Token Controls group in the
+ * scene controls toolbar (left edge of the canvas). It targets whichever
+ * token(s) are currently controlled on canvas (canvas.tokens.controlled),
+ * same as how the Intuition token-HUD button handles multiple selections.
+ */
+// @ts-expect-error - getSceneControlButtons isn't declared in fvtt-types' HookConfig
+Hooks.on("getSceneControlButtons", (controls: any) => {
+  // @ts-expect-error - TypeScript doesn't recognize game.user.isGM
+  if (!game.user?.isGM) return;
+
+  const tokenControls = Array.isArray(controls)
+    ? controls.find((group: any) => group.name === "tokens")
+    : controls?.tokens;
+  if (!tokenControls?.tools) return;
+
+  tokenControls.tools["faserip-present-hack"] = {
+    name: "faserip-present-hack",
+    order: Object.keys(tokenControls.tools).length,
+    title: "Present Hacking Challenge",
+    icon: "fas fa-terminal",
+    button: true,
+    onChange: async (_event: Event, active: boolean) => {
+      if (!active) return;
+
+      const controlledTokens = (canvas as any)?.tokens?.controlled || [];
+      const actors = controlledTokens
+        .map((token: any) => token.actor)
+        .filter(Boolean) as FaseripActor[];
+
+      if (actors.length === 0) {
+        ui.notifications?.warn?.(
+          "Select a token first, then click Present Hacking Challenge."
+        );
+        return;
+      }
+
+      for (const actor of actors) {
+        await presentHackToActor(actor);
+      }
+    }
+  };
 });
 
 // ─── Chat Message: Show Intuition Overlay ───────────────────────────────────────
