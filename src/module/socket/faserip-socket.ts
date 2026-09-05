@@ -116,6 +116,11 @@ interface CounterAttackPromptData {
   attackerName: string;
   defenseRoll: number;
   attackRoll: number;
+  // The actual color result each roll landed on, from that roller's own
+  // rank chart - NOT derivable from the raw roll numbers, since the two
+  // rolls are checked against different (and differently-ranked) charts.
+  defenseResultColor: "white" | "green" | "yellow" | "red";
+  attackResultColor: "white" | "green" | "yellow" | "red";
   counterType: "ultimate-vs-ultimate" | "ultimate-vs-normal" | "red-vs-normal";
   promptId?: string;
 }
@@ -381,6 +386,7 @@ async function handleDefensePrompt(
       defenseAttribute = "Fighting";
       break;
     case "ranged":
+    case "thrown":
       defenseAttribute = "Agility";
       break;
     case "psyche":
@@ -662,6 +668,8 @@ async function handleCounterAttackPrompt(
         attackerName: data.attackerName,
         defenseRoll: data.defenseRoll,
         attackRoll: data.attackRoll,
+        defenseResultColor: data.defenseResultColor,
+        attackResultColor: data.attackResultColor,
         counterType: data.counterType
       },
       {

@@ -980,6 +980,17 @@ async function removeForcedResult(modifierId: string) {
   const effect = actor.effects.get(modifierId);
   if (!effect) return;
 
+  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove forced-result modifier from <strong>${effect.flags?.faserip?.sourcePowerName || effect.name || 'Unknown Source'}</strong>?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
+
+  if (!actor.effects.get(modifierId)) return;
+
   await effect.delete();
 }
 

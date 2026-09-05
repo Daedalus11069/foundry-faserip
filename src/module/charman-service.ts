@@ -142,7 +142,7 @@ export interface CharmanArmor {
 
 export interface CharmanWeapon {
   name: string;
-  type: "ranged" | "melee"; // Weapon type determines which stat is used for to-hit
+  type: "ranged" | "melee" | "thrown"; // Weapon type determines which stat is used for to-hit
   damage: string | number | null | undefined; // Damage rank string (e.g., "Typical"), numeric score (e.g., 30), or null/undefined (will default based on type)
   stat: "agility" | "fighting"; // Stat used for to-hit rolls
   applicableTalent?: string; // Name of talent that applies to this weapon
@@ -716,8 +716,8 @@ export class CharmanService {
         weapons: (charmanChar.weapons || []).map((weapon: CharmanWeapon) => {
           let damage: string | number;
 
-          if (weapon.type === "melee") {
-            // Melee weapons: damage should be CS (number)
+          if (weapon.type === "melee" || weapon.type === "thrown") {
+            // Melee/thrown weapons: damage should be CS (number)
             if (weapon.damage === null || weapon.damage === undefined) {
               // Null/undefined - default to 0 CS
               damage = 0;
@@ -748,7 +748,11 @@ export class CharmanService {
             name: weapon.name,
             type: weapon.type,
             damage,
-            stat: weapon.stat,
+            // Derive stat from type rather than trusting Charman's stored
+            // stat, which can go stale if the type is changed without
+            // updating the (redundant) stat dropdown - melee uses Fighting,
+            // ranged/thrown use Agility.
+            stat: weapon.type === "melee" ? "fighting" : "agility",
             applicableTalents: weapon.applicableTalent
               ? [weapon.applicableTalent]
               : [],
@@ -923,8 +927,11 @@ export class CharmanService {
       const weaponCreates: any[] = [];
 
       for (const charmanWeapon of charmanWeapons) {
-        const weaponType = charmanWeapon.type === "ranged" ? "ranged" : "melee";
-        const isRanged = weaponType === "ranged";
+        const weaponType =
+          charmanWeapon.type === "ranged" || charmanWeapon.type === "thrown"
+            ? charmanWeapon.type
+            : "melee";
+        const isRanged = weaponType === "ranged" || weaponType === "thrown";
 
         const weaponData = {
           weaponType,
@@ -1047,8 +1054,11 @@ export class CharmanService {
       if (actorData.system.weapons && actorData.system.weapons.length > 0) {
         const weaponItems = actorData.system.weapons.map((weapon: any) => {
           // Convert old weapon format to new format
-          const weaponType = weapon.type === "ranged" ? "ranged" : "melee";
-          const isRanged = weaponType === "ranged";
+          const weaponType =
+            weapon.type === "ranged" || weapon.type === "thrown"
+              ? weapon.type
+              : "melee";
+          const isRanged = weaponType === "ranged" || weaponType === "thrown";
 
           return {
             name: weapon.name,

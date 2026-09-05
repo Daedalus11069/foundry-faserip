@@ -152,6 +152,13 @@ const defenseRankDisplay = computed(() => {
 
 // Action handlers
 async function handleDefend() {
+  // Hide this dialog (fading out like a normal close) before showing the
+  // follow-up karma-spending dialog - it has nothing left to contribute once
+  // the player has chosen to defend, and awaiting the fade first avoids it
+  // overlapping the next dialog's opening. submit() (below, whichever branch
+  // runs) still handles the real close/cleanup once the roll resolves.
+  await props.dialog.hide();
+
   // CRITICAL: Use toRaw() to unwrap Vue proxy before passing to Foundry API
   // Vue reactive proxies cause issues with Foundry's internal property access
   const rawActor = toRaw(props.targetActor);

@@ -1378,6 +1378,8 @@ export async function executeCombatAttack(
             attackerName: attacker.name,
             defenseRoll: defenseRoll.roll.total || 100,
             attackRoll: attackRoll.roll.total || 100,
+            defenseResultColor: defenseRoll.result,
+            attackResultColor: attackRoll.result,
             counterType: "ultimate-vs-ultimate"
           });
 
@@ -1425,6 +1427,8 @@ export async function executeCombatAttack(
             attackerName: attacker.name,
             defenseRoll: defenseRoll.roll.total || 100,
             attackRoll: attackRoll.roll.total || 0,
+            defenseResultColor: defenseRoll.result,
+            attackResultColor: attackRoll.result,
             counterType: "ultimate-vs-normal"
           });
 
@@ -1469,6 +1473,8 @@ export async function executeCombatAttack(
             attackerName: attacker.name,
             defenseRoll: defenseRoll.roll.total || 0,
             attackRoll: attackRoll.roll.total || 0,
+            defenseResultColor: defenseRoll.result,
+            attackResultColor: attackRoll.result,
             counterType: "red-vs-normal"
           });
 

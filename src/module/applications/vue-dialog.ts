@@ -1,6 +1,35 @@
 import type { Component, App } from "vue";
 import { createApp, reactive, h } from "vue";
 
+const FADE_DURATION_MS = 150;
+
+/**
+ * Fade `el` out and hide it, matching the look of Foundry's own dialog
+ * close animation. Driven entirely by our own transition + a hard timeout
+ * fallback (rather than waiting on a `transitionend` event that can
+ * silently never fire for Vue-rendered content), so it always finishes.
+ */
+function fadeOutAndHide(el: HTMLElement): Promise<void> {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      el.removeEventListener("transitionend", finish);
+      el.style.setProperty("display", "none", "important");
+      resolve();
+    };
+
+    el.style.transition = `opacity ${FADE_DURATION_MS}ms ease, transform ${FADE_DURATION_MS}ms ease`;
+    el.style.pointerEvents = "none";
+    el.style.opacity = "0";
+    el.style.transform = "scale(0.98)";
+
+    el.addEventListener("transitionend", finish, { once: true });
+    setTimeout(finish, FADE_DURATION_MS + 50);
+  });
+}
+
 // TypeScript cannot resolve `foundry.applications.api.ApplicationV2` as a
 // constructor expression in `extends` (the value-space path doesn't fully
 // resolve), so we declare a typed shim and cast the runtime constructor to it.
@@ -88,6 +117,9 @@ export class VueDialog extends _AppV2 {
 
   /** Promise for waiting on dialog result */
   #promise: Promise<unknown> | null = null;
+
+  /** Value passed to submit(), applied once close() actually resolves */
+  #pendingValue: unknown = null;
 
   static DEFAULT_OPTIONS = {
     classes: ["fsr-dialog", "dialog-sheet"],
@@ -241,13 +273,29 @@ export class VueDialog extends _AppV2 {
   }
 
   /**
-   * Submit a value and close the dialog
+   * Submit a value and close the dialog. The caller's wait() promise resolves
+   * only once close() has fully finished (see close() below) - not
+   * immediately here - so a caller awaiting this dialog before opening the
+   * next one doesn't race the closing animation/cleanup and end up with
+   * multiple dialogs visibly open at once.
    */
   submit(value: unknown): void {
-    if (this.#resolve) {
-      this.#resolve(value);
-    }
-    this.close();
+    this.#pendingValue = value;
+    void this.close();
+  }
+
+  /**
+   * Hide the window without resolving wait() or tearing down the Vue
+   * instance. For a dialog whose handler needs to show a follow-up dialog
+   * (e.g. "Defend" opening a karma-spending dialog before the actual roll
+   * happens) and only calls submit() once that whole flow finishes - so the
+   * original window would otherwise sit fully visible on screen beneath the
+   * follow-up dialog the whole time. Safe to call before an eventual
+   * submit()/close(), which still runs its normal cleanup.
+   */
+  async hide(): Promise<void> {
+    const el = this.element;
+    if (el) await fadeOutAndHide(el);
   }
 
   /**
@@ -266,11 +314,7 @@ export class VueDialog extends _AppV2 {
    * Clean up Vue app when dialog closes
    */
   async close(options?: Record<string, unknown>): Promise<this> {
-    // Resolve with null if not already resolved (e.g., user pressed Escape or X button)
-    if (this.#resolve) {
-      this.#resolve(null);
-      this.#resolve = null;
-    }
+    const el = this.element;
 
     // Remove escape key handler
     if (this.#escapeHandler) {
@@ -283,7 +327,37 @@ export class VueDialog extends _AppV2 {
       this.#instance.unmount();
       this.#instance = null;
     }
-    return super.close(options);
+
+    // Fade out and hide the window ourselves rather than relying on
+    // ApplicationV2's own closing animation. That animation depends on a
+    // transitionend firing on this element, which can silently never happen
+    // for Vue-rendered dialog content - leaving a fully interactive,
+    // un-closeable window stuck on screen even after the user already picked
+    // an option. Our own fade has a hard timeout fallback so it can't hang
+    // the same way. Foundry's own close() below still runs for proper
+    // app-registry cleanup, but a caller awaiting this dialog (e.g. a
+    // multi-weapon attack loop opening one dialog per weapon) is unblocked
+    // as soon as the fade finishes.
+    if (el) await fadeOutAndHide(el);
+
+    let result: this;
+    try {
+      result = await super.close(options);
+    } catch (err) {
+      console.warn("FASERIP | VueDialog close() failed, forcing removal:", err);
+      el?.remove();
+      result = this;
+    }
+
+    // Resolve wait() only after the window has actually finished closing
+    // (submit() sets #pendingValue beforehand; an unsubmitted close, e.g.
+    // Escape or the X button, resolves with null).
+    if (this.#resolve) {
+      this.#resolve(this.#pendingValue);
+      this.#resolve = null;
+    }
+
+    return result;
   }
 
   /**

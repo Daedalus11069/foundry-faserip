@@ -356,10 +356,9 @@ export class FaseripRoll {
     // everything downstream (damage tier, bonus-damage-roll thresholds,
     // the roll-card total shown in chat) reads rollTotal/result together,
     // so they'd disagree if we only overrode the displayed tier. The
-    // landing value is randomized across the FULL zone (Critical: redStart
-    // to 100; Failure: 1 to greenStart - 1, which includes the Botch/
-    // Ultimate Botch sub-ranges) via a real dice roll, rather than pinned
-    // to one fixed edge value every time.
+    // landing value is randomized uniformly across the FULL zone (Critical:
+    // redStart to 100; Failure: 1 to greenStart - 1, which includes the
+    // Botch/Ultimate Botch sub-ranges).
     let finalRoll = roll;
     if (forcedOutcome) {
       const shortRank = RANK_SHORTS[shiftedRank];
@@ -370,14 +369,24 @@ export class FaseripRoll {
           forcedOutcome === "critical" ? [redStart, 100] : [1, greenStart - 1];
         const span = rangeMax - rangeMin + 1;
 
-        // A genuine dice roll (1d<span> + offset) that lands uniformly
-        // somewhere in [rangeMin, rangeMax], rather than a fixed edge value.
-        const formula =
-          rangeMin > 1 ? `1d${span} + ${rangeMin - 1}` : `1d${span}`;
+        // Still a genuine 1d100 roll (so dice-so-nice plays a real d100
+        // animation), but its face is overwritten to a value uniformly
+        // randomized within [rangeMin, rangeMax] BEFORE the animation reads
+        // it - both the die term's result and the cached total are
+        // rewritten together so the die face shown/animated, the chat
+        // card, and getResultClass/getResultText (which all read
+        // roll.total or the term results directly) agree on the same
+        // in-range value.
         // @ts-expect-error - Roll class has a static create method that returns a Promise
-        finalRoll = Roll.create(formula);
+        finalRoll = Roll.create("1d100");
         await finalRoll.evaluate();
-        rollTotal = finalRoll.total || rangeMin;
+        const rawTotal = finalRoll.total || 1;
+        rollTotal = rangeMin + ((rawTotal - 1) % span);
+        const dieTerm = (finalRoll as any).terms?.[0];
+        if (dieTerm?.results?.[0]) {
+          dieTerm.results[0].result = rollTotal;
+        }
+        (finalRoll as any)._total = rollTotal;
       }
     }
 

@@ -89,6 +89,15 @@ function getDefenderTemporaryModifiers() {
   return defenderActor ? snapshotTemporaryModifiers(defenderActor) : [];
 }
 
+// Exhaustion (reaching Poor Endurance or below) only stuns and blocks
+// dodging within an active combat encounter - outside combat there's no
+// round for the stun to last for or dodge to lose, so skip it entirely.
+async function applyExhaustionStun(actorRef: FaseripActor) {
+  if (!(game as any).combat) return;
+  await (actorRef as any).toggleStatusEffect("stun", { active: true });
+  await (actorRef as any).setFlag("faserip", "exhaustionStun", true);
+}
+
 const forms = computed(() => reactiveActor.system.forms || []);
 
 // Local ref: which form is being viewed/rolled (independent of active combat form)
@@ -628,8 +637,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             </div>`
           });
           // Apply stunned status effect
-          await actor.toggleStatusEffect("stun", { active: true });
-          await actor.setFlag("faserip", "exhaustionStun", true);
+          await applyExhaustionStun(actor);
         }
       } else {
         // Single attack
@@ -665,8 +673,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
                 <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below and cannot dodge for the rest of this round!</p>
               </div>`
             });
-            await actor.toggleStatusEffect("stun", { active: true });
-            await actor.setFlag("faserip", "exhaustionStun", true);
+            await applyExhaustionStun(actor);
           }
         }
       }
@@ -742,8 +749,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         </div>`
       });
       // Apply stunned status effect
-      await actor.toggleStatusEffect("stun", { active: true });
-      await actor.setFlag("faserip", "exhaustionStun", true);
+      await applyExhaustionStun(actor);
     }
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
@@ -764,7 +770,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
 }
 
 function formatWeaponDamage(weapon: Weapon): string {
-  if (weapon.type === "melee") {
+  if (weapon.type === "melee" || weapon.type === "thrown") {
     const cs =
       typeof weapon.damage === "number"
         ? weapon.damage
@@ -1010,8 +1016,25 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
         <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
       </div>`
     });
-    await actor.toggleStatusEffect("stun", { active: true });
-    await actor.setFlag("faserip", "exhaustionStun", true);
+    await applyExhaustionStun(actor);
+  }
+}
+
+const equippedWeapons = computed(() => weapons.value.filter(w => w.equipped));
+
+async function rollAllEquippedWeapons() {
+  const equipped = equippedWeapons.value;
+  if (equipped.length === 0) {
+    ui.notifications?.warn("No weapons equipped.");
+    return;
+  }
+
+  // Fire each equipped weapon's own attack sequence in turn (each uses its
+  // own stat - Fighting for melee, Agility for ranged/thrown - and its own
+  // attack options dialog), rather than forcing them all into a single
+  // Fighting-only combo.
+  for (const weapon of equipped) {
+    await rollWeapon(weapon);
   }
 }
 
@@ -1254,8 +1277,7 @@ async function rollWeapon(weapon: Weapon) {
         </div>`
       });
       // Apply stunned status effect
-      await actor.toggleStatusEffect("stun", { active: true });
-      await actor.setFlag("faserip", "exhaustionStun", true);
+      await applyExhaustionStun(actor);
     }
 
     addActionsThisTurn(reactiveActor.system, attacksCompleted);
@@ -1298,8 +1320,7 @@ async function rollWeapon(weapon: Weapon) {
             <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below and cannot dodge for the rest of this round!</p>
           </div>`
         });
-        await actor.toggleStatusEffect("stun", { active: true });
-        await actor.setFlag("faserip", "exhaustionStun", true);
+        await applyExhaustionStun(actor);
       }
     }
   }
@@ -1317,8 +1338,10 @@ async function toggleEquip(weapon: Weapon) {
     // @ts-expect-error - system properties are dynamic
     const weaponType = weaponItem.system.weaponType as string;
 
-    if (newEquipped && weaponType === "melee") {
-      // Without dual-wield talent: floor(weaponSlots / 2); with talent: full weaponSlots
+    if (newEquipped) {
+      void weaponType;
+      // Slot limit applies across ALL equipped weapons regardless of type
+      // (melee/ranged/thrown), since it represents available hands.
       const slots = (currentForm.value?.weaponSlots ?? (reactiveActor.system.weaponSlots as number)) ?? 1;
       const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
         (t: any) => t.grantsDualWield
@@ -1327,53 +1350,15 @@ async function toggleEquip(weapon: Weapon) {
         ? slots
         : Math.max(1, Math.floor(slots / 2));
 
-      if (maxWeaponSlots >= 2) {
-        // Allow up to maxWeaponSlots melee weapons; unequip oldest when at limit
-        const equippedMeleeItems = actor.items.filter(
-          (item: any) =>
-            item.type === "weapon" &&
-            item._id !== weapon.id &&
-            item.system.weaponType === "melee" &&
-            item.system.equipped
-        );
-        while (equippedMeleeItems.length >= maxWeaponSlots) {
-          // @ts-expect-error - system properties are dynamic
-          await equippedMeleeItems.shift()!.update({ "system.equipped": false });
-        }
-      } else {
-        // Single slot: unequip all other melee weapons
-        const otherMeleeItems = actor.items.filter(
-          (item: any) =>
-            item.type === "weapon" &&
-            item._id !== weapon.id &&
-            item.system.weaponType === "melee" &&
-            item.system.equipped
-        );
-        for (const other of otherMeleeItems) {
-          // @ts-expect-error - system properties are dynamic
-          await other.update({ "system.equipped": false });
-        }
-      }
-    } else if (newEquipped) {
-      // Equipping a non-melee weapon: same slot limit as melee applies
-      const slots = (currentForm.value?.weaponSlots ?? (reactiveActor.system.weaponSlots as number)) ?? 1;
-      const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
-        (t: any) => t.grantsDualWield
-      );
-      const maxWeaponSlots = hasDualWield
-        ? slots
-        : Math.max(1, Math.floor(slots / 2));
-
-      const otherWeaponsOfType = actor.items.filter(
+      const otherEquippedWeapons = actor.items.filter(
         (item: any) =>
           item.type === "weapon" &&
           item._id !== weapon.id &&
-          item.system.weaponType === weaponType &&
           item.system.equipped
       );
-      while (otherWeaponsOfType.length >= maxWeaponSlots) {
+      while (otherEquippedWeapons.length >= maxWeaponSlots) {
         // @ts-expect-error - system properties are dynamic
-        await otherWeaponsOfType.shift()!.update({ "system.equipped": false });
+        await otherEquippedWeapons.shift()!.update({ "system.equipped": false });
       }
     }
 
@@ -1391,8 +1376,9 @@ async function toggleEquip(weapon: Weapon) {
 
     const newEquippedState = !weapon.equipped;
 
-    // If equipping, enforce weapon slot limit for melee weapons
-    if (newEquippedState && weapon.type === "melee") {
+    // If equipping, enforce weapon slot limit across ALL weapons regardless
+    // of type (melee/ranged/thrown), since it represents available hands.
+    if (newEquippedState) {
       const slots = (currentForm.value?.weaponSlots ?? (reactiveActor.system.weaponSlots as number)) ?? 1;
       const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
         (t: any) => t.grantsDualWield
@@ -1401,41 +1387,11 @@ async function toggleEquip(weapon: Weapon) {
         ? slots
         : Math.max(1, Math.floor(slots / 2));
 
-      if (maxWeaponSlots >= 2) {
-        const equippedMelee = (reactiveActor.system.weapons as Weapon[]).filter(
-          (w, idx) => idx !== weaponIndex && w.type === "melee" && w.equipped
-        );
-        while (equippedMelee.length >= maxWeaponSlots) {
-          const victimIdx = (reactiveActor.system.weapons as Weapon[]).indexOf(
-            equippedMelee.shift()!
-          );
-          if (victimIdx !== -1) {
-            (reactiveActor.system.weapons as Weapon[])[victimIdx].equipped = false;
-          }
-        }
-      } else {
-        // Single slot: unequip all other melee weapons
-        reactiveActor.system.weapons.forEach((w: Weapon, idx: number) => {
-          if (idx !== weaponIndex && w.type === "melee" && w.equipped) {
-            w.equipped = false;
-          }
-        });
-      }
-    } else if (newEquippedState) {
-      // Non-melee: same slot limit as melee applies
-      const slots = (currentForm.value?.weaponSlots ?? (reactiveActor.system.weaponSlots as number)) ?? 1;
-      const hasDualWield = ((reactiveActor.system.talents || []) as any[]).some(
-        (t: any) => t.grantsDualWield
-      );
-      const maxWeaponSlots = hasDualWield
-        ? slots
-        : Math.max(1, Math.floor(slots / 2));
-
-      const equippedOfType = (reactiveActor.system.weapons as Weapon[])
+      const equippedOthers = (reactiveActor.system.weapons as Weapon[])
         .map((w, idx) => ({ w, idx }))
-        .filter(({ w, idx }) => idx !== weaponIndex && w.type === weapon.type && w.equipped);
-      while (equippedOfType.length >= maxWeaponSlots) {
-        const victim = equippedOfType.shift()!;
+        .filter(({ idx, w }) => idx !== weaponIndex && w.equipped);
+      while (equippedOthers.length >= maxWeaponSlots) {
+        const victim = equippedOthers.shift()!;
         (reactiveActor.system.weapons as Weapon[])[victim.idx].equipped = false;
       }
     }
@@ -2089,8 +2045,7 @@ async function rollPower(power: any) {
               <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below and cannot dodge for the rest of this round!</p>
             </div>`
           });
-          await actor.toggleStatusEffect("stun", { active: true });
-          await actor.setFlag("faserip", "exhaustionStun", true);
+          await applyExhaustionStun(actor);
         }
       }
     }
@@ -2457,6 +2412,14 @@ async function rollPower(power: any) {
           >
             WEAPONS
           </h3>
+          <button
+            v-if="equippedWeapons.length > 1"
+            @click="rollAllEquippedWeapons"
+            class="fsr-btn fsr-btn-secondary text-xs px-3 py-1 mb-2 w-full"
+            :title="'Attack once with each equipped weapon (' + equippedWeapons.map(w => w.name).join(', ') + '), each using its own stat'"
+          >
+            ⚔️ Attack w/ Equipped ({{ equippedWeapons.length }})
+          </button>
           <div class="flex flex-col gap-2">
             <div
               v-for="weapon in weapons"

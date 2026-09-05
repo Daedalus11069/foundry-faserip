@@ -16,6 +16,7 @@
  */
 import type { AttributeKey } from "./stat-debuffs";
 import { Rank, RANK_VALUES } from "../enums";
+import { requestDamageApplication } from "../socket/faserip-socket";
 
 /**
  * "nextAttack"/"nextDodge"/"nextAction" effects are consumed the first time a
@@ -429,10 +430,6 @@ async function applyDotTick(
       ? flags.dotDamage
       : (RANK_VALUES[flags.dotRank as Rank] ?? 0);
   if (damage <= 0) return;
-
-  const { requestDamageApplication } = await import(
-    "../socket/faserip-socket"
-  );
 
   const result = await requestDamageApplication(
     actor,

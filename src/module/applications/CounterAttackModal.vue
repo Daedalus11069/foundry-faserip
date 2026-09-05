@@ -11,7 +11,7 @@
           <span class="label">Defense Roll:</span>
           <span class="value">
             <span :class="['result-badge', getDefenseResultClass()]">
-              {{ props.defenseRoll }}
+              {{ props.defenseRoll }} ({{ colorLabel(props.defenseResultColor, props.defenseRoll) }})
             </span>
           </span>
         </div>
@@ -23,7 +23,7 @@
           <span class="label">Attack Roll:</span>
           <span class="value">
             <span :class="['result-badge', getAttackResultClass()]">
-              {{ props.attackRoll }}
+              {{ props.attackRoll }} ({{ colorLabel(props.attackResultColor, props.attackRoll) }})
             </span>
           </span>
         </div>
@@ -52,6 +52,12 @@ interface Props {
   attackerName: string;
   defenseRoll: number;
   attackRoll: number;
+  // The actual color result each roll landed on, from that roller's own
+  // rank chart - the raw roll numbers alone don't tell you this, since
+  // attacker and defender are checked against different, differently-ranked
+  // charts (a lower number can still land on a better color).
+  defenseResultColor: "white" | "green" | "yellow" | "red";
+  attackResultColor: "white" | "green" | "yellow" | "red";
   counterType: "ultimate-vs-ultimate" | "ultimate-vs-normal" | "red-vs-normal";
   dialog: VueDialog;
 }
@@ -84,20 +90,22 @@ function getMessage(): string {
   }
 }
 
+function colorLabel(
+  color: "white" | "green" | "yellow" | "red",
+  roll: number
+): string {
+  if (roll === 100) return "Ultimate";
+  return color.charAt(0).toUpperCase() + color.slice(1);
+}
+
 function getDefenseResultClass(): string {
   if (props.defenseRoll === 100) return "perfect";
-  if (props.defenseRoll >= 96) return "red";
-  if (props.defenseRoll >= 76) return "yellow";
-  if (props.defenseRoll >= 51) return "green";
-  return "white";
+  return props.defenseResultColor;
 }
 
 function getAttackResultClass(): string {
   if (props.attackRoll === 100) return "perfect";
-  if (props.attackRoll >= 96) return "red";
-  if (props.attackRoll >= 76) return "yellow";
-  if (props.attackRoll >= 51) return "green";
-  return "white";
+  return props.attackResultColor;
 }
 
 function handleCounter() {
