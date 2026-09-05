@@ -1916,8 +1916,8 @@ async function rollPower(power: any) {
   // Route all contested powers through combat flow
   if (power.attackType && power.attackType !== "none") {
     // Determine attack attribute and type based on power settings
-    let attackAttribute: "fighting" | "agility" | "psyche";
-    let attackType: "melee" | "ranged" | "psyche";
+    let attackAttribute: "fighting" | "agility" | "psyche" | "strength";
+    let attackType: "melee" | "ranged" | "psyche" | "strength";
 
     if (power.attackType === "melee") {
       attackAttribute = "fighting";
@@ -1925,6 +1925,9 @@ async function rollPower(power: any) {
     } else if (power.attackType === "psyche") {
       attackAttribute = "psyche";
       attackType = "psyche";
+    } else if (power.attackType === "strength") {
+      attackAttribute = "strength";
+      attackType = "strength";
     } else {
       // Default to ranged for all other damage types (blast, area, etc.)
       attackAttribute = "agility";

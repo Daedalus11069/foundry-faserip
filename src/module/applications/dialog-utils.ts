@@ -3,6 +3,7 @@ import TalentSelectionDialog from "./dialogs/TalentSelectionDialog.vue";
 import KarmaSpendDialog from "./dialogs/KarmaSpendDialog.vue";
 import IntuitionCheckOptionsDialog from "./dialogs/IntuitionCheckOptionsDialog.vue";
 import HackOptionsDialog from "./dialogs/HackOptionsDialog.vue";
+import HackDebuffDialog from "./dialogs/HackDebuffDialog.vue";
 import ComboDialog from "./dialogs/ComboDialog.vue";
 import AttackOptionsDialog from "./dialogs/AttackOptionsDialog.vue";
 import DefenseOptionsDialog from "./dialogs/DefenseOptionsDialog.vue";
@@ -204,6 +205,44 @@ export async function showHackOptionsDialog(): Promise<{
   );
 
   return result as { minigameType: string; attribute: string } | null;
+}
+
+/**
+ * Show the post-breach debuff dialog for a successfully hacked target actor.
+ * Returns null if the GM/hacker chooses to skip applying a debuff.
+ */
+export async function showHackDebuffDialog(targetName: string): Promise<{
+  kind: "stat" | "damage" | "incoming" | "forcedResult";
+  attribute?: string;
+  chartShift: number;
+  roundsRemaining: number;
+  sourceName: string;
+} | null> {
+  const result = await VueDialog.show(
+    HackDebuffDialog,
+    {
+      targetName
+    },
+    {
+      window: {
+        title: "Apply Hack Debuff",
+        icon: "fas fa-bug",
+        minimizable: false,
+        resizable: false
+      },
+      position: {
+        width: 450
+      }
+    }
+  );
+
+  return result as {
+    kind: "stat" | "damage" | "incoming" | "forcedResult";
+    attribute?: string;
+    chartShift: number;
+    roundsRemaining: number;
+    sourceName: string;
+  } | null;
 }
 
 /**

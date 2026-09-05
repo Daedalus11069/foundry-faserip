@@ -3,6 +3,23 @@ import { RANK_VALUES, Rank, RollResult } from "../enums";
 import { showHackCheckOptionsDialog } from "../applications/dialog-utils";
 import type { FaseripActor } from "../documents";
 
+/** A single hackable token targeted for a hacking attempt (Foundry's Target
+ * tool, not the controlled hacker). In Node Intrusion, 2+ targets become
+ * additional "finish" nodes - see setupMultiTargetNodeIntrusion.
+ *
+ * Keyed by the TOKEN's document id, not the actor's - two different targeted
+ * tokens can share the same base Actor (duplicate NPCs, e.g. three "Guard"
+ * tokens), and actor-id keying would collapse them into one target, applying
+ * a hacked-one's debuff to the shared Actor document (so it looked like it
+ * hit every one of them) and undercounting how many finish nodes to place.
+ */
+export interface HackTargetInfo {
+  tokenId: string;
+  actorId: string;
+  actorName: string;
+  requiredColor: RollResult;
+}
+
 /** Shared per-hack context: the same check (attribute, rank, talents, chart
  * shift, required color) is reused for the initial roll and every
  * subsequent per-node roll in Node Intrusion (see
@@ -17,6 +34,10 @@ export interface FaseripHackContext {
    * from a hackable target actor's hackRequiredColor. Defaults to Green
    * (any non-White success passes), matching prior behavior. */
   requiredColor?: RollResult;
+  /** All hackable actors targeted for this attempt. With 2+ entries, Node
+   * Intrusion turns extra targets into additional finish nodes instead of
+   * ending the run on the first one reached. */
+  targets?: HackTargetInfo[];
 }
 
 /** Ordinal ranking of Universal Table colors, low to high. */

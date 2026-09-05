@@ -50,8 +50,8 @@ interface AttackData {
   attacker: FaseripActor;
   attackerToken?: Token;
   targets?: Token[]; // Optional: Explicit targets (for counter attacks, auto-targeting)
-  attackAttribute: "fighting" | "agility" | "psyche";
-  attackType: "melee" | "ranged" | "thrown" | "psyche";
+  attackAttribute: "fighting" | "agility" | "psyche" | "strength";
+  attackType: "melee" | "ranged" | "thrown" | "psyche" | "strength";
   effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // What effect this power has
   powerName?: string;
   powerRank?: Rank; // Base rank of the attacking power

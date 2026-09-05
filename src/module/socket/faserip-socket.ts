@@ -70,7 +70,7 @@ interface DefensePromptData {
   targetTokenId?: string; // For unlinked tokens
   attackerName: string;
   attackRoll: number; // The attacker's roll result
-  attackType: "melee" | "ranged" | "thrown" | "psyche"; // Determines which attribute defender uses
+  attackType: "melee" | "ranged" | "thrown" | "psyche" | "strength"; // Determines which attribute defender uses
   attackAttribute: string; // Name of attacking attribute (Fighting, Agility, Psyche)
   attackResult?: string; // FASERIP result (Red, Yellow, Green, White, etc.)
   attackRank?: string; // Attacker's rank
@@ -386,6 +386,9 @@ async function handleDefensePrompt(
     case "psyche":
       defenseAttribute = "Psyche";
       break;
+    case "strength":
+      defenseAttribute = "Strength";
+      break;
     default:
       defenseAttribute = "Fighting";
   }
@@ -430,6 +433,12 @@ async function handleDefensePrompt(
         talentName.includes("mental") ||
         talentName.includes("resist") ||
         talentName.includes("willpower")
+      );
+    } else if (defenseAttributeLower === "strength") {
+      return (
+        talentName.includes("wrestling") ||
+        talentName.includes("grappl") ||
+        talentName.includes("wrestl")
       );
     }
     return false;

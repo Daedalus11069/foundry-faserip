@@ -86,7 +86,7 @@ interface Props {
   targetActor: FaseripActor;
   attackerName: string;
   attackRoll: number;
-  attackType: "melee" | "ranged" | "psyche";
+  attackType: "melee" | "ranged" | "psyche" | "strength";
   attackAttribute: string;
   attackResult?: string;
   attackRank?: string;
@@ -111,6 +111,8 @@ const attackTypeLabel = computed(() => {
       return "Ranged";
     case "psyche":
       return "Mental/Psionic";
+    case "strength":
+      return "Strength";
     default:
       return props.attackType;
   }

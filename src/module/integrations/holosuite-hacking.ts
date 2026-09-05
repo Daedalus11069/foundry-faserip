@@ -1,20 +1,27 @@
 import { FaseripRoll } from "../rolling/FaseripRoll";
 import { Rank, RollResult } from "../enums";
 import type { FaseripActor } from "../documents";
-import { ensureNodeIntrusionPerNodeRollPatched } from "./holosuite-node-intrusion-patch";
+import {
+  ensureNodeIntrusionPerNodeRollPatched,
+  setupMultiTargetNodeIntrusion
+} from "./holosuite-node-intrusion-patch";
 import {
   rollFaseripHackCheck,
   meetsRequiredColor,
-  parseRequiredColor
+  parseRequiredColor,
+  type HackTargetInfo
 } from "./holosuite-roll-adapter";
 import {
   showHackOptionsDialog,
-  showTalentSelectionDialog
+  showTalentSelectionDialog,
+  showHackDebuffDialog
 } from "../applications/dialog-utils";
+import { applyTemporaryModifier } from "../utils/temp-effects";
 import type { Talent } from "../types";
 
 declare const game: any;
 declare const ui: any;
+declare const canvas: any;
 
 export const HOLOSUITE_MODULE_ID = "holosuite-hacking";
 
@@ -103,6 +110,42 @@ export function runFaseripHack(faseripRoll: FaseripRoll, options: RunFaseripHack
   });
 }
 
+/**
+ * Prompts for an optional debuff (stat/damage/incoming chart shift, or a
+ * forced-failure next roll) and applies it to a successfully hacked target
+ * actor as a normal faserip ActiveEffect (see applyTemporaryModifier) -
+ * reuses the same infrastructure the Effects tab's "GM Applied" modifiers
+ * use, just triggered from a breach instead of a manual button.
+ */
+export async function promptAndApplyHackDebuff(
+  targetTokenId: string,
+  targetActorName: string
+): Promise<void> {
+  // Resolved via the specific targeted TOKEN, not game.actors.get(actorId) -
+  // an unlinked token's synthetic actor carries its own ActiveEffects
+  // independent of other tokens sharing the same base Actor, so this is the
+  // only way to debuff just the one token that was actually hacked.
+  const targetToken =
+    (canvas as any)?.tokens?.get?.(targetTokenId) ??
+    (canvas as any)?.scene?.tokens?.get?.(targetTokenId);
+  const targetActor = targetToken?.actor;
+  if (!targetActor) return;
+
+  const options = await showHackDebuffDialog(targetActorName);
+  if (!options) return;
+
+  await applyTemporaryModifier(targetActor, {
+    kind: options.kind,
+    attribute: options.attribute as any,
+    chartShift: options.chartShift,
+    roundsRemaining: options.roundsRemaining,
+    sourceName: options.sourceName,
+    indefinite: options.kind === "forcedResult" ? true : undefined,
+    trigger: options.kind === "forcedResult" ? "nextAction" : undefined,
+    forcedOutcome: options.kind === "forcedResult" ? "failure" : undefined
+  });
+}
+
 export interface AttemptFaseripHackParams {
   actor: FaseripActor;
   attributeName: string;
@@ -113,8 +156,14 @@ export interface AttemptFaseripHackParams {
   label?: string;
   liveAudience?: "everyone" | "gm" | "none";
   /** Minimum Universal Table color required to succeed - sourced from a
-   * hackable target actor's hackRequiredColor. Defaults to Green. */
+   * hackable target actor's hackRequiredColor. Defaults to Green. Used for
+   * the initial roll's difficulty tier; with 2+ targets each finish node
+   * uses its own target's requiredColor instead (see targets below). */
   requiredColor?: RollResult;
+  /** All hackable actors targeted for this attempt (Foundry's Target tool).
+   * With 2+ entries, Node Intrusion places one finish node per target
+   * instead of a single one. */
+  targets?: HackTargetInfo[];
   onSuccess?: () => void;
   onFailure?: () => void;
 }
@@ -134,13 +183,30 @@ export async function attemptFaseripHack(params: AttemptFaseripHackParams) {
     requiredColor: params.requiredColor
   });
 
+  // A single (or zero) target's breach isn't reported per-node (see the
+  // multi-target completeNodeClaim patch for that) - it's only known once
+  // the whole attempt succeeds, so the debuff prompt is folded into
+  // onSuccess here instead. 2+ targets prompt individually as each is
+  // breached (see the onTargetHacked callback below) and are skipped here.
+  const singleTarget =
+    params.targets && params.targets.length === 1 ? params.targets[0] : null;
+  const onSuccess = async () => {
+    if (singleTarget) {
+      await promptAndApplyHackDebuff(
+        singleTarget.tokenId,
+        singleTarget.actorName
+      );
+    }
+    params.onSuccess?.();
+  };
+
   const app = runFaseripHack(faseripRoll, {
     minigameType: params.minigameType,
     actor: params.actor,
     label: params.label,
     liveAudience: params.liveAudience,
     requiredColor: params.requiredColor,
-    onSuccess: params.onSuccess,
+    onSuccess,
     onFailure: params.onFailure
   });
 
@@ -160,6 +226,11 @@ export async function attemptFaseripHack(params: AttemptFaseripHackParams) {
 
     if ((params.minigameType ?? "node-intrusion") === "node-intrusion") {
       ensureNodeIntrusionPerNodeRollPatched(app);
+      if (params.targets && params.targets.length >= 2) {
+        setupMultiTargetNodeIntrusion(app, params.targets, target =>
+          promptAndApplyHackDebuff(target.tokenId, target.actorName)
+        );
+      }
     }
   }
 
@@ -180,10 +251,13 @@ const ATTRIBUTE_LABELS: Record<string, string> = {
  * Scene-control "Present Hack" action: prompts for minigame + check
  * attribute, lets the player apply talents, then runs attemptFaseripHack -
  * the same flow an Equipment hack lock uses, just without an Item backing
- * it. `actor` is the hacker (the controlled token); if the GM has also
- * targeted a hackable actor (Foundry's Target tool), that target's
- * hackRequiredColor becomes this attempt's DC - otherwise any non-White
- * success passes, same as before.
+ * it. `actor` is the hacker (the controlled token). Any targeted (Foundry's
+ * Target tool, not merely controlled) hackable actors become the DC
+ * source(s): one target sets this attempt's required color as before; 2+
+ * targets each become their own finish node in Node Intrusion, with
+ * hacking any one of them (before the trace timer completes) counting as
+ * an overall success. No hackable target keeps the old default (any
+ * non-White success passes).
  */
 export async function presentHackToActor(actor: FaseripActor): Promise<void> {
   if (!isHoloSuiteActive()) {
@@ -216,17 +290,26 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
     }
   }
 
-  // A targeted (not merely controlled) hackable actor sets this attempt's
-  // required color - e.g. targeting a robot with hackRequiredColor "yellow"
-  // means the hacker's roll must reach Yellow or better to succeed.
-  const targetedToken = [...(game.user?.targets ?? [])][0] as any;
-  const targetActor = targetedToken?.actor;
-  const requiredColor = targetActor?.system?.hackable
-    ? parseRequiredColor(targetActor.system.hackRequiredColor)
-    : undefined;
-  const label = targetActor?.name
-    ? `${actor.name} Hacking ${targetActor.name}`
-    : (actor.name ?? "Hacking Attempt");
+  // Every targeted (not merely controlled) hackable actor becomes a DC
+  // source - e.g. targeting a robot with hackRequiredColor "yellow" means
+  // a hacker's roll must reach Yellow or better to breach it.
+  const targetedTokens = [...(game.user?.targets ?? [])] as any[];
+  const targets: HackTargetInfo[] = targetedTokens
+    .filter(token => token.actor?.system?.hackable)
+    .map(token => ({
+      tokenId: token.id,
+      actorId: token.actor.id,
+      actorName: token.actor.name ?? "Target",
+      requiredColor: parseRequiredColor(token.actor.system.hackRequiredColor)
+    }));
+
+  const requiredColor = targets[0]?.requiredColor;
+  const label =
+    targets.length > 1
+      ? `${actor.name} Hacking ${targets.length} Targets`
+      : targets.length === 1
+        ? `${actor.name} Hacking ${targets[0].actorName}`
+        : (actor.name ?? "Hacking Attempt");
 
   await attemptFaseripHack({
     actor,
@@ -238,6 +321,7 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
     label,
     liveAudience: "everyone",
     requiredColor,
+    targets: targets.length > 0 ? targets : undefined,
     onSuccess: () => {},
     onFailure: () => {}
   });

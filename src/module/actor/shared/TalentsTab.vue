@@ -1,12 +1,47 @@
 <script setup lang="ts">
-import { inject, computed, ref } from "vue";
+import { inject, computed, ref, onMounted, onUnmounted } from "vue";
 import type { Talent, Form } from "../../types";
+import {
+  isHoloSuiteActive,
+  presentHackToActor
+} from "../../integrations/holosuite-hacking";
 
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
 
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
 const forms = computed<Form[]>(() => reactiveActor.system.forms || []);
+
+// "Hacking" talent (case-insensitive) unlocks a shortcut to the HoloSuite
+// hack-presentation flow directly from this actor's sheet, without needing
+// the Token Controls scene-control button.
+const hasHackingTalent = computed(() =>
+  talents.value.some(t => t.name?.trim().toLowerCase() === "hacking")
+);
+
+// game.user.targets isn't reactive on its own - track its size via the
+// targetToken hook so the button label updates live as targets change.
+const targetCount = ref(((game as any).user?.targets?.size as number) ?? 0);
+function refreshTargetCount() {
+  targetCount.value = (game as any).user?.targets?.size ?? 0;
+}
+
+onMounted(() => {
+  Hooks.on("targetToken", refreshTargetCount);
+});
+onUnmounted(() => {
+  Hooks.off("targetToken", refreshTargetCount);
+});
+
+const hackButtonLabel = computed(() =>
+  targetCount.value > 1
+    ? `🖥️ Hack ${targetCount.value} Targets`
+    : "🖥️ Hack Target"
+);
+
+function presentHack() {
+  presentHackToActor(actor as any);
+}
 
 // Form filter: '' = show all forms
 const filterFormId = ref("");
@@ -73,9 +108,19 @@ function toggleItem(id: string) {
   <div>
     <div class="flex justify-between items-center mb-4">
       <h2 class="text-2xl font-bold text-white">Talents</h2>
-      <button @click="addTalent" class="fsr-btn fsr-btn-primary fsr-btn-sm">
-        + Add Talent
-      </button>
+      <div class="flex gap-2">
+        <button
+          v-if="hasHackingTalent && isHoloSuiteActive()"
+          @click="presentHack"
+          class="fsr-btn fsr-btn-sm bg-cyan-700 hover:bg-cyan-600 text-white"
+          title="Target a hackable actor (or none for an open attempt) and start a hacking check"
+        >
+          {{ hackButtonLabel }}
+        </button>
+        <button @click="addTalent" class="fsr-btn fsr-btn-primary fsr-btn-sm">
+          + Add Talent
+        </button>
+      </div>
     </div>
 
     <!-- Form filter bar -->

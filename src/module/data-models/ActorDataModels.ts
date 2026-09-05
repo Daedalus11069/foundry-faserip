@@ -310,7 +310,7 @@ export function definePowerRefSchema() {
     attackType: new StringField({
       required: false,
       initial: "none",
-      choices: ["none", "melee", "ranged", "psyche"]
+      choices: ["none", "melee", "ranged", "psyche", "strength"]
     }),
     damageType: new StringField({ required: false, initial: "none" }),
     resistanceType: new StringField({ required: false, nullable: true }),

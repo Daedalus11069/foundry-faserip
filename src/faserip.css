@@ -8,6 +8,10 @@
         position: relative;
     }
 
+    .application.sheet.fsr-sheet .window-content {
+        padding: 0;
+    }
+
     .application.sheet.fsr-sheet,
     .application.sheet.item.armor,
     .application.sheet.item.weapon,

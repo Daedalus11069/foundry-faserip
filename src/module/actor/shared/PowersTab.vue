@@ -318,7 +318,7 @@ function toggleItem(id: string) {
             {{ power.effectType === 'damage' ? 'Damage' : power.effectType === 'heal-health' ? 'Heal HP' : 'Heal Armor' }}
           </span>
           <span v-if="power.attackType && power.attackType !== 'none'" class="text-xs px-2 py-0.5 rounded bg-orange-900/60 text-orange-300 shrink-0">
-            vs {{ power.attackType === 'melee' ? 'Fighting' : power.attackType === 'ranged' ? 'Agility' : 'Psyche' }}
+            vs {{ power.attackType === 'melee' ? 'Fighting' : power.attackType === 'ranged' ? 'Agility' : power.attackType === 'strength' ? 'Strength' : 'Psyche' }}
           </span>
           <span v-if="power.armorPiercing" class="text-xs px-2 py-0.5 rounded bg-purple-900/60 text-purple-300 shrink-0">AP</span>
           <span v-if="degradingEnabled && isBodyArmor(power)" class="text-xs shrink-0"
@@ -466,6 +466,7 @@ function toggleItem(id: string) {
                 <option value="melee">vs Fighting</option>
                 <option value="ranged">vs Agility</option>
                 <option value="psyche">vs Psyche</option>
+                <option value="strength">vs Strength</option>
               </select>
             </div>
           </div>
