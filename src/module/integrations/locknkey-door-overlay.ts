@@ -1,5 +1,5 @@
 import { Rank } from "../enums";
-import { isHoloSuiteActive } from "./holosuite-hacking";
+import { isHoloSuiteActive, resolveHackLiveAudience } from "./holosuite-hacking";
 import { isDoorHackProof, isDoorUnbreakable } from "./door-hack-config";
 import {
   getLocknKeyApi,
@@ -130,20 +130,14 @@ function toggleOverlay(control: any): void {
         Rank.Typical;
 
       void (async () => {
-        const showToOthers =
-          await globalThis.foundry.applications.api.DialogV2.confirm({
-            window: { title: "Hacking Interface" },
-            content: "<p>Show the hacking interface to other players?</p>",
-            rejectClose: false,
-            modal: true
-          });
+        const liveAudience = await resolveHackLiveAudience();
 
         void attemptDoorHack({
           actor: controlledActor,
           wall,
           attributeName: `${controlledActor.name} Picking Lock`,
           attributeRank,
-          liveAudience: showToOthers ? "everyone" : "gm"
+          liveAudience
         });
       })();
     });

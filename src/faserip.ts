@@ -433,6 +433,21 @@ const initHandler = () => {
     default: false
   });
 
+  // HoloSuite hack minigame: whether other players see it live
+  game.settings.register("faserip", "hackShowToOthers", {
+    name: "Show Hacking Interface to Other Players",
+    hint: "Controls whether other players can watch a HoloSuite hack minigame live (door picking, Present Hack). 'Ask Always' prompts the hacking player each time.",
+    scope: "client",
+    config: true,
+    type: String,
+    choices: {
+      ask: "Ask Always",
+      no: "No",
+      yes: "Yes"
+    },
+    default: "ask"
+  });
+
   // Movement mapping by rank (numeric values, edited via menu dialog)
   game.settings.register("faserip", "movementSquaresByRank", {
     name: "Movement By Rank (Squares)",

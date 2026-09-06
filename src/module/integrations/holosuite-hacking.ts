@@ -22,6 +22,7 @@ import type { Talent } from "../types";
 declare const game: any;
 declare const ui: any;
 declare const canvas: any;
+declare const globalThis: any;
 
 export const HOLOSUITE_MODULE_ID = "holosuite-hacking";
 
@@ -108,6 +109,29 @@ export function runFaseripHack(faseripRoll: FaseripRoll, options: RunFaseripHack
     onSuccess: options.onSuccess,
     onFailure: options.onFailure
   });
+}
+
+/**
+ * Resolves the "everyone"/"gm" liveAudience to use for a hack minigame from
+ * the world's hackShowToOthers setting: "yes"/"no" answer it outright, and
+ * "ask" (the default) prompts the hacking player each time via a confirm
+ * dialog. Shared by every player-initiated hack entry point (door picking,
+ * Present Hack) - the Equipment hack-lock item config is a GM-authored
+ * per-item setting instead and isn't routed through this.
+ */
+export async function resolveHackLiveAudience(): Promise<"everyone" | "gm"> {
+  const setting = game.settings?.get?.("faserip", "hackShowToOthers") ?? "ask";
+  if (setting === "yes") return "everyone";
+  if (setting === "no") return "gm";
+
+  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
+  const showToOthers = await globalThis.foundry.applications.api.DialogV2.confirm({
+    window: { title: "Hacking Interface" },
+    content: "<p>Show the hacking interface to other players?</p>",
+    rejectClose: false,
+    modal: true
+  });
+  return showToOthers ? "everyone" : "gm";
 }
 
 /**
@@ -311,6 +335,8 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
         ? `${actor.name} Hacking ${targets[0].actorName}`
         : (actor.name ?? "Hacking Attempt");
 
+  const liveAudience = await resolveHackLiveAudience();
+
   await attemptFaseripHack({
     actor,
     attributeName: `${actor.name} Hacking Attempt`,
@@ -319,7 +345,7 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
     talentNames,
     minigameType: options.minigameType,
     label,
-    liveAudience: "everyone",
+    liveAudience,
     requiredColor,
     targets: targets.length > 0 ? targets : undefined,
     onSuccess: () => {},
