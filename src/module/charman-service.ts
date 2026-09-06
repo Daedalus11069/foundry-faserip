@@ -916,15 +916,15 @@ export class CharmanService {
       );
       const charmanWeapons = actorData.system.weapons || [];
 
-      // Track which weapons to delete (not in Charman data)
-      const weaponNamesToKeep = new Set(charmanWeapons.map((w: any) => w.name));
-      const weaponIdsToDelete = existingWeaponItems
-        .filter((item: any) => !weaponNamesToKeep.has(item.name))
-        .map((item: any) => item.id);
-
-      // Update existing weapons or create new ones
+      // Update existing weapons or create new ones. Characters can carry
+      // multiple identically-named weapons (e.g. one per arm on a multi-armed
+      // character), so matching must consume each existing item at most once
+      // rather than re-matching the same name to the first item every time -
+      // otherwise all same-named entries collapse onto a single Item and the
+      // rest are silently dropped instead of created.
       const weaponUpdates: any[] = [];
       const weaponCreates: any[] = [];
+      const claimedExistingIds = new Set<string>();
 
       for (const charmanWeapon of charmanWeapons) {
         const weaponType =
@@ -954,10 +954,12 @@ export class CharmanService {
         };
 
         const existingItem = existingWeaponItems.find(
-          (item: any) => item.name === charmanWeapon.name
+          (item: any) =>
+            item.name === charmanWeapon.name && !claimedExistingIds.has(item.id)
         );
 
         if (existingItem) {
+          claimedExistingIds.add(existingItem.id);
           // Update existing weapon
           weaponUpdates.push({
             _id: existingItem.id,
@@ -972,6 +974,13 @@ export class CharmanService {
           });
         }
       }
+
+      // Delete any existing weapon items that Charman no longer accounts for -
+      // either the name is gone entirely, or there were more same-named items
+      // than Charman now sends (leftover duplicates).
+      const weaponIdsToDelete = existingWeaponItems
+        .filter((item: any) => !claimedExistingIds.has(item.id))
+        .map((item: any) => item.id);
 
       if (weaponIdsToDelete.length > 0) {
         await existingActor.deleteEmbeddedDocuments("Item", weaponIdsToDelete);

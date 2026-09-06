@@ -924,7 +924,9 @@ export async function executeCombatAttack(
       {
         attackRoll: true,
         attackType,
-        powerName
+        powerName,
+        comboIndex,
+        comboTotal
       },
       karmaColumnShifts,
       karmaResultShift,

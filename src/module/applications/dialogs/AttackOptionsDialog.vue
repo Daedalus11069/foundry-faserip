@@ -255,12 +255,13 @@ const rankIsModified = computed(() => {
   );
 });
 
-// Multiple-action/combo CS penalties (and the exhaustion they can cause)
-// represent fatigue building up over a combat round - outside of an active
-// encounter there's no round for that fatigue to apply within, so skip it.
+// Multiple-action/combo CS penalties (and the exhaustion they can cause).
+// actionsBeforeThisCombo (attacks already taken earlier this turn) is only
+// ever non-zero mid-combat - see turn-actions-tracker.ts - but the penalty
+// for the attacks WITHIN this combo itself (attackIndex) applies regardless
+// of whether a formal Foundry combat encounter is running, since firing off
+// multiple attacks in one action is what causes the penalty, not the tracker.
 function getAttackPenalty(attackIndex: number): number {
-  if (!(game as any).combat) return 0;
-
   const actionsBefore = props.actionsBeforeThisCombo ?? 0;
   if (comboCount.value === 1) {
     // Single attack: free on first action of turn, else -(actionsBefore + 1)

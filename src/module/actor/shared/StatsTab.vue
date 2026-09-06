@@ -965,6 +965,16 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
       });
 
       if (result === null || result.attackRollTotal === null) {
+        console.warn(
+          `[FASERIP] Multi-weapon combo aborted silently: executeCombatAttack returned ${result === null ? "null" : "attackRollTotal null"} on ${weapon.name} (arm ${j + 1}/${weaponCount}), action ${i + 1}/${comboResult.comboCount}.`
+        );
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor }),
+          content: `<div class="fsr-combat-message" style="background: #6b7280; color: #e5e7eb; padding: 0.5rem; border-radius: 4px;">
+            <strong>Attack Cancelled</strong>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s ${weapon.name} (arm ${j + 1}/${weaponCount}) did not resolve on action ${i + 1}/${comboResult.comboCount}. Remaining attacks cancelled.</p>
+          </div>`
+        });
         comboFailed = true;
         break;
       }
@@ -1022,23 +1032,251 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
 
 const equippedWeapons = computed(() => weapons.value.filter(w => w.equipped));
 
+function getWeaponDamageRankFor(weapon: Weapon): Rank {
+  if (!currentForm.value) return Rank.Typical;
+  if (weapon.type === "melee" || weapon.type === "thrown") {
+    const strengthRank = stringToRank(
+      currentForm.value.attributes.strength.rank
+    );
+    const weaponCS =
+      typeof weapon.damage === "number"
+        ? weapon.damage
+        : Number(weapon.damage) || 0;
+    return applyChartShift(strengthRank, weaponCS);
+  }
+  return stringToRank(
+    typeof weapon.damage === "string" ? weapon.damage : "Typical"
+  );
+}
+
+function getWeaponTalents(weapon: Weapon): { names: string[]; cs: number } {
+  const names: string[] = [];
+  let cs = 0;
+  if (weapon.applicableTalents && weapon.applicableTalents.length > 0) {
+    for (const talentName of weapon.applicableTalents) {
+      const talent = talents.value.find(
+        t =>
+          t.name.toLowerCase().replace(/[\s_-]+/g, "") ===
+          talentName.toLowerCase().replace(/[\s_-]+/g, "")
+      );
+      if (talent) {
+        names.push(talent.name);
+        cs += talent.bonus || 0;
+      }
+    }
+  }
+  return { names, cs };
+}
+
 async function rollAllEquippedWeapons() {
+  if (!currentForm.value) return;
+
   const equipped = equippedWeapons.value;
   if (equipped.length === 0) {
     ui.notifications?.warn("No weapons equipped.");
     return;
   }
+  const weaponCount = equipped.length;
 
-  // Fire each equipped weapon's own attack sequence in turn (each uses its
-  // own stat - Fighting for melee, Agility for ranged/thrown - and its own
-  // attack options dialog), rather than forcing them all into a single
-  // Fighting-only combo.
-  for (const weapon of equipped) {
-    await rollWeapon(weapon);
+  // Single shared prompt: "how many actions" applies to every equipped
+  // weapon, one full pass through all of them per action - not a separate
+  // combo count per weapon. Each weapon still uses its own stat (Fighting
+  // for melee/thrown, Agility for ranged) and damage rank when it actually
+  // rolls; the dialog's rank/karma preview is based on Fighting since that's
+  // the primary attack stat for most builds.
+  const attackRank = stringToRank(
+    currentForm.value.attributes.fighting.rank
+  );
+  const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
+  const weaponLabel = `${equipped.map(w => w.name).join(" + ")} (${weaponCount} Weapons)`;
+
+  const comboResult = await showAttackOptionsDialog(
+    actor.name || "Unknown",
+    "Attack",
+    attackRank,
+    availableKarma,
+    weaponLabel,
+    0,
+    getActionsThisTurn(reactiveActor.system),
+    snapshotTemporaryModifiers(actor),
+    getDefenderTemporaryModifiers()
+  );
+
+  if (comboResult === null) return;
+
+  const actionsBefore = getActionsThisTurn(reactiveActor.system);
+
+  // Karma cost mirrors rollMultiWeaponAttack - each combo action fires
+  // weaponCount weapons, all sharing the same penalty & karma settings
+  let totalKarmaCost = 0;
+  for (let i = 0; i < comboResult.attackKarmaSettings.length; i++) {
+    const attack = comboResult.attackKarmaSettings[i];
+    const comboPenalty = -(actionsBefore + (i + 1));
+
+    if (attack.columnShifts > 0) {
+      const effectiveRank = applyChartShift(attackRank, comboPenalty);
+      const shiftedRank = applyChartShift(effectiveRank, attack.columnShifts);
+      const scoreDiff = Math.abs(
+        (RANK_VALUES[shiftedRank] || 6) - (RANK_VALUES[effectiveRank] || 6)
+      );
+      totalKarmaCost += Math.max(10, scoreDiff) * weaponCount;
+    }
+    if (attack.resultShift > 0) {
+      totalKarmaCost += Math.max(10, attack.resultShift) * weaponCount;
+    }
+    if (attack.damageRankShift > 0) {
+      const effectiveRank = applyChartShift(attackRank, comboPenalty);
+      const shiftedRank = applyChartShift(
+        effectiveRank,
+        attack.damageRankShift
+      );
+      const scoreDiff = Math.abs(
+        (RANK_VALUES[shiftedRank] || 6) - (RANK_VALUES[effectiveRank] || 6)
+      );
+      totalKarmaCost += Math.max(10, scoreDiff) * weaponCount;
+    }
+    if (attack.damageBonus > 0) {
+      totalKarmaCost += Math.max(10, attack.damageBonus) * weaponCount;
+    }
+  }
+
+  if (totalKarmaCost > 0) {
+    const newKarmaValue = Math.max(
+      0,
+      (reactiveActor.system.resources?.karma?.value || 0) - totalKarmaCost
+    );
+    reactiveActor.system.resources.karma.value = newKarmaValue;
+    await actor.update({
+      // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
+      "system.resources.karma.value": newKarmaValue
+    });
+
+    const charmanData = reactiveActor.system?.charman;
+    if (charmanData?.username && charmanData?.characterName) {
+      try {
+        const service = getCharmanService();
+        await service.updateKarma(
+          charmanData.username,
+          charmanData.characterName,
+          newKarmaValue
+        );
+      } catch (error) {
+        console.warn("Could not sync karma to Charman:", error);
+      }
+    }
+  }
+
+  // Outer loop: combo actions. Inner loop: every equipped weapon, each
+  // firing with its own attribute/type/damage rank but sharing the action's
+  // combo penalty and karma settings.
+  const allPendingDamages: PendingDamage[] = [];
+  let comboFailed = false;
+  let comboBotchCount = 0;
+  let actionsCompleted = 0;
+
+  for (let i = 0; i < comboResult.comboCount; i++) {
+    const attackKarma = comboResult.attackKarmaSettings[i];
+
+    for (let j = 0; j < weaponCount; j++) {
+      const weapon = equipped[j];
+      const { names: talentNames, cs: talentCS } = getWeaponTalents(weapon);
+
+      const result = await executeCombatAttack({
+        attacker: actor as any,
+        attackAttribute: weapon.stat,
+        attackType: weapon.type,
+        effectType: "damage" as const,
+        powerName: `${weapon.name} (Arm ${j + 1}/${weaponCount})`,
+        powerRank: getWeaponDamageRankFor(weapon),
+        armorPiercing: weapon.armorPiercing,
+        talentNames: talentNames.length > 0 ? talentNames : undefined,
+        talentCS: talentCS > 0 ? talentCS : undefined,
+        karmaColumnShifts: attackKarma?.columnShifts ?? 0,
+        karmaResultShift: attackKarma?.resultShift ?? 0,
+        manualChartShift: comboResult.manualChartShift ?? 0,
+        damageRankBump: comboResult.damageRankBump ?? 0,
+        perAttackKarma: {
+          damageRankShift: attackKarma?.damageRankShift ?? 0,
+          damageBonus: attackKarma?.damageBonus ?? 0
+        },
+        multiHit: weapon.multiHit || false,
+        statDebuffs: weapon.statDebuffs,
+        damageBuffs: weapon.damageBuffs,
+        dots: weapon.dots,
+        actionsBeforeThisCombo: actionsBefore,
+        comboIndex: i + 1,
+        comboTotal: comboResult.comboCount,
+        deferDamageApplication: true,
+        comboBotchCount
+      });
+
+      if (result === null || result.attackRollTotal === null) {
+        console.warn(
+          `[FASERIP] Roll All Equipped combo aborted silently: executeCombatAttack returned ${result === null ? "null" : "attackRollTotal null"} on ${weapon.name} (arm ${j + 1}/${weaponCount}), action ${i + 1}/${comboResult.comboCount}.`
+        );
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor }),
+          content: `<div class="fsr-combat-message" style="background: #6b7280; color: #e5e7eb; padding: 0.5rem; border-radius: 4px;">
+            <strong>Attack Cancelled</strong>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s ${weapon.name} (arm ${j + 1}/${weaponCount}) did not resolve on action ${i + 1}/${comboResult.comboCount}. Remaining attacks cancelled.</p>
+          </div>`
+        });
+        comboFailed = true;
+        break;
+      }
+
+      comboBotchCount = result.comboBotchCount;
+
+      if (result.attackRollTotal <= 5) {
+        await ChatMessage.create({
+          speaker: ChatMessage.getSpeaker({ actor }),
+          content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+            <strong>Botch! Combo Broken!</strong>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name}'s ${weapon.name} (arm ${j + 1}/${weaponCount}) botched on action ${i + 1}/${comboResult.comboCount}. Remaining attacks cancelled.</p>
+          </div>`
+        });
+        comboFailed = true;
+        break;
+      }
+
+      if (result.pendingDamages && result.pendingDamages.length > 0) {
+        allPendingDamages.push(...result.pendingDamages);
+      }
+
+      if (j < weaponCount - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    if (comboFailed) break;
+
+    actionsCompleted++;
+
+    if (i < comboResult.comboCount - 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  if (allPendingDamages.length > 0) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await applyPendingDamages(actor as any, allPendingDamages);
+  }
+
+  addActionsThisTurn(reactiveActor.system, actionsCompleted);
+
+  if (comboResult.hasExhaustion) {
+    await ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor }),
+      content: `<div class="fsr-combat-message" style="background: #991b1b; color: #fca5a5; padding: 0.5rem; border-radius: 4px;">
+        <strong>⚠️ Exhausted!</strong>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${actor.name} reached Poor rank or below during this combo and cannot dodge for the rest of this round!</p>
+      </div>`
+    });
+    await applyExhaustionStun(actor);
   }
 }
 
-async function rollWeapon(weapon: Weapon) {
+async function rollWeapon(weapon: Weapon, armLabel: string = "") {
   if (!currentForm.value) return;
 
   // Only equipped weapons may be attacked with
@@ -1100,7 +1338,7 @@ async function rollWeapon(weapon: Weapon) {
     attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
     attackRank,
     availableKarma,
-    weapon.name,
+    `${weapon.name}${armLabel}`,
     talentCS,
     actionsBeforeWeapon,
     snapshotTemporaryModifiers(actor),
@@ -1201,7 +1439,7 @@ async function rollWeapon(weapon: Weapon) {
         attackAttribute,
         attackType,
         effectType: "damage",
-        powerName: weapon.name,
+        powerName: `${weapon.name}${armLabel}`,
         powerRank: damageRank,
         damageType: undefined,
         armorPiercing: weapon.armorPiercing, // Add armor piercing
@@ -1290,7 +1528,7 @@ async function rollWeapon(weapon: Weapon) {
       attackAttribute,
       attackType,
       effectType: "damage",
-      powerName: weapon.name,
+      powerName: `${weapon.name}${armLabel}`,
       powerRank: damageRank,
       damageType: undefined,
       armorPiercing: weapon.armorPiercing, // Add armor piercing
