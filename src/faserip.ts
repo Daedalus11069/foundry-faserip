@@ -28,6 +28,8 @@ import {
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
 import { presentHackToActor, isHoloSuiteActive } from "./module/integrations/holosuite-hacking";
+import { initHackProofDoorConfig } from "./module/integrations/door-hack-config";
+import { initLocknKeyDoorOverlay } from "./module/integrations/locknkey-door-overlay";
 import {
   tickTemporaryModifiers,
   tickDotEffectsForCombatant
@@ -768,6 +770,16 @@ if (import.meta.env.DEV) {
   });
 }
 
+// LocknKey door menu: must register its libWrapper patch before any
+// DoorControl is ever drawn, since core draws the initial scene's canvas
+// (and every door icon) before the "ready" hook fires - registering there
+// would be too late for every door already on screen at load. game.modules
+// activation flags and the foundry.canvas.containers namespace are both
+// already available this early.
+Hooks.once("init", () => {
+  initLocknKeyDoorOverlay();
+});
+
 // ─── Actor Update Hook: Sync health changes to healthByForm ────────────────────
 
 Hooks.on("preUpdateActor", (actor: any, changes: any, _options: any) => {
@@ -1223,6 +1235,9 @@ Hooks.once("ready", async () => {
 
   // Initialize per-turn action tracker (resets combo penalty offset each turn)
   initTurnActionsTracker();
+
+  // Hack-proof checkbox on the Wall Config sheet's door settings
+  initHackProofDoorConfig();
 
   // Run migration to convert embedded armors/weapons to Item documents
   // This only runs once per world and is safe to call repeatedly

@@ -173,6 +173,55 @@ export function initializeSocket(): void {
   socket.register("applyDamageBuff", handleApplyDamageBuff);
   socket.register("applyDot", handleApplyDot);
   socket.register("removeDot", handleRemoveDot);
+  socket.register("setDoorLockState", handleSetDoorLockState);
+}
+
+interface SetDoorLockStateData {
+  wallUuid: string;
+  ds: number;
+}
+
+/** Runs on a GM client (or locally if the caller already is GM) - only a
+ * GM typically holds update permission on Wall documents. */
+async function handleSetDoorLockState(data: SetDoorLockStateData): Promise<boolean> {
+  // @ts-expect-error - Foundry global fromUuid
+  const wall = await fromUuid(data.wallUuid);
+  if (!wall) return false;
+  await wall.update({ ds: data.ds });
+  return true;
+}
+
+/**
+ * Sets a door's core Wall document `ds` (door state) field directly,
+ * routed through a GM client via socketlib when the caller isn't GM.
+ *
+ * This exists because LocknKey's own PickHoveredLock()/BreakHoveredLock()
+ * API functions don't actually apply a caller-determined success/failure -
+ * they run their own internal dice roll against the lock's configured DC
+ * (via onatemptedcircumventLock), entirely independent of any check already
+ * resolved on this system's side, and that whole request chain silently
+ * no-ops if there's no active GM client connected. Since core's door
+ * lock/unlock visual state is just the standard `ds` field (LOCKED = 2,
+ * CLOSED = 0 - confirmed against LocknKey's own ToggleDoorLock, which does
+ * nothing more than flip this same field), setting it directly here - once
+ * this system's own FASERIP check has already determined success - bypasses
+ * LocknKey's incompatible roll pipeline entirely instead of fighting it.
+ */
+export async function requestSetDoorLockState(
+  wallUuid: string,
+  ds: number
+): Promise<boolean> {
+  // @ts-expect-error - Foundry game.user global
+  if (game.user?.isGM) {
+    return handleSetDoorLockState({ wallUuid, ds });
+  }
+  if (!socket) {
+    console.warn(
+      "FASERIP Socket | Socket not initialized - cannot update door lock state remotely"
+    );
+    return false;
+  }
+  return await socket.executeAsGM("setDoorLockState", { wallUuid, ds });
 }
 
 /**
