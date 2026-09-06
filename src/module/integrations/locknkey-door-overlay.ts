@@ -129,12 +129,23 @@ function toggleOverlay(control: any): void {
         controlledActor.getCurrentForm?.()?.attributes?.reasoning?.rank ??
         Rank.Typical;
 
-      void attemptDoorHack({
-        actor: controlledActor,
-        wall,
-        attributeName: `${controlledActor.name} Picking Lock`,
-        attributeRank
-      });
+      void (async () => {
+        const showToOthers =
+          await globalThis.foundry.applications.api.DialogV2.confirm({
+            window: { title: "Hacking Interface" },
+            content: "<p>Show the hacking interface to other players?</p>",
+            rejectClose: false,
+            modal: true
+          });
+
+        void attemptDoorHack({
+          actor: controlledActor,
+          wall,
+          attributeName: `${controlledActor.name} Picking Lock`,
+          attributeRank,
+          liveAudience: showToOthers ? "everyone" : "gm"
+        });
+      })();
     });
   }
   if (typeof api?.BreakHoveredLock === "function" && !isDoorUnbreakable(wall)) {
@@ -222,7 +233,11 @@ export function initLocknKeyDoorOverlay(): void {
     globalThis.libWrapper.register(
       FASERIP_MODULE_ID,
       `${DOOR_CONTROL_PATH}.prototype.draw`,
-      async function (this: any, wrapped: (...args: any[]) => any, ...args: any[]) {
+      async function (
+        this: any,
+        wrapped: (...args: any[]) => any,
+        ...args: any[]
+      ) {
         const result = await wrapped(...args);
         if (!this.__faseripMiddleClickHandler) {
           this.__faseripMiddleClickHandler = (event: any) => {
