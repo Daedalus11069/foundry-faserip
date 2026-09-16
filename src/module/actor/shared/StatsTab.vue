@@ -28,6 +28,10 @@ import {
   hasActiveDampeningResist,
   grantDampeningResist
 } from "../../utils/power-negation";
+import {
+  togglePowerAura,
+  isPowerAuraActive
+} from "../../utils/power-aura";
 import type { Talent } from "../../types";
 import {
   executeCombatAttack,
@@ -230,10 +234,59 @@ const canResistDampening = ref(canAttemptDampeningResist(actor));
 const isResistingDampening = ref(hasActiveDampeningResist(actor));
 let unsubscribePowersNegation: (() => void) | undefined;
 
+// Bumped whenever the actor's aura-region flags, any Region document, or any
+// of this actor's ActiveEffects change, so isPowerAuraActive's "Aura Active"
+// badge AND the per-attribute effective-shift badge below stay in sync -
+// both read live actor/region state with no reactive dependency of their own
+// without this.
+const auraStateTick = ref(0);
+function isAuraActive(power: any): boolean {
+  void auraStateTick.value;
+  return isPowerAuraActive(actor, power);
+}
+/** Combined temp-modifier + live aura chart shift currently affecting this attribute, for a small "(+1CS)"-style badge next to its displayed rank. */
+function attributeEffectiveShift(attrKey: string): number {
+  void auraStateTick.value;
+  return getEffectiveAttributeData(actor, attrKey as AttributeKey)?.totalShift ?? 0;
+}
+function handleAuraRelevantUpdate(doc: any) {
+  // Region create/delete and ActiveEffect create/update/delete carry no
+  // actor reference to filter on - just tick unconditionally for those
+  // (cheap: only recomputes a couple of small badges on this sheet), but for
+  // actor updates only react to this actor.
+  if (
+    !doc ||
+    doc.documentName === "Region" ||
+    doc.documentName === "ActiveEffect" ||
+    doc.id === actor?.id
+  ) {
+    auraStateTick.value++;
+  }
+}
+/**
+ * Walking into/out of an aura region doesn't touch this actor's document or
+ * any ActiveEffect - it changes the TOKEN's own `_regions` set (Foundry's
+ * live containment tracking), so that needs its own updateToken watch,
+ * filtered to this actor's tokens and to updates that actually touch
+ * `_regions` (movement alone doesn't change containment every time).
+ */
+function handleTokenRegionsChange(tokenDocument: any, changes: any) {
+  if (changes._regions === undefined) return;
+  if (tokenDocument?.actor?.id !== actor?.id) return;
+  auraStateTick.value++;
+}
+
 onMounted(() => {
   Hooks.on("createItem", handleItemCreate);
   Hooks.on("updateItem", handleItemUpdate);
   Hooks.on("deleteItem", handleItemDelete);
+  Hooks.on("updateActor", handleAuraRelevantUpdate);
+  Hooks.on("createRegion", handleAuraRelevantUpdate);
+  Hooks.on("deleteRegion", handleAuraRelevantUpdate);
+  Hooks.on("createActiveEffect", handleAuraRelevantUpdate);
+  Hooks.on("updateActiveEffect", handleAuraRelevantUpdate);
+  Hooks.on("deleteActiveEffect", handleAuraRelevantUpdate);
+  Hooks.on("updateToken", handleTokenRegionsChange);
   unsubscribePowersNegation = onPowersNegationChange(actor, () => {
     powersNegated.value = isPowersNegated(actor);
     canResistNegation.value = canAttemptNegationResist(actor);
@@ -301,6 +354,13 @@ onUnmounted(() => {
   Hooks.off("createItem", handleItemCreate);
   Hooks.off("updateItem", handleItemUpdate);
   Hooks.off("deleteItem", handleItemDelete);
+  Hooks.off("updateActor", handleAuraRelevantUpdate);
+  Hooks.off("createRegion", handleAuraRelevantUpdate);
+  Hooks.off("deleteRegion", handleAuraRelevantUpdate);
+  Hooks.off("createActiveEffect", handleAuraRelevantUpdate);
+  Hooks.off("updateActiveEffect", handleAuraRelevantUpdate);
+  Hooks.off("deleteActiveEffect", handleAuraRelevantUpdate);
+  Hooks.off("updateToken", handleTokenRegionsChange);
   unsubscribePowersNegation?.();
 });
 
@@ -1655,6 +1715,13 @@ async function rollPower(power: any) {
     return;
   }
 
+  // Auras aren't rolled against a target - using the power toggles its
+  // region on/off instead of running the normal roll/targeting flow.
+  if (power.isAura) {
+    await togglePowerAura(actor, power);
+    return;
+  }
+
   const rank = stringToRank(power.rank);
   const rankValue = power.value || 6;
 
@@ -2511,6 +2578,14 @@ async function rollPower(power: any) {
                     {{
                       formatRankDisplay(currentForm.attributes[attr.key].rank)
                     }}
+                    <span
+                      v-if="attributeEffectiveShift(attr.key) !== 0"
+                      class="text-xs"
+                      :class="attributeEffectiveShift(attr.key) > 0 ? 'text-cyan-400' : 'text-orange-400'"
+                      title="Active temporary modifier/aura chart shift"
+                    >
+                      ({{ attributeEffectiveShift(attr.key) > 0 ? "+" : "" }}{{ attributeEffectiveShift(attr.key) }}CS)
+                    </span>
                   </div>
                 </div>
                 <div class="fsr-stat-value">
@@ -2546,6 +2621,14 @@ async function rollPower(power: any) {
                     {{
                       formatRankDisplay(currentForm.attributes[attr.key].rank)
                     }}
+                    <span
+                      v-if="attributeEffectiveShift(attr.key) !== 0"
+                      class="text-xs"
+                      :class="attributeEffectiveShift(attr.key) > 0 ? 'text-cyan-400' : 'text-orange-400'"
+                      title="Active temporary modifier/aura chart shift"
+                    >
+                      ({{ attributeEffectiveShift(attr.key) > 0 ? "+" : "" }}{{ attributeEffectiveShift(attr.key) }}CS)
+                    </span>
                   </div>
                 </div>
                 <div class="fsr-stat-value">
@@ -2779,6 +2862,13 @@ async function rollPower(power: any) {
                 class="ml-1 text-yellow-400"
               >
                 ({{ power.mpCost }} MP)
+              </span>
+              <span
+                v-if="power.isAura && isAuraActive(power)"
+                class="ml-1 text-xs px-1.5 py-0.5 rounded bg-purple-600 text-white"
+                title="This aura is currently active - click to deactivate"
+              >
+                🟣 Active
               </span>
             </button>
           </div>

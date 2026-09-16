@@ -141,6 +141,9 @@ export interface PowerData {
   statDebuffs?: PowerStatDebuffData[];
   damageBuffs?: PowerDamageDebuffData[];
   dots?: PowerDotData[];
+  isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
+  auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
+  auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
 }
 
 export interface TalentData {

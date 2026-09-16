@@ -425,7 +425,20 @@ export function definePowerRefSchema() {
         })
       }),
       { required: false, initial: () => [] }
-    )
+    ),
+    isAura: new BooleanField({
+      required: false,
+      initial: false
+    }),
+    auraDisposition: new StringField({
+      required: false,
+      initial: "any",
+      choices: ["ally", "enemy", "any"]
+    }),
+    auraIncludeSelf: new BooleanField({
+      required: false,
+      initial: false
+    })
   });
 }
 

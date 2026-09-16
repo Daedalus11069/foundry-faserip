@@ -115,6 +115,9 @@ export interface CharmanPower {
   statDebuffs?: CharmanPowerStatDebuff[]; // Temporary stat debuffs applied on hit
   damageBuffs?: CharmanPowerDamageBuff[]; // Temporary damage buffs/debuffs applied on hit
   dots?: CharmanPowerDot[]; // Damage-over-time effects applied on hit
+  isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
+  auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
+  auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
 }
 
 export interface CharmanTalent {
@@ -612,6 +615,9 @@ export class CharmanService {
           armorPiercing: d.armorPiercing ?? "",
           durationFormula: d.durationFormula ?? ""
         })),
+        isAura: power.isAura || false,
+        auraDisposition: power.auraDisposition || "any",
+        auraIncludeSelf: power.auraIncludeSelf || false,
         value: power.value || getRankValue(rankName),
         maxValue: power.maxValue || getRankValue(rankName)
       };

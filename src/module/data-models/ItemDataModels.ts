@@ -8,6 +8,47 @@ import type {
 const { ArrayField, BooleanField, NumberField, SchemaField, StringField } =
   foundry.data.fields;
 
+/**
+ * Shared schema for a single stat-debuff entry, reused by PowerDataModel and
+ * by PowerAuraRegionBehaviorType so aura regions can snapshot the same shape.
+ */
+export function buildStatDebuffFieldSchema() {
+  return new SchemaField({
+    enabled: new BooleanField({ required: false, initial: false }),
+    attribute: new StringField({
+      required: false,
+      initial: "intuition",
+      choices: [
+        "fighting",
+        "agility",
+        "strength",
+        "endurance",
+        "reasoning",
+        "intuition",
+        "psyche"
+      ]
+    }),
+    greenShift: new NumberField({ required: false, integer: true, initial: 0 }),
+    yellowShift: new NumberField({ required: false, integer: true, initial: 0 }),
+    redShift: new NumberField({ required: false, integer: true, initial: 0 }),
+    durationFormula: new StringField({ required: false, initial: "1d3" })
+  });
+}
+
+/**
+ * Shared schema for a single damage-buff entry, reused by PowerDataModel and
+ * by PowerAuraRegionBehaviorType so aura regions can snapshot the same shape.
+ */
+export function buildDamageBuffFieldSchema() {
+  return new SchemaField({
+    enabled: new BooleanField({ required: false, initial: false }),
+    greenShift: new NumberField({ required: false, integer: true, initial: 0 }),
+    yellowShift: new NumberField({ required: false, integer: true, initial: 0 }),
+    redShift: new NumberField({ required: false, integer: true, initial: 0 }),
+    durationFormula: new StringField({ required: false, initial: "1d3" })
+  });
+}
+
 function migrateBuffDebuffArrayFields(source: any): any {
   const renames: Array<[string, string]> = [
     ["statDebuff", "statDebuffs"],
@@ -52,6 +93,9 @@ export class PowerDataModel extends ItemDataModel {
   declare statDebuffs?: PowerStatDebuffData[];
   declare damageBuffs?: PowerDamageDebuffData[];
   declare dots?: PowerDotData[];
+  declare isAura?: boolean;
+  declare auraDisposition?: string;
+  declare auraIncludeSelf?: boolean;
 
   static override migrateData(source: any): any {
     source = super.migrateData(source);
@@ -69,75 +113,21 @@ export class PowerDataModel extends ItemDataModel {
         initial: "",
         choices: ["", ...Object.values(Rank)]
       }),
-      statDebuffs: new ArrayField(
-        new SchemaField({
-          enabled: new BooleanField({
-            required: false,
-            initial: false
-          }),
-          attribute: new StringField({
-            required: false,
-            initial: "intuition",
-            choices: [
-              "fighting",
-              "agility",
-              "strength",
-              "endurance",
-              "reasoning",
-              "intuition",
-              "psyche"
-            ]
-          }),
-          greenShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          yellowShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          redShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          durationFormula: new StringField({
-            required: false,
-            initial: "1d3"
-          })
-        }),
-        { required: false, initial: [] }
-      ),
-      damageBuffs: new ArrayField(
-        new SchemaField({
-          enabled: new BooleanField({
-            required: false,
-            initial: false
-          }),
-          greenShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          yellowShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          redShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          durationFormula: new StringField({
-            required: false,
-            initial: "1d3"
-          })
-        }),
-        { required: false, initial: [] }
-      ),
+      isAura: new BooleanField({ required: false, initial: false }),
+      auraDisposition: new StringField({
+        required: false,
+        initial: "any",
+        choices: ["ally", "enemy", "any"]
+      }),
+      auraIncludeSelf: new BooleanField({ required: false, initial: false }),
+      statDebuffs: new ArrayField(buildStatDebuffFieldSchema(), {
+        required: false,
+        initial: []
+      }),
+      damageBuffs: new ArrayField(buildDamageBuffFieldSchema(), {
+        required: false,
+        initial: []
+      }),
       dots: new ArrayField(
         new SchemaField({
           enabled: new BooleanField({

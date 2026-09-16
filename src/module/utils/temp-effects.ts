@@ -77,6 +77,13 @@ export interface TemporaryModifierFlags {
    * tier, "failure" forces White (any-white) tier.
    */
   forcedOutcome?: "critical" | "failure";
+  /**
+   * Set only for effects applied by a PowerAuraRegionBehaviorType on
+   * tokenEnter. Lets tokenExit find and delete exactly the effects its own
+   * region instance created, without touching identically-shaped effects
+   * from any other source (including a different aura region).
+   */
+  sourceRegionBehaviorUuid?: string | null;
 }
 
 export interface ApplyTemporaryModifierOptions {
@@ -96,6 +103,7 @@ export interface ApplyTemporaryModifierOptions {
   dotCasterActorId?: string | null;
   indefinite?: boolean;
   forcedOutcome?: "critical" | "failure";
+  sourceRegionBehaviorUuid?: string | null;
 }
 
 /**
@@ -146,7 +154,8 @@ export async function applyTemporaryModifier(
     dotArmorPiercing: options.dotArmorPiercing ?? null,
     dotCasterActorId: options.dotCasterActorId ?? null,
     indefinite: options.indefinite,
-    forcedOutcome: options.forcedOutcome
+    forcedOutcome: options.forcedOutcome,
+    sourceRegionBehaviorUuid: options.sourceRegionBehaviorUuid ?? null
   };
 
   const [created] = await actor.createEmbeddedDocuments("ActiveEffect", [

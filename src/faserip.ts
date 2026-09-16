@@ -62,6 +62,8 @@ import { PowerNegationRegionBehaviorType } from "./module/region/PowerNegationRe
 import { PowerDampeningRegionBehaviorType } from "./module/region/PowerDampeningRegionBehaviorType";
 import { PowerEnhancementRegionBehaviorType } from "./module/region/PowerEnhancementRegionBehaviorType";
 import { ForceNextRollRegionBehaviorType } from "./module/region/ForceNextRollRegionBehaviorType";
+import { PowerAuraRegionBehaviorType } from "./module/region/PowerAuraRegionBehaviorType";
+import { tickPowerAuraRegions } from "./module/utils/power-aura";
 
 // ─── Movement Settings Menu ─────────────────────────────────────────────────────
 
@@ -583,6 +585,9 @@ const initHandler = () => {
   CONFIG.RegionBehavior.dataModels.forceNextRoll =
     ForceNextRollRegionBehaviorType;
   CONFIG.RegionBehavior.typeIcons.forceNextRoll = "icons/svg/upgrade.svg";
+  // @ts-expect-error - TypeScript doesn't recognize custom CONFIG property
+  CONFIG.RegionBehavior.dataModels.powerAura = PowerAuraRegionBehaviorType;
+  CONFIG.RegionBehavior.typeIcons.powerAura = "icons/svg/aura.svg";
 
   // Register the "Powers Negated" status so it shows a labeled icon on tokens
   CONFIG.statusEffects.push({
@@ -1104,6 +1109,7 @@ Hooks.on("updateCombat", async (combat: any, changes: any) => {
 
   if (changes.round !== undefined) {
     await tickTemporaryModifiers(combat);
+    await tickPowerAuraRegions();
     await clearExhaustionStuns(combat);
   }
 

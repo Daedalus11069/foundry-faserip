@@ -17,6 +17,9 @@
 		},
 		{
 			"path": "../../../new_earth/ext/daedalus11069/laracontainer"
+		},
+		{
+			"path": "../../../foundry-vtt-server"
 		}
 	],
 	"settings": {}

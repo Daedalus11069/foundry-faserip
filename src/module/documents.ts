@@ -36,7 +36,7 @@ function getDefaultMovementByRank(): Record<Rank, number> {
   };
 }
 
-function getConfiguredMovementByRank(): Record<Rank, number> {
+export function getConfiguredMovementByRank(): Record<Rank, number> {
   const defaults = getDefaultMovementByRank();
 
   const raw = game.settings.get("faserip", "movementSquaresByRank") as

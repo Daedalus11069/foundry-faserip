@@ -4,6 +4,7 @@ import { formatRankDisplay, RANK_VALUES } from "../../enums";
 import { getRankValue, stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import { applyHitStatDebuff, applyHitDamageBuff } from "../../combat/combat-flow";
+import { isPowerAuraActive } from "../../utils/power-aura";
 import type { ReactiveActorData, PowerData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 
@@ -165,7 +166,10 @@ function addPower() {
     armorPiercing: null,
     statDebuffs: [],
     damageBuffs: [],
-    dots: []
+    dots: [],
+    isAura: false,
+    auraDisposition: "any",
+    auraIncludeSelf: false
   };
   reactiveActor.system.powers.push(newPower);
 }
@@ -321,6 +325,9 @@ function toggleItem(id: string) {
             vs {{ power.attackType === 'melee' ? 'Fighting' : power.attackType === 'ranged' ? 'Agility' : power.attackType === 'strength' ? 'Strength' : 'Psyche' }}
           </span>
           <span v-if="power.armorPiercing" class="text-xs px-2 py-0.5 rounded bg-purple-900/60 text-purple-300 shrink-0">AP</span>
+          <span v-if="power.isAura" class="text-xs px-2 py-0.5 rounded shrink-0" :class="isPowerAuraActive(actor, power) ? 'bg-purple-600 text-white' : 'bg-purple-900/60 text-purple-300'">
+            {{ isPowerAuraActive(actor, power) ? 'Aura Active' : 'Aura' }}
+          </span>
           <span v-if="degradingEnabled && isBodyArmor(power)" class="text-xs shrink-0"
             :class="power.value < (power.maxValue || power.value) ? 'text-yellow-400' : 'text-blue-300'">
             {{ power.value }}/{{ power.maxValue || power.value }} armor
@@ -481,6 +488,43 @@ function toggleItem(id: string) {
             </select>
           </div>
 
+          <!-- Aura -->
+          <div
+            class="mb-2 p-2 bg-purple-950/30 border border-purple-800 rounded space-y-2"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-0">
+              <input
+                v-model="power.isAura"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
+              />
+              <span class="fsr-label mb-0"
+                >Aura <span class="fsr-help-text">(spawns a region attached to the owner that follows them, applying the stat/damage (de)buffs below to actors inside instead of on-hit; radius comes from the power's Rank via the movement table)</span></span
+              >
+            </label>
+
+            <div v-if="power.isAura" class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="fsr-label">Affects</label>
+                <select v-model="power.auraDisposition" class="fsr-select text-sm">
+                  <option value="any">Anyone</option>
+                  <option value="ally">Allies Only</option>
+                  <option value="enemy">Enemies Only</option>
+                </select>
+              </div>
+              <div class="flex items-end">
+                <label class="flex items-center gap-2 cursor-pointer mb-0">
+                  <input
+                    v-model="power.auraIncludeSelf"
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
+                  />
+                  <span class="fsr-label mb-0">Include Self</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <div
             class="mb-2 p-2 bg-indigo-950/30 border border-indigo-800 rounded space-y-2"
           >
@@ -565,7 +609,22 @@ function toggleItem(id: string) {
                   Positive values apply a buff. Negative values apply a debuff.
                 </div>
 
-                <div>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    :checked="entry.durationFormula === 'indefinite'"
+                    @change="
+                      e =>
+                        (entry.durationFormula = (e.target as HTMLInputElement).checked
+                          ? 'indefinite'
+                          : '1d3')
+                    "
+                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
+                </label>
+
+                <div v-if="entry.durationFormula !== 'indefinite'">
                   <label class="fsr-label">Duration Formula</label>
                   <input
                     v-model="entry.durationFormula"
@@ -574,7 +633,7 @@ function toggleItem(id: string) {
                     placeholder="1d3"
                   />
                   <div class="text-xs text-gray-400 mt-1">
-                    Rolled when the effect lands, in rounds.
+                    Rolled when the effect lands, in rounds. For an Aura power, this is rolled once when the aura is activated - not per entrant.
                   </div>
                 </div>
               </div>
@@ -652,7 +711,22 @@ function toggleItem(id: string) {
                   Affects target's damage output. Positive values buff damage, negative values debuff damage.
                 </div>
 
-                <div>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    :checked="entry.durationFormula === 'indefinite'"
+                    @change="
+                      e =>
+                        (entry.durationFormula = (e.target as HTMLInputElement).checked
+                          ? 'indefinite'
+                          : '1d3')
+                    "
+                    class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
+                  />
+                  <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
+                </label>
+
+                <div v-if="entry.durationFormula !== 'indefinite'">
                   <label class="fsr-label">Duration Formula</label>
                   <input
                     v-model="entry.durationFormula"
@@ -661,7 +735,7 @@ function toggleItem(id: string) {
                     placeholder="1d3"
                   />
                   <div class="text-xs text-gray-400 mt-1">
-                    Rolled when the effect lands, in rounds.
+                    Rolled when the effect lands, in rounds. For an Aura power, this is rolled once when the aura is activated - not per entrant.
                   </div>
                 </div>
               </div>

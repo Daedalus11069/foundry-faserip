@@ -2,6 +2,7 @@ import { applyChartShift, type Rank, RANK_VALUES, RollResult } from "../enums";
 import type { PowerStatDebuffData } from "../types/actor-system";
 import { stringToRank } from "../utils";
 import { getActiveStatModifierEffects } from "./temp-effects";
+import { getPowerAuraStatShift } from "./power-aura";
 
 export const ATTRIBUTE_KEYS = [
   "fighting",
@@ -63,10 +64,12 @@ export function getEffectiveAttributeData(
       )
     : [];
 
-  const totalShift = modifiers.reduce(
-    (sum, modifier) => sum + Number(modifier.chartShift || 0),
-    0
-  );
+  const auraShift = isActor
+    ? getPowerAuraStatShift(actorOrSystem, attributeKey)
+    : 0;
+  const totalShift =
+    modifiers.reduce((sum, modifier) => sum + Number(modifier.chartShift || 0), 0) +
+    auraShift;
   const rank = applyChartShift(baseRank, totalShift);
   const value = RANK_VALUES[rank] ?? baseValue;
 

@@ -25,6 +25,7 @@ import { type ArmorItem, isArmorItem } from "../types/items";
 import { createRoll } from "../utils/manual-roll-handler";
 import { getCharmanService } from "../charman-service";
 import { isPowersNegated } from "../utils/power-negation";
+import { getPowerAuraDamageShift } from "../utils/power-aura";
 import {
   getEffectiveAttributeData,
   getStatDebuffShiftForResult,
@@ -1550,10 +1551,11 @@ export async function executeCombatAttack(
       // Get power rank (from attackData or default to attack attribute rank)
       let powerRank = attackData.powerRank || attackRank;
 
-      // Apply temporary damage modifiers (buffs/debuffs on the attacker)
-      const totalDamageModifierCS = sumChartShift(
-        getActiveDamageModifierEffects(attacker)
-      );
+      // Apply temporary damage modifiers (buffs/debuffs on the attacker),
+      // plus any live aura chart shift affecting the attacker's own damage.
+      const totalDamageModifierCS =
+        sumChartShift(getActiveDamageModifierEffects(attacker)) +
+        getPowerAuraDamageShift(attacker);
 
       if (totalDamageModifierCS !== 0) {
         powerRank = applyChartShift(powerRank, totalDamageModifierCS);

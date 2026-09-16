@@ -41,7 +41,8 @@
       "powerNegation": {},
       "powerDampening": {},
       "powerEnhancement": {},
-      "forceNextRoll": {}
+      "forceNextRoll": {},
+      "powerAura": {}
     }
   },
   "url": "",

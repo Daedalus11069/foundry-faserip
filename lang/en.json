@@ -7,7 +7,8 @@
     "powerNegation": "Power Negation",
     "powerDampening": "Power Dampening",
     "powerEnhancement": "Power Enhancement",
-    "forceNextRoll": "Force Next Roll"
+    "forceNextRoll": "Force Next Roll",
+    "powerAura": "Power Aura"
   },
   "FASERIP": {
     "ActorType": {
@@ -75,6 +76,25 @@
             "outcome": {
               "label": "Forced Outcome",
               "hint": "Whether the affected actor's next roll is forced to a Critical or a Failure."
+            }
+          }
+        },
+        "powerAura": {
+          "label": "Power Aura",
+          "hint": "Auto-managed by an aura power - created, repositioned, and destroyed by activating/deactivating the power. Applies its snapshotted stat/damage (de)buffs to actors matching the disposition filter while they're inside.",
+          "FIELDS": {
+            "disposition": {
+              "label": "Affects",
+              "hint": "Who this aura's (de)buffs apply to, relative to the owner token's disposition.",
+              "choices": {
+                "any": "Anyone",
+                "ally": "Allies Only",
+                "enemy": "Enemies Only"
+              }
+            },
+            "includeSelf": {
+              "label": "Include Self",
+              "hint": "Whether the owner is affected by their own aura."
             }
           }
         }
