@@ -17,6 +17,7 @@ import {
   showHackDebuffDialog
 } from "../applications/dialog-utils";
 import { applyTemporaryModifier } from "../utils/temp-effects";
+import { broadcastCloseHackSpectator } from "../socket/faserip-socket";
 import type { Talent } from "../types";
 
 declare const game: any;
@@ -86,6 +87,114 @@ export interface RunFaseripHackOptions {
   onFailure?: () => void;
 }
 
+const HOLOSUITE_LIVE_STATE_THROTTLE_MS = 200;
+
+/**
+ * HoloSuite's public api.startHack() never wires up live broadcasting on its
+ * own - that only happens inside HoloSuite's own internal GM-launcher flow,
+ * which builds a session publisher and passes it in as onLiveState/onLiveEnd
+ * constructor options (confirmed against dist/main.js - its own quick-hack
+ * launcher does exactly this before calling the very same api.startHack()).
+ * Passing `liveAudience` alone (what this integration did before) has no
+ * effect: the flag only ends up in local state/config, with nothing to ever
+ * broadcast it. This reimplements that same minimal publisher, emitting the
+ * exact live-start/live-state/live-end socket messages HoloSuite's own
+ * always-registered `module.holosuite-hacking` listener already expects, so
+ * other clients open their existing read-only spectator view exactly as if
+ * HoloSuite's own launcher had started the hack.
+ */
+function createHoloSuiteLiveSession(
+  audience: "everyone" | "gm" | "none"
+): { publish: (state: any, opts?: { immediate?: boolean }) => void; start: (data: any) => void; end: (state?: any) => void } | null {
+  if (audience === "none") return null;
+
+  const socketEvent = `module.${HOLOSUITE_MODULE_ID}`;
+  const sessionId = globalThis.foundry?.utils?.randomID?.() ?? `${Date.now()}-${Math.random()}`;
+  const hackerUserId = game.user?.id ?? "";
+  const gmUserId = game.users?.find?.((u: any) => u.isGM && u.active)?.id ?? "";
+
+  let latestState: any = null;
+  let lastSentAt = 0;
+  let timeoutId: any = null;
+  let started = false;
+
+  const send = () => {
+    timeoutId = null;
+    if (!started || !latestState) return;
+    lastSentAt = Date.now();
+    game.socket?.emit?.(socketEvent, {
+      type: "live-state",
+      payload: { sessionId, hackerUserId, audience, state: latestState }
+    });
+  };
+
+  const publish = (state: any, { immediate = false }: { immediate?: boolean } = {}) => {
+    if (!state) return;
+    latestState = state;
+    if (!started) return;
+    const wait = HOLOSUITE_LIVE_STATE_THROTTLE_MS - (Date.now() - lastSentAt);
+    if (immediate || wait <= 0) {
+      if (timeoutId) {
+        globalThis.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      send();
+    } else if (!timeoutId) {
+      timeoutId = globalThis.setTimeout(send, wait);
+    }
+  };
+
+  const start = (sessionData: any) => {
+    if (!sessionData) return;
+    started = true;
+    latestState = sessionData.state ?? latestState;
+    game.socket?.emit?.(socketEvent, {
+      type: "live-start",
+      payload: {
+        sessionId,
+        audience,
+        hackerUserId,
+        gmUserId,
+        minigameType: sessionData.type,
+        options: sessionData.options ?? {},
+        state: sessionData.state ?? null
+      }
+    });
+  };
+
+  // `state` is deliberately dropped here, always sending null - HoloSuite's
+  // own receive handler (dist/main.js Kn()) reads a truthy `state.state.result`
+  // on live-end to mean "the hack finished with a result, leave the
+  // spectator view open to show it" and otherwise force-closes it. Spectators
+  // already received the true final result via the immediate publish() call
+  // finish() makes before close() ever runs, so nothing is lost - and this
+  // makes every close (finished or aborted) close the interface for everyone,
+  // instead of only aborts.
+  //
+  // In practice this alone isn't reliable - Kn's own force-close races
+  // against that same message's markLiveSessionEnded() re-render and can
+  // silently no-op (confirmed live: spectators show "live view ended" but
+  // the window stays open, no console error). So this also broadcasts our
+  // own faserip socket event, which every client handles by closing its
+  // spectator view directly via HoloSuite's public getActiveApp() - not
+  // competing with any in-flight render.
+  const end = () => {
+    if (timeoutId) {
+      globalThis.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    if (!started) return;
+    started = false;
+    game.socket?.emit?.(socketEvent, {
+      type: "live-end",
+      payload: { sessionId, hackerUserId, audience, state: null }
+    });
+    broadcastCloseHackSpectator(sessionId);
+  };
+
+  return { publish, start, end };
+}
+
 /** Launches a HoloSuite minigame at the difficulty implied by a resolved FaseripRoll. */
 export function runFaseripHack(faseripRoll: FaseripRoll, options: RunFaseripHackOptions = {}) {
   const hacking = getHoloSuiteApi();
@@ -96,19 +205,29 @@ export function runFaseripHack(faseripRoll: FaseripRoll, options: RunFaseripHack
 
   const actor = options.actor;
   const label = options.label ?? "Hacking Attempt";
+  const liveAudience = options.liveAudience ?? "everyone";
+  const liveSession = createHoloSuiteLiveSession(liveAudience);
 
-  return hacking.startHack({
+  const app = hacking.startHack({
     type: options.minigameType ?? "node-intrusion",
     quickOutcome: faseripResultToQuickOutcome(faseripRoll, options.requiredColor),
-    liveAudience: options.liveAudience ?? "everyone",
+    liveAudience,
     actorId: actor?.id ?? "",
     actorName: actor?.name ?? game.user?.name ?? "Hacker",
     userId: game.user?.id ?? "",
     challengeName: label,
     targetName: label,
+    onLiveState: liveSession?.publish,
+    onLiveEnd: liveSession?.end,
     onSuccess: options.onSuccess,
     onFailure: options.onFailure
   });
+
+  if (app && liveSession) {
+    liveSession.start(app.getLiveSessionData?.());
+  }
+
+  return app;
 }
 
 /**

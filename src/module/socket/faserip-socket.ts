@@ -174,6 +174,113 @@ export function initializeSocket(): void {
   socket.register("applyDot", handleApplyDot);
   socket.register("removeDot", handleRemoveDot);
   socket.register("setDoorLockState", handleSetDoorLockState);
+  socket.register("closeHackSpectator", handleCloseHackSpectator);
+}
+
+interface CloseHackSpectatorData {
+  liveSessionId: string;
+}
+
+/**
+ * Finds the rendered read-only hack spectator app for a live session via
+ * Foundry's own canonical ApplicationV2 registry - NOT HoloSuite's internal
+ * `pe`/`Q` bookkeeping maps (api.getActiveApp() reads `pe`). Confirmed live:
+ * by the time this runs, HoloSuite's own live-end handling has already run
+ * first (it always accompanies our broadcast) and already emptied `pe` for
+ * this session - getActiveApp() reliably finds nothing, yet the window is
+ * still visibly on screen. Foundry itself still knows about the instance
+ * (it's still rendered) regardless of what HoloSuite's own bookkeeping
+ * thinks, so this looks there instead.
+ */
+function findHackSpectatorApp(liveSessionId: string): any | null {
+  // @ts-expect-error - Foundry ApplicationV2 registry
+  const instances = globalThis.foundry?.applications?.instances;
+  if (!instances?.values) return null;
+  for (const app of instances.values()) {
+    if (app?.readOnly && app?.liveSessionId === liveSessionId) return app;
+  }
+  return null;
+}
+
+/**
+ * Removes any `.holosuite-hacking-window` DOM element that isn't backed by
+ * a live entry in Foundry's own ApplicationV2 registry - confirmed live:
+ * by the time our close broadcast is handled, HoloSuite's own live-end
+ * handling has already run (it always accompanies it) and Foundry itself
+ * no longer knows about the instance either (findHackSpectatorApp finds
+ * nothing) - meaning the DOM element genuinely got orphaned during
+ * HoloSuite's own close() (its bookkeeping and Foundry's own state both
+ * consider it gone, but the element itself was never detached). There is
+ * no live app reference left to close cleanly at this point, so this is a
+ * direct, blunt sweep instead - safe because a *live* hack (this player's
+ * own, or another live one) is always still tracked in the instances
+ * registry and therefore skipped here.
+ */
+function removeOrphanedHackWindows(): number {
+  const elements = document.querySelectorAll(".holosuite-hacking-window");
+  // @ts-expect-error - Foundry ApplicationV2 registry
+  const instances = globalThis.foundry?.applications?.instances;
+  const liveElements = new Set<Element>();
+  if (instances?.values) {
+    for (const app of instances.values()) {
+      if (app?.element) liveElements.add(app.element as Element);
+    }
+  }
+  let removed = 0;
+  elements.forEach(el => {
+    if (!liveElements.has(el)) {
+      el.remove();
+      removed += 1;
+    }
+  });
+  return removed;
+}
+
+/**
+ * Closes a hack spectator window directly, bypassing HoloSuite's own
+ * close()/onLiveEnd chain entirely (see findHackSpectatorApp) - a normal
+ * close() attempt first (for correct internal state/cleanup, in case it
+ * still works here), then a direct DOM sweep of orphaned windows as a hard
+ * fallback, since close() alone was confirmed to leave the element on
+ * screen even when both HoloSuite's own and Foundry's own bookkeeping
+ * already considered the app gone.
+ */
+function tryCloseHackSpectator(liveSessionId: string): boolean {
+  const app = findHackSpectatorApp(liveSessionId);
+  if (app) {
+    try {
+      app.close?.({ force: true });
+    } catch (err) {
+      console.warn("faserip | closeHackSpectator: close() threw", err);
+    }
+    try {
+      app.element?.remove?.();
+    } catch (err) {
+      console.warn("faserip | closeHackSpectator: element removal threw", err);
+    }
+  }
+  const removed = removeOrphanedHackWindows();
+  return !!app || removed > 0;
+}
+
+function handleCloseHackSpectator(data: CloseHackSpectatorData): void {
+  tryCloseHackSpectator(data.liveSessionId);
+  // Whether or not the app was found/attempted above, HoloSuite's own
+  // live-end handling (which always fires alongside this message) may
+  // still be mid-render - retry once shortly after it settles. Harmless
+  // no-op if it already closed.
+  globalThis.setTimeout(() => tryCloseHackSpectator(data.liveSessionId), 250);
+}
+
+/**
+ * Broadcasts to every connected client to close their read-only HoloSuite
+ * hack spectator view for the given live session, if they have one open.
+ * See handleCloseHackSpectator for why this exists alongside (not instead
+ * of) HoloSuite's own live-end message.
+ */
+export function broadcastCloseHackSpectator(liveSessionId: string): void {
+  if (!socket || !liveSessionId) return;
+  socket.executeForEveryone("closeHackSpectator", { liveSessionId });
 }
 
 interface SetDoorLockStateData {
