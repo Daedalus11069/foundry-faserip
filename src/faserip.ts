@@ -450,6 +450,20 @@ const initHandler = () => {
     default: "ask"
   });
 
+  // HoloSuite Node Intrusion: how the trace clock advances
+  game.settings.register("faserip", "hackTraceMode", {
+    name: "Hacking Trace Type",
+    hint: "Time-based: once a node hack trips detection, the trace clock starts counting down in real time. Point-based: the trace never runs on its own - each detected node hack adds a chunk of trace progress directly, with harder nodes adding more.",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      time: "Time-based",
+      points: "Point-based"
+    },
+    default: "time"
+  });
+
   // Movement mapping by rank (numeric values, edited via menu dialog)
   game.settings.register("faserip", "movementSquaresByRank", {
     name: "Movement By Rank (Squares)",
