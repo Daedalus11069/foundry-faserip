@@ -1,5 +1,6 @@
 import { VueDialog } from "../applications/vue-dialog";
 import ManualRollEntryModal from "../applications/ManualRollEntryModal.vue";
+import type { Rank } from "../enums";
 
 /**
  * Interface for manual roll options
@@ -9,6 +10,8 @@ export interface ManualRollOptions {
   rollTitle: string;
   diceType?: "d100" | "d6" | "d10" | string;
   rollData?: Record<string, any>;
+  /** FASERIP rank to use for live color-result feedback (d100 FEAT rolls only) */
+  rank?: Rank;
 }
 
 /**
@@ -41,7 +44,8 @@ export async function showManualRollDialog(
         formula: options.formula,
         rollTitle: options.rollTitle,
         diceType: options.diceType || "d100",
-        rollData: options.rollData || {}
+        rollData: options.rollData || {},
+        rank: options.rank
       },
       {
         window: {
@@ -77,7 +81,8 @@ export async function createRoll(
   formula: string,
   rollTitle: string,
   diceType: "d100" | "d6" | "d10" | string = "d100",
-  rollData?: Record<string, any>
+  rollData?: Record<string, any>,
+  rank?: Rank
 ): Promise<Roll | null> {
   if (!formula || formula.trim() === "") {
     console.error("[createRoll] Empty formula provided:", { rollTitle });
@@ -94,7 +99,8 @@ export async function createRoll(
       formula,
       rollTitle,
       diceType,
-      rollData: rollData || {}
+      rollData: rollData || {},
+      rank
     });
 
     if (!manualResult) return null; // User cancelled

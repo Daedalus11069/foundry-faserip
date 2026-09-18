@@ -46,6 +46,23 @@
               }}</span>
             </div>
           </div>
+
+          <div
+            v-if="colorResult !== null"
+            class="flex flex-col items-center justify-center gap-1 px-3 py-2 rounded"
+            :style="{
+              minHeight: '42px',
+              background: 'rgba(255,255,255,0.05)',
+              border: `1px solid ${RESULT_COLORS[colorResult]}`
+            }"
+          >
+            <span
+              class="text-sm font-bold"
+              :style="{ color: RESULT_COLORS[colorResult] }"
+            >
+              {{ RESULT_LABELS[colorResult] }}
+            </span>
+          </div>
         </div>
 
         <div v-if="dieResults !== null" class="die-breakdown">
@@ -82,6 +99,12 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted, nextTick } from "vue";
 import type { VueDialog } from "@src/module/applications/vue-dialog";
+import {
+  UNIVERSAL_TABLE,
+  RANK_SHORTS,
+  RollResult,
+  type Rank
+} from "../enums";
 
 interface Props {
   formula: string;
@@ -89,11 +112,41 @@ interface Props {
   diceType?: "d100" | "d6" | "d10" | string;
   rollData?: Record<string, any>;
   dialog: VueDialog;
+  rank?: Rank;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   diceType: "d100",
   rollData: () => ({})
+});
+
+const RESULT_LABELS: Record<RollResult, string> = {
+  [RollResult.White]: "White (Failure)",
+  [RollResult.Green]: "Green (Success)",
+  [RollResult.Yellow]: "Yellow (Success)",
+  [RollResult.Red]: "Red (Critical)"
+};
+
+const RESULT_COLORS: Record<RollResult, string> = {
+  [RollResult.White]: "#e5e7eb",
+  [RollResult.Green]: "#4ade80",
+  [RollResult.Yellow]: "#facc15",
+  [RollResult.Red]: "#f87171"
+};
+
+// Live FASERIP color result for the entered total, when a rank is known
+const colorResult = computed<RollResult | null>(() => {
+  if (!props.rank || totalInput.value === null) return null;
+  const ranges = UNIVERSAL_TABLE[RANK_SHORTS[props.rank]];
+  if (!ranges) return null;
+
+  const [greenStart, yellowStart, redStart] = ranges;
+  const value = totalInput.value;
+
+  if (value < greenStart) return RollResult.White;
+  if (value < yellowStart) return RollResult.Green;
+  if (value < redStart) return RollResult.Yellow;
+  return RollResult.Red;
 });
 
 interface DiceField {

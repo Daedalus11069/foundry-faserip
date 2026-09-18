@@ -1,5 +1,5 @@
 import { Rank } from "../enums";
-import { isHoloSuiteActive, resolveHackLiveAudience } from "./holosuite-hacking";
+import { isHoloSuiteActive, resolveHackLiveAudience, findHackingTalent } from "./holosuite-hacking";
 import { isDoorHackProof, isDoorUnbreakable } from "./door-hack-config";
 import {
   getLocknKeyApi,
@@ -131,12 +131,15 @@ function toggleOverlay(control: any): void {
 
       void (async () => {
         const liveAudience = await resolveHackLiveAudience();
+        const hackingTalent = findHackingTalent(controlledActor);
 
         void attemptDoorHack({
           actor: controlledActor,
           wall,
           attributeName: `${controlledActor.name} Picking Lock`,
           attributeRank,
+          chartShift: hackingTalent?.bonus ?? 0,
+          talentNames: hackingTalent ? [hackingTalent.name] : undefined,
           liveAudience
         });
       })();

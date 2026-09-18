@@ -239,7 +239,14 @@ export class FaseripRoll {
     }
 
     // Roll the dice (with optional manual entry)
-    const roll = await createRoll("1d100", `${attributeName} Roll`, "d100");
+    const shiftedRankForEntry = applyChartShift(attributeRank, totalChartShift);
+    const roll = await createRoll(
+      "1d100",
+      `${attributeName} Roll`,
+      "d100",
+      undefined,
+      shiftedRankForEntry
+    );
 
     if (!roll) {
       // User cancelled manual roll entry

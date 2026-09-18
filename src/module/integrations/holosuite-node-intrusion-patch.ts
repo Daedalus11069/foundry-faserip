@@ -27,6 +27,110 @@ function edgeKey(leftId: string, rightId: string) {
   return [leftId, rightId].sort().join("--");
 }
 
+/** Node difficulty 1-3 -> the color the node-attempt roll must reach (or
+ * beat) to avoid tripping detection at that node. */
+const DIFFICULTY_REQUIRED_COLOR: Record<number, RollResult> = {
+  1: RollResult.Green,
+  2: RollResult.Yellow,
+  3: RollResult.Red
+};
+
+/**
+ * Assigns (once, lazily) and returns a node's detection difficulty, 1-3,
+ * weighted so difficulty 3 (Red-or-better required to stay unnoticed) is
+ * rare - HoloSuite's own generated nodes carry no such rating, so this
+ * stamps one on first use and reuses it for every later attempt against the
+ * same node.
+ */
+function getNodeDifficulty(node: any): number {
+  if (!node.faseripDifficulty) {
+    const roll = Math.random();
+    node.faseripDifficulty = roll < 0.6 ? 1 : roll < 0.9 ? 2 : 3;
+  }
+  return node.faseripDifficulty;
+}
+
+const DIFFICULTY_BADGE_CLASS = "faserip-node-difficulty-badge";
+// Mirrors the Universal Table colors each difficulty's threshold maps to
+// (1 = Green-or-better, 2 = Yellow-or-better, 3 = Red-or-better).
+const DIFFICULTY_BADGE_COLORS = ["#2ecc71", "#f1c40f", "#e74c3c"];
+
+/**
+ * Stamps a small numbered badge (1-3, color-graded to the Universal Table
+ * color it demands) onto every hackable node's button showing its detection
+ * difficulty, so players can see a node's risk before attempting it.
+ * Applied directly as inline styles rather than a stylesheet rule, since
+ * this is injected into a third-party module's template rather than our
+ * own markup - built fresh each render since HoloSuite's own render()
+ * replaces the node buttons wholesale.
+ */
+function renderDifficultyBadges(app: any, html?: any): void {
+  const root: any = html?.[0] ?? html ?? app.element?.[0] ?? app.element;
+  if (!root?.querySelectorAll) return;
+
+  const buttons: NodeListOf<HTMLElement> = root.querySelectorAll(
+    ".node-intrusion-node[data-node-id]"
+  );
+  buttons.forEach(btn => {
+    const nodeId = (btn as HTMLElement).dataset.nodeId;
+    const node = app.graph?.nodes?.find((n: any) => n.id === nodeId);
+    if (!node || node.type === "start") return;
+
+    const difficulty = getNodeDifficulty(node);
+    const badge = globalThis.document.createElement("span");
+    badge.className = DIFFICULTY_BADGE_CLASS;
+    badge.textContent = String(difficulty);
+    Object.assign(badge.style, {
+      position: "absolute",
+      top: "-6px",
+      right: "-6px",
+      width: "16px",
+      height: "16px",
+      lineHeight: "16px",
+      borderRadius: "50%",
+      textAlign: "center",
+      fontSize: "10px",
+      fontWeight: "bold",
+      color: "#fff",
+      background: DIFFICULTY_BADGE_COLORS[difficulty - 1],
+      boxShadow: "0 0 2px rgba(0,0,0,0.8)",
+      pointerEvents: "none",
+      zIndex: "5"
+    });
+    btn.appendChild(badge);
+  });
+}
+
+/**
+ * Checks the node-attempt roll that's already been made against this node's
+ * own difficulty threshold (see DIFFICULTY_REQUIRED_COLOR) - no separate
+ * roll: a difficulty-1 node only trips on White, a difficulty-3 node trips
+ * on anything short of Red, even a roll that otherwise succeeded the move.
+ * On a trip, starts the trace if it hasn't already, or accelerates it if it
+ * has.
+ */
+function checkDetection(app: any, node: any, rollResult: RollResult): void {
+  const difficulty = getNodeDifficulty(node);
+  const requiredColor = DIFFICULTY_REQUIRED_COLOR[difficulty];
+  if (meetsRequiredColor(rollResult, requiredColor)) return;
+
+  const wasAlreadyTraced = !!app.__faseripTraceDetected;
+  const penalty = wasAlreadyTraced
+    ? Number(
+        app.profile.decoyPenaltySeconds ?? app.profile.nodeIntrusion?.decoyPenaltySeconds
+      ) || 4
+    : 0;
+
+  ui.notifications?.warn?.(
+    wasAlreadyTraced
+      ? `Trace accelerated by ${penalty}s.`
+      : `Intrusion detected (node difficulty ${difficulty})! Trace initiated.`
+  );
+  app.addTracePenalty(penalty);
+  app.render(false);
+  app.publishLiveState?.(true);
+}
+
 /**
  * Ratchets the minigame's radar/hint visibility up based on the best
  * per-node roll seen so far this run - it never gets worse mid-run even if
@@ -133,6 +237,75 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
   // future instance too, not just this one.
   globalThis[NODE_APP_GLOBAL_KEY] = app.constructor;
 
+  // Hacks start fully undetected: let HoloSuite's own startRun() do its
+  // normal bookkeeping (hasStarted/isRunning/render/publishLiveState), then
+  // immediately stop the trace clock it just started and zero out its
+  // progress. The clock only actually starts once something detects the
+  // hack (see the addTracePenalty patch below), instead of running from the
+  // moment the hack begins. Only applies to FASERIP-launched hacks.
+  globalThis.libWrapper.register(
+    FASERIP_MODULE_ID,
+    `globalThis.${NODE_APP_GLOBAL_KEY}.prototype.startRun`,
+    function (this: any, wrapped: (...args: any[]) => any, ...args: any[]) {
+      const result = wrapped(...args);
+      if (this.__faseripHackContext) {
+        this.stopTimer();
+        this.startedAt = null;
+        this.state.traceProgress = 0;
+        this.state.tracePenaltyProgress = 0;
+        this.__faseripTraceDetected = false;
+        this.render(false);
+      }
+      return result;
+    },
+    "MIXED"
+  );
+
+  // Central "the hack has just been detected" trigger: the first time
+  // addTracePenalty is called for a FASERIP-launched hack that hasn't been
+  // detected yet (either our own handleDetectionRoll on a White, or
+  // HoloSuite's own firewall/decoy hazard penalties), this starts the trace
+  // clock fresh from now instead of leaving it stopped at 0%. Once
+  // detected, later calls just add their penalty on top of the
+  // already-running clock, same as stock behavior.
+  globalThis.libWrapper.register(
+    FASERIP_MODULE_ID,
+    `globalThis.${NODE_APP_GLOBAL_KEY}.prototype.addTracePenalty`,
+    function (this: any, wrapped: (...args: any[]) => any, seconds: number) {
+      if (
+        this.__faseripHackContext &&
+        !this.__faseripTraceDetected &&
+        this.state.hasStarted &&
+        !this.state.result
+      ) {
+        this.__faseripTraceDetected = true;
+        this.startedAt = performance.now();
+        this.startTimer();
+      }
+      return wrapped(seconds);
+    },
+    "MIXED"
+  );
+
+  // Stamps difficulty badges onto every node button after each of
+  // HoloSuite's own renders (which rebuild the node buttons wholesale, so
+  // this has to reapply every time rather than once). Piggybacks on
+  // activateListeners rather than render() itself - that's the hook
+  // HoloSuite's own code uses to bind click handlers to the freshly
+  // rendered content (`html`), so it's guaranteed to see the live DOM;
+  // render()'s own returned promise wasn't a reliable point to grab it
+  // from (confirmed live: no badges ever appeared, no console errors).
+  globalThis.libWrapper.register(
+    FASERIP_MODULE_ID,
+    `globalThis.${NODE_APP_GLOBAL_KEY}.prototype.activateListeners`,
+    function (this: any, wrapped: (...args: any[]) => any, html: any) {
+      const result = wrapped(html);
+      if (this.__faseripHackContext) renderDifficultyBadges(this, html);
+      return result;
+    },
+    "WRAPPER"
+  );
+
   globalThis.libWrapper.register(
     FASERIP_MODULE_ID,
     `globalThis.${NODE_APP_GLOBAL_KEY}.prototype.handleNodeClick`,
@@ -188,6 +361,11 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
           resumeTrace(this);
           applyRadarFromRoll(this, faseripRoll.result);
 
+          // Independent of whether the move itself succeeds below - a
+          // difficulty-3 node can still trip detection on a roll that would
+          // otherwise be a perfectly good move.
+          checkDetection(this, node, faseripRoll.result);
+
           // A multi-target finish node uses that specific target's own
           // required color instead of the attempt's general one - resolved
           // via the token id stashed directly on the node.
@@ -200,19 +378,13 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
           if (!meetsRequiredColor(faseripRoll.result, requiredColor)) {
             // Failed attempt (below the target's required color, e.g. a
             // hackable actor's DC): reuse the minigame's own invalid-pulse
-            // feedback and firewall/decoy-style trace penalty.
+            // feedback.
             const shell = this.element?.find?.(".node-intrusion-shell");
             shell?.addClass("invalid-pulse");
             globalThis.window?.setTimeout(
               () => shell?.removeClass("invalid-pulse"),
               280
             );
-            const penalty =
-              Number(
-                this.profile.decoyPenaltySeconds ??
-                  this.profile.nodeIntrusion?.decoyPenaltySeconds
-              ) || 4;
-            this.addTracePenalty(penalty);
             return;
           }
 

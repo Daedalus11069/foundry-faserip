@@ -28,6 +28,25 @@ declare const globalThis: any;
 export const HOLOSUITE_MODULE_ID = "holosuite-hacking";
 
 /**
+ * Finds an actor's "Hacking" talent (if any), applicable to their currently
+ * active form, so it can be applied automatically to a hack check without
+ * requiring the player to pick it manually from the talent-selection dialog
+ * every time - unlike other talents, this one always applies whenever the
+ * actor has it.
+ */
+export function findHackingTalent(actor: FaseripActor): Talent | null {
+  const talents: Talent[] = (actor as any)?.system?.talents ?? [];
+  const activeFormId = (actor as any).getCurrentForm?.()?.id;
+  return (
+    talents.find(
+      t =>
+        t.name?.trim().toLowerCase() === "hacking" &&
+        (!t.formIds?.length || (activeFormId && t.formIds.includes(activeFormId)))
+    ) ?? null
+  );
+}
+
+/**
  * HoloSuite Hacking's own "System skill roll" adapters are a hardcoded list
  * (dnd5e, pf2e, sf2e, CoC7, cyberpunk-red-core) baked into that module -
  * there is no registration hook for third-party systems, and FASERIP's
@@ -415,9 +434,17 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
     (actor as any).getCurrentForm?.()?.attributes?.[options.attribute]?.rank ??
     Rank.Typical;
 
-  const talents: Talent[] = (actor as any).system?.talents ?? [];
-  let talentNames: string[] | undefined;
+  const hackingTalent = findHackingTalent(actor);
+  const talents: Talent[] = ((actor as any).system?.talents ?? []).filter(
+    (t: Talent) => t.id !== hackingTalent?.id
+  );
+  const talentNameSet = new Set<string>();
   let chartShift = 0;
+
+  if (hackingTalent) {
+    talentNameSet.add(hackingTalent.name);
+    chartShift += hackingTalent.bonus;
+  }
 
   if (talents.length > 0) {
     const attributeLabel = ATTRIBUTE_LABELS[options.attribute] ?? "Hacking";
@@ -427,11 +454,13 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
     );
     if (selectedTalents === null) return; // Cancelled
 
-    if (selectedTalents.length > 0) {
-      talentNames = selectedTalents.map(t => t.name);
-      chartShift = selectedTalents.reduce((sum, t) => sum + t.bonus, 0);
+    for (const t of selectedTalents) {
+      talentNameSet.add(t.name);
+      chartShift += t.bonus;
     }
   }
+
+  const talentNames = talentNameSet.size > 0 ? [...talentNameSet] : undefined;
 
   // Every targeted (not merely controlled) hackable actor becomes a DC
   // source - e.g. targeting a robot with hackRequiredColor "yellow" means
