@@ -38,6 +38,11 @@ export interface FaseripHackContext {
    * Intrusion turns extra targets into additional finish nodes instead of
    * ending the run on the first one reached. */
   targets?: HackTargetInfo[];
+  /** Present only for a single-target hack running in PvP "managed" mode
+   * (see holosuite-pvp-intrusion.ts) - identifies the attacker's and
+   * defender's Combatants so node-move/recapture/scan actions can be gated
+   * to whoever's turn it currently is in the active combat. */
+  pvp?: { attackerCombatantId: string; defenderCombatantId: string };
 }
 
 /** Ordinal ranking of Universal Table colors, low to high. */

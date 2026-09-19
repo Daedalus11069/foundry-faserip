@@ -240,6 +240,11 @@ export interface PvpSnapshot {
     connected: string[];
     owner: "attacker" | "defender";
     capturedColor: RollResult | null;
+    /** HoloSuite's own node-map percentage coordinates - forwarded as-is so
+     * the defender's cross-client view can lay itself out identically to
+     * the attacker's real map, not just list adjacency as text. */
+    x: number;
+    y: number;
   }>;
   attackerNodeId: string | null;
   defenderNodeId: string | null;
@@ -262,7 +267,9 @@ export function buildPvpSnapshot(app: any): PvpSnapshot | null {
       type: n.type,
       connected: n.connected ?? [],
       owner: n.faseripOwner === NODE_OWNER_ATTACKER ? NODE_OWNER_ATTACKER : NODE_OWNER_DEFENDER,
-      capturedColor: n.faseripCapturedColor ?? null
+      capturedColor: n.faseripCapturedColor ?? null,
+      x: Number(n.x) || 0,
+      y: Number(n.y) || 0
     })),
     attackerNodeId: app.state?.currentNodeId ?? null,
     defenderNodeId: getDefenderPosition(app),

@@ -5,6 +5,7 @@ import {
   ensureNodeIntrusionPerNodeRollPatched,
   setupMultiTargetNodeIntrusion
 } from "./holosuite-node-intrusion-patch";
+import { type FaseripPvpConfig } from "./holosuite-pvp-intrusion";
 import {
   rollFaseripHackCheck,
   meetsRequiredColor,
@@ -17,7 +18,11 @@ import {
   showHackDebuffDialog
 } from "../applications/dialog-utils";
 import { applyTemporaryModifier } from "../utils/temp-effects";
-import { broadcastCloseHackSpectator } from "../socket/faserip-socket";
+import {
+  broadcastCloseHackSpectator,
+  requestManagedHackMode,
+  findTokenControllers
+} from "../socket/faserip-socket";
 import type { Talent } from "../types";
 
 declare const game: any;
@@ -326,8 +331,84 @@ export interface AttemptFaseripHackParams {
    * With 2+ entries, Node Intrusion places one finish node per target
    * instead of a single one. */
   targets?: HackTargetInfo[];
+  /** Present only when this is a single-target hack running as a PvP
+   * "managed" intrusion - see holosuite-pvp-intrusion.ts. */
+  pvp?: FaseripPvpConfig;
   onSuccess?: () => void;
   onFailure?: () => void;
+}
+
+/**
+ * Resolves the Combatants standing in for the attacker and defender in the
+ * active combat encounter, for gating PvP node-move/recapture/scan actions
+ * to whoever's turn it currently is. Both sides must already be Combatants -
+ * this never creates one, since silently adding a token to the tracker
+ * would be a surprising side effect of just starting a hack. Matched by
+ * actor id (attacker, who may not have a token targeted) and token id
+ * (defender, always a targeted token).
+ */
+function resolvePvpCombatants(
+  attackerActorId: string,
+  defenderTokenId: string,
+  defenderActor: FaseripActor
+): FaseripPvpConfig | null {
+  const combatants = game.combat?.combatants;
+  if (!combatants) return null;
+
+  const attackerCombatant = combatants.find(
+    (c: any) => c.actorId === attackerActorId
+  );
+  const defenderCombatant = combatants.find(
+    (c: any) => c.tokenId === defenderTokenId
+  );
+  if (!attackerCombatant || !defenderCombatant) return null;
+
+  return {
+    attackerCombatantId: attackerCombatant.id,
+    defenderCombatantId: defenderCombatant.id,
+    sessionId: globalThis.foundry?.utils?.randomID?.() ?? `${Date.now()}-${Math.random()}`,
+    attackerUserId: game.user?.id ?? "",
+    defenderUserId: findTokenControllers(defenderActor)[0]?.id ?? null
+  };
+}
+
+/**
+ * Asks the defending actor's owner (GM for an NPC, that player's own client
+ * for a PC) whether this single-target hack should run as a PvP managed
+ * intrusion, and resolves both sides' Combatants if so. Falls back to the
+ * classic point/time trace (returning undefined) whenever: there's more
+ * than one target (managed mode is single-defender only), the owner
+ * declines, or there's no active combat with both sides already in it -
+ * managed mode needs a real turn order to gate actions against.
+ */
+export async function resolveManagedHackMode(
+  attacker: FaseripActor,
+  targets: HackTargetInfo[] | undefined
+): Promise<FaseripPvpConfig | undefined> {
+  if (!targets || targets.length !== 1) return undefined;
+  const target = targets[0];
+
+  const targetToken =
+    (canvas as any)?.tokens?.get?.(target.tokenId) ??
+    (canvas as any)?.scene?.tokens?.get?.(target.tokenId);
+  const targetActor = targetToken?.actor as FaseripActor | undefined;
+  if (!targetActor) return undefined;
+
+  const wantsManaged = await requestManagedHackMode(targetActor, {
+    targetActorId: target.actorId,
+    targetTokenId: target.tokenId,
+    attackerName: attacker.name ?? "Hacker"
+  });
+  if (!wantsManaged) return undefined;
+
+  const pvp = resolvePvpCombatants(attacker.id!, target.tokenId, targetActor);
+  if (!pvp) {
+    ui.notifications?.warn?.(
+      "Managed defense needs both sides in the active combat encounter - falling back to the standard trace."
+    );
+    return undefined;
+  }
+  return pvp;
 }
 
 /**
@@ -344,6 +425,12 @@ export async function attemptFaseripHack(params: AttemptFaseripHackParams) {
     talentNames: params.talentNames,
     requiredColor: params.requiredColor
   });
+
+  // Scan's required color is fixed from this initial roll, before the node
+  // graph even exists - never re-derived per scan attempt later.
+  if (params.pvp) {
+    params.pvp.scanRequiredColor = faseripRoll.result;
+  }
 
   // A single (or zero) target's breach isn't reported per-node (see the
   // multi-target completeNodeClaim patch for that) - it's only known once
@@ -383,7 +470,8 @@ export async function attemptFaseripHack(params: AttemptFaseripHackParams) {
       attributeRank: params.attributeRank,
       chartShift: params.chartShift,
       talentNames: params.talentNames,
-      requiredColor: params.requiredColor
+      requiredColor: params.requiredColor,
+      pvp: params.pvp
     };
 
     if ((params.minigameType ?? "node-intrusion") === "node-intrusion") {
@@ -393,6 +481,14 @@ export async function attemptFaseripHack(params: AttemptFaseripHackParams) {
           promptAndApplyHackDebuff(target.tokenId, target.actorName)
         );
       }
+      // PvP setup (initializePvpOwnership, registering the app, opening the
+      // defender's cross-client view) deliberately does NOT happen here -
+      // app.graph doesn't exist yet at this point (HoloSuite generates the
+      // node graph later, during its own render/activateListeners cycle,
+      // not synchronously inside startHack()). See ensurePvpInitialized in
+      // holosuite-node-intrusion-patch.ts, which runs from that same
+      // activateListeners hook once the graph is actually guaranteed to
+      // exist.
     }
   }
 
@@ -483,7 +579,16 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
         ? `${actor.name} Hacking ${targets[0].actorName}`
         : (actor.name ?? "Hacking Attempt");
 
-  const liveAudience = await resolveHackLiveAudience();
+  // Resolved before liveAudience: a PvP-managed intrusion must never use
+  // HoloSuite's own live-spectator broadcast (createHoloSuiteLiveSession) -
+  // that shows the FULL map (every node type/position, no fog of war) to
+  // whoever it's shown to, which for the defender would completely defeat
+  // the "blind until detection + a successful in-range scan" rule (see
+  // holosuite-pvp-intrusion.ts). Our own PvpDefenderView is the sole
+  // cross-client visibility for a managed run instead - so liveAudience is
+  // forced to "none" and the player isn't even asked.
+  const pvp = await resolveManagedHackMode(actor, targets);
+  const liveAudience = pvp ? "none" : await resolveHackLiveAudience();
 
   await attemptFaseripHack({
     actor,
@@ -496,6 +601,7 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
     liveAudience,
     requiredColor,
     targets: targets.length > 0 ? targets : undefined,
+    pvp,
     onSuccess: () => {},
     onFailure: () => {}
   });
