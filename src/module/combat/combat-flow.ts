@@ -27,6 +27,7 @@ import { createRoll } from "../utils/manual-roll-handler";
 import { getCharmanService } from "../charman-service";
 import {
   applyHealingToActor,
+  isActorDead,
   isActorUnconscious,
   isPhysicalDefenseAttribute
 } from "../utils/damage-application";
@@ -1352,6 +1353,23 @@ export async function executeCombatAttack(
         speaker: ChatMessage.getSpeaker({ actor: targetActor })
       });
       // Add takeHit response without prompting
+      defenseResponses.push({ defenseType: "takeHit" });
+      continue;
+    }
+
+    // Dead targets cannot defend at all
+    if (isActorDead(targetActor)) {
+      ChatMessage.create({
+        content: `<div class="faserip-chat-card">
+          <div class="card-header">
+            <h3><i class="fas fa-skull-crossbones"></i> Dead!</h3>
+          </div>
+          <div class="card-body">
+            <p><strong>${targetActor.name}</strong> is dead and cannot defend!</p>
+          </div>
+        </div>`,
+        speaker: ChatMessage.getSpeaker({ actor: targetActor })
+      });
       defenseResponses.push({ defenseType: "takeHit" });
       continue;
     }

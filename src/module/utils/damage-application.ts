@@ -33,6 +33,12 @@ export function isPhysicalDefenseAttribute(attribute: string): boolean {
   return PHYSICAL_DEFENSE_ATTRIBUTES.has(attribute.toLowerCase());
 }
 
+/** An actor at or below the -20 death threshold. */
+export function isActorDead(actor: FaseripActor): boolean {
+  const health = (actor.system as any)?.resources?.health?.value;
+  return typeof health === "number" && health <= -20;
+}
+
 export interface DamageApplicationResult {
   armorDamage: number;
   healthDamage: number;

@@ -11,6 +11,7 @@ import { formatRankDisplay } from "../enums";
 import type { BaseActorSystemData } from "../types/actor-system";
 import {
   applyDamageToActor,
+  isActorDead,
   isActorUnconscious,
   isPhysicalDefenseAttribute
 } from "../utils/damage-application";
@@ -1023,7 +1024,11 @@ async function handleDefensePrompt(
       defenseAttribute = "Fighting";
   }
 
-  // Unconscious targets cannot physically defend, but can still use mental defenses
+  // Dead targets cannot defend at all; unconscious targets cannot physically
+  // defend, but can still use mental defenses
+  if (isActorDead(targetActor)) {
+    return { defenseType: "takeHit" };
+  }
   if (isActorUnconscious(targetActor) && isPhysicalDefenseAttribute(defenseAttribute)) {
     return { defenseType: "takeHit" };
   }
