@@ -175,6 +175,8 @@ export interface PowerData {
   isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
+  blendIn?: boolean; // Lets the owner hide their token from other players' clients; spotting difficulty scales with distance based on this power's rank
+  blendInDurationFormula?: string; // Blank/"indefinite" = stays active until manually toggled off; otherwise rolled once on activation and ticks down each combat round
   isLifeLink?: boolean; // Bonds the owner to whoever is in the aura region, redirecting a % of health damage between them
   lifeLinkPercent?: number; // % of health damage redirected by the life-link bond (0-100)
   lifeLinkDirection?: "protect" | "share"; // "protect": the owner soaks damage for others in range. "share": the owner offloads their own damage onto others in range

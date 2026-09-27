@@ -471,6 +471,19 @@ export function definePowerRefSchema() {
       required: false,
       initial: false
     }),
+    blendIn: new BooleanField({
+      required: false,
+      initial: false,
+      label: "Blend In: lets the owner hide their token from other players' clients"
+    }),
+    // Blank/"indefinite" means the blend stays active until manually toggled
+    // off; any other formula (e.g. "1d3") is rolled once on activation and
+    // ticks down each combat round (see tickBlendInDurations in blend-in.ts).
+    blendInDurationFormula: new StringField({
+      required: false,
+      blank: true,
+      initial: ""
+    }),
     autoHealEachRound: new BooleanField({
       required: false,
       initial: false,

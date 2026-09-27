@@ -32,6 +32,7 @@ import {
   togglePowerAura,
   isPowerAuraActive
 } from "../../utils/power-aura";
+import { activateBlendIn, deactivateBlendIn, getBlendInFlag } from "../../utils/blend-in";
 import type { Talent } from "../../types";
 import {
   executeCombatAttack,
@@ -281,6 +282,49 @@ function handleTokenRegionsChange(tokenDocument: any, changes: any) {
   auraStateTick.value++;
 }
 
+// Blend In's active/inactive state and rolled range live on the owner's
+// TOKEN flags (so it can be hidden per-client), not on the actor or an
+// ActiveEffect, so it needs its own tick + updateToken watch to keep the
+// Stats page badge in sync with activations/deactivations from any client.
+const blendInStateTick = ref(0);
+function getOwnerTokenDoc(): TokenDocument | null {
+  const tokens = actor.getActiveTokens(true);
+  return (tokens[0]?.document as unknown as TokenDocument) || null;
+}
+function isBlendInActive(power: any): boolean {
+  void blendInStateTick.value;
+  const tokenDoc = getOwnerTokenDoc();
+  if (!tokenDoc) return false;
+  const flag = getBlendInFlag(tokenDoc);
+  return Boolean(flag?.active && flag.sourceItemId === power.id);
+}
+function blendInRoundsLabel(power: any): string {
+  void blendInStateTick.value;
+  const tokenDoc = getOwnerTokenDoc();
+  const flag = tokenDoc ? getBlendInFlag(tokenDoc) : null;
+  if (!flag?.active || flag.sourceItemId !== power.id) return "Active";
+  return flag.indefinite ? "Active" : `${flag.roundsRemaining} rd${flag.roundsRemaining === 1 ? "" : "s"}`;
+}
+function handleBlendInTokenChange(tokenDocument: any, changes: any) {
+  const faseripFlagKeys = Object.keys(changes.flags?.faserip ?? {});
+  if (!faseripFlagKeys.some(key => key.includes("blendIn"))) return;
+  if (tokenDocument?.actor?.id !== actor?.id) return;
+  blendInStateTick.value++;
+}
+async function toggleBlendIn(power: any) {
+  const tokenDoc = getOwnerTokenDoc();
+  if (!tokenDoc) {
+    ui.notifications?.warn("This actor has no token on the active scene.");
+    return;
+  }
+
+  if (isBlendInActive(power)) {
+    await deactivateBlendIn(tokenDoc);
+  } else {
+    await activateBlendIn(tokenDoc, actor, power);
+  }
+}
+
 onMounted(() => {
   Hooks.on("createItem", handleItemCreate);
   Hooks.on("updateItem", handleItemUpdate);
@@ -292,6 +336,7 @@ onMounted(() => {
   Hooks.on("updateActiveEffect", handleAuraRelevantUpdate);
   Hooks.on("deleteActiveEffect", handleAuraRelevantUpdate);
   Hooks.on("updateToken", handleTokenRegionsChange);
+  Hooks.on("updateToken", handleBlendInTokenChange);
   unsubscribePowersNegation = onPowersNegationChange(actor, () => {
     powersNegated.value = isPowersNegated(actor);
     canResistNegation.value = canAttemptNegationResist(actor);
@@ -366,6 +411,7 @@ onUnmounted(() => {
   Hooks.off("updateActiveEffect", handleAuraRelevantUpdate);
   Hooks.off("deleteActiveEffect", handleAuraRelevantUpdate);
   Hooks.off("updateToken", handleTokenRegionsChange);
+  Hooks.off("updateToken", handleBlendInTokenChange);
   unsubscribePowersNegation?.();
 });
 
@@ -1732,6 +1778,14 @@ async function rollPower(power: any) {
     return;
   }
 
+  // Blend In isn't rolled against a target either - using the power toggles
+  // it on/off (activating rolls the power itself internally to determine
+  // effectiveness - see activateBlendIn).
+  if (power.blendIn) {
+    await toggleBlendIn(power);
+    return;
+  }
+
   // Auras aren't rolled against a target - using the power toggles its
   // region on/off instead of running the normal roll/targeting flow. A
   // life-link aura is the one exception: it still needs a target selected
@@ -2912,6 +2966,13 @@ async function rollPower(power: any) {
                 title="This aura is currently active - click to deactivate"
               >
                 🟣 Active
+              </span>
+              <span
+                v-if="power.blendIn && isBlendInActive(power)"
+                class="ml-1 text-xs px-1.5 py-0.5 rounded bg-teal-600 text-white"
+                title="Blending in is active - click to deactivate"
+              >
+                🫥 {{ blendInRoundsLabel(power) }}
               </span>
             </button>
           </div>

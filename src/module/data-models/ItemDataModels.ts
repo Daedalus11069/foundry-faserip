@@ -140,6 +140,8 @@ export class PowerDataModel extends ItemDataModel {
   declare isAura?: boolean;
   declare auraDisposition?: string;
   declare auraIncludeSelf?: boolean;
+  declare blendIn?: boolean;
+  declare blendInDurationFormula?: string;
 
   static override migrateData(source: any): any {
     source = super.migrateData(source);
@@ -164,6 +166,8 @@ export class PowerDataModel extends ItemDataModel {
         choices: ["ally", "enemy", "any"]
       }),
       auraIncludeSelf: new BooleanField({ required: false, initial: false }),
+      blendIn: new BooleanField({ required: false, initial: false }),
+      blendInDurationFormula: new StringField({ required: false, blank: true, initial: "" }),
       statDebuffs: new ArrayField(buildStatDebuffFieldSchema(), {
         required: false,
         initial: []

@@ -54,6 +54,12 @@ import {
 } from "./module/applications/dialog-utils";
 import { initializeSocket } from "./module/socket/faserip-socket";
 import {
+  registerBlendInVisibilityHook,
+  attemptSpotBlendedToken,
+  getBlendInFlag,
+  tickBlendInDurations
+} from "./module/utils/blend-in";
+import {
   initTurnActionsTracker,
   clearExhaustionStuns,
   resetActionsThisTurnForCombatants
@@ -1205,6 +1211,7 @@ Hooks.on("updateCombat", async (combat: any, changes: any) => {
     await clearExhaustionStuns(combat);
     await applyRecurringPowerHealing(combat);
     await tickWeaponAreaEffectRegions();
+    await tickBlendInDurations();
   }
 
   if (changes.turn !== undefined || changes.round !== undefined) {
@@ -1348,6 +1355,9 @@ Hooks.once("ready", async () => {
   // Initialize socket system for multiplayer combat interactions
   initializeSocket();
 
+  // Blend-in stealth: hide tokens from clients that haven't spotted them
+  registerBlendInVisibilityHook();
+
   // Initialize per-turn action tracker (resets combo penalty offset each turn)
   initTurnActionsTracker();
 
@@ -1365,9 +1375,43 @@ Hooks.once("ready", async () => {
   // Set up game.faserip namespace for console access
   game.faserip = {
     forceMigrateItems,
-    forceMigratePowerArrayFields
+    forceMigratePowerArrayFields,
+    blendIn: {
+      attemptSpotAll: attemptSpotNearbyBlendedTokens
+    }
   };
 });
+
+/**
+ * Have the user's controlled token(s) attempt an Intuition FEAT to spot
+ * every currently-hidden "blend in" token on the scene they haven't already
+ * spotted. Intended to be run as a macro (e.g. "Search for hidden targets").
+ */
+async function attemptSpotNearbyBlendedTokens(): Promise<void> {
+  // @ts-expect-error - Foundry canvas global
+  const observerToken = canvas.tokens?.controlled?.[0];
+  if (!observerToken?.actor) {
+    ui.notifications?.warn("Select a token to spot with first.");
+    return;
+  }
+
+  // @ts-expect-error - Foundry canvas global
+  const candidates = (canvas.tokens?.placeables ?? []).filter((t: Token) => {
+    if (t.id === observerToken.id) return false;
+    const flag = getBlendInFlag(t.document as unknown as TokenDocument);
+    // @ts-expect-error - Foundry game.user global
+    return flag?.active && !flag.spottedBy.includes(game.user.id);
+  });
+
+  if (!candidates.length) {
+    ui.notifications?.info("Nothing hidden nearby that you haven't already spotted.");
+    return;
+  }
+
+  for (const target of candidates) {
+    await attemptSpotBlendedToken(observerToken, target, observerToken.actor);
+  }
+}
 
 Hooks.on("chatMessage", (_chatLog: any, message: string, _chatData: any) => {
   // Split message into lines and process each separately

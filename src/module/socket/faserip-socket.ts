@@ -205,6 +205,79 @@ export function initializeSocket(): void {
   socket.register("openPvpDefenderView", handleOpenPvpDefenderView);
   socket.register("pvpStateUpdate", handlePvpStateUpdate);
   socket.register("pvpDefenderAction", handlePvpDefenderAction);
+  socket.register("setBlendInState", handleSetBlendInState);
+  socket.register("revealBlendedToken", handleRevealBlendedToken);
+}
+
+/**
+ * GM-side: set or clear a token's blendIn flag. Any client can request this
+ * (e.g. activating a stealth power) since token flag updates require GM or
+ * owner permission and the requester may not own the token document.
+ */
+async function handleSetBlendInState(data: {
+  tokenUuid: string;
+  flag: import("../utils/blend-in").BlendInFlag | null;
+}): Promise<void> {
+  // @ts-expect-error - Foundry fromUuidSync global
+  const tokenDoc = fromUuidSync(data.tokenUuid);
+  if (!tokenDoc) {
+    console.error("FASERIP Socket | Blend-in target token not found", data.tokenUuid);
+    return;
+  }
+
+  if (data.flag) {
+    await tokenDoc.setFlag("faserip", "blendIn", data.flag);
+  } else {
+    await tokenDoc.unsetFlag("faserip", "blendIn");
+  }
+}
+
+export async function requestBlendInStateChange(
+  tokenDoc: TokenDocument,
+  flag: import("../utils/blend-in").BlendInFlag | null
+): Promise<void> {
+  const data = { tokenUuid: tokenDoc.uuid, flag };
+  if (!socket) {
+    await handleSetBlendInState(data);
+    return;
+  }
+  await socket.executeAsGM("setBlendInState", data);
+}
+
+/**
+ * GM-side: append a spotting user to a token's blendIn.spottedBy list.
+ * Runs as GM so it works regardless of who owns the blending token.
+ */
+async function handleRevealBlendedToken(data: {
+  tokenUuid: string;
+  userId: string;
+}): Promise<void> {
+  // @ts-expect-error - Foundry fromUuidSync global
+  const tokenDoc = fromUuidSync(data.tokenUuid);
+  if (!tokenDoc) {
+    console.error("FASERIP Socket | Blend-in reveal target not found", data.tokenUuid);
+    return;
+  }
+
+  const flag = tokenDoc.getFlag("faserip", "blendIn");
+  if (!flag?.active || flag.spottedBy.includes(data.userId)) return;
+
+  await tokenDoc.setFlag("faserip", "blendIn", {
+    ...flag,
+    spottedBy: [...flag.spottedBy, data.userId]
+  });
+}
+
+export async function requestBlendInReveal(
+  tokenDoc: TokenDocument,
+  userId: string
+): Promise<void> {
+  const data = { tokenUuid: tokenDoc.uuid, userId };
+  if (!socket) {
+    await handleRevealBlendedToken(data);
+    return;
+  }
+  await socket.executeAsGM("revealBlendedToken", data);
 }
 
 /** Open PvP defender views on THIS client, keyed by session id - at most

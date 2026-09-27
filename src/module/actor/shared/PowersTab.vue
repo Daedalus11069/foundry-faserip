@@ -5,6 +5,7 @@ import { getRankValue, stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import { applyHitStatDebuff, applyHitDamageBuff } from "../../combat/combat-flow";
 import { isPowerAuraActive } from "../../utils/power-aura";
+import { activateBlendIn, deactivateBlendIn, getBlendInFlag, getBlendBaseRange } from "../../utils/blend-in";
 import type { ReactiveActorData, PowerData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 
@@ -212,6 +213,8 @@ function addPower() {
     isAura: false,
     auraDisposition: "any",
     auraIncludeSelf: false,
+    blendIn: false,
+    blendInDurationFormula: "",
     autoHealEachRound: false,
     isLifeLink: false,
     lifeLinkPercent: 0,
@@ -229,6 +232,42 @@ async function removePower(index: number) {
 
   if (!confirmed) return;
   reactiveActor.system.powers.splice(index, 1);
+}
+
+function getOwnerToken(): TokenDocument | null {
+  const tokens = actor.getActiveTokens(true);
+  return (tokens[0]?.document as unknown as TokenDocument) || null;
+}
+
+function isBlendInActive(power: PowerData): boolean {
+  const tokenDoc = getOwnerToken();
+  if (!tokenDoc) return false;
+  const flag = getBlendInFlag(tokenDoc);
+  return Boolean(flag?.active && flag.sourceItemId === power.id);
+}
+
+function blendInStatusLabel(power: PowerData): string {
+  const tokenDoc = getOwnerToken();
+  const flag = tokenDoc ? getBlendInFlag(tokenDoc) : null;
+  if (!flag?.active || flag.sourceItemId !== power.id) {
+    return `Blend In (${getBlendBaseRange(power.rank)} ft)`;
+  }
+  const duration = flag.indefinite ? "" : ` - ${flag.roundsRemaining} rd${flag.roundsRemaining === 1 ? "" : "s"} left`;
+  return `Blending In (${flag.rangeFt} ft${duration})`;
+}
+
+async function toggleBlendIn(power: PowerData) {
+  const tokenDoc = getOwnerToken();
+  if (!tokenDoc) {
+    ui.notifications?.warn("This actor has no token on the active scene.");
+    return;
+  }
+
+  if (isBlendInActive(power)) {
+    await deactivateBlendIn(tokenDoc);
+  } else {
+    await activateBlendIn(tokenDoc, actor, power);
+  }
 }
 
 function isBodyArmor(power: PowerData): boolean {
@@ -376,6 +415,14 @@ function toggleItem(id: string) {
           <span v-if="power.isAura" class="text-xs px-2 py-0.5 rounded shrink-0" :class="isPowerAuraActive(actor, power) ? 'bg-purple-600 text-white' : 'bg-purple-900/60 text-purple-300'">
             {{ isPowerAuraActive(actor, power) ? 'Aura Active' : 'Aura' }}
           </span>
+          <button
+            v-if="power.blendIn"
+            @click.stop="toggleBlendIn(power)"
+            class="text-xs px-2 py-0.5 rounded shrink-0"
+            :class="isBlendInActive(power) ? 'bg-teal-600 text-white' : 'bg-teal-900/60 text-teal-300'"
+          >
+            {{ blendInStatusLabel(power) }}
+          </button>
           <span v-if="degradingEnabled && isBodyArmor(power)" class="text-xs shrink-0"
             :class="power.value < (power.maxValue || power.value) ? 'text-yellow-400' : 'text-blue-300'">
             {{ power.value }}/{{ power.maxValue || power.value }} armor
@@ -617,6 +664,37 @@ function toggleItem(id: string) {
                     placeholder="0"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Blend In (stealth) -->
+          <div
+            class="mb-2 p-2 bg-teal-950/30 border border-teal-800 rounded space-y-2"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-0">
+              <input
+                v-model="power.blendIn"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-teal-500 focus:ring-2 focus:ring-teal-500"
+              />
+              <span class="fsr-label mb-0"
+                >Blend In <span class="fsr-help-text">(hides the owner's token from other players' clients while active; observers must beat an Intuition FEAT check that gets harder with distance to spot them - a higher Rank means a smaller, harder-to-spot base radius; use the "Blend In" badge above to toggle it on/off)</span></span
+              >
+            </label>
+            <div v-if="power.blendIn" class="fsr-help-text">
+              Base range: <strong>{{ getBlendBaseRange(power.rank) }} ft</strong> (Green at this range, Yellow at 2x, Red at 4x, automatic beyond 8x)
+            </div>
+            <div v-if="power.blendIn">
+              <label class="fsr-label mb-0">Duration formula</label>
+              <input
+                v-model="power.blendInDurationFormula"
+                type="text"
+                placeholder="blank = until toggled off"
+                class="fsr-input text-sm"
+              />
+              <div class="fsr-help-text">
+                Rolled once on activation and ticks down each combat round. Leave blank (or "indefinite") to stay active until manually toggled off.
               </div>
             </div>
           </div>

@@ -173,6 +173,38 @@ export const RANK_SHORTS: Record<Rank, string> = {
 };
 
 /**
+ * Base "easy to spot" (Green) radius in feet for a Blend In power, keyed by
+ * rank. Inverted from a normal range table: a higher rank means a *better*
+ * blend, so the guaranteed-Green radius around the owner shrinks smoothly
+ * (a single geometric falloff, not an arbitrary halving) from 60ft at
+ * Shift 0 down to a 1ft floor first reached at Class 5000. Every rank is a
+ * strict improvement over the one below it (no ties); Beyond stays at the
+ * same floor since there's nowhere smaller to go. Yellow/Red/auto
+ * thresholds are still doubled out from this base (see
+ * getRequiredSpotResult in utils/blend-in.ts).
+ */
+export const BLEND_IN_RANGE_FEET: Record<Rank, number> = {
+  [Rank.Shift0]: 60,
+  [Rank.Feeble]: 46,
+  [Rank.Poor]: 36,
+  [Rank.Typical]: 28,
+  [Rank.Good]: 22,
+  [Rank.Excellent]: 17,
+  [Rank.Remarkable]: 13,
+  [Rank.Incredible]: 10,
+  [Rank.Amazing]: 9,
+  [Rank.Monstrous]: 8,
+  [Rank.Unearthly]: 7,
+  [Rank.ShiftX]: 6,
+  [Rank.ShiftY]: 5,
+  [Rank.ShiftZ]: 4,
+  [Rank.Class1000]: 3,
+  [Rank.Class3000]: 2,
+  [Rank.Class5000]: 1,
+  [Rank.Beyond]: 1
+};
+
+/**
  * Universal Table color ranges for each rank
  * Format: [greenStart, yellowStart, redStart]
  * White: 1 to (greenStart - 1)
