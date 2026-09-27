@@ -565,7 +565,7 @@ export interface TemporaryModifierSnapshot {
 /**
  * Snapshot every faserip temporary-modifier ActiveEffect on the actor into
  * plain objects. Used to hand modifier data to Vue dialogs (e.g.
- * AttackOptionsDialog/DefenseOptionsDialog) without passing the live actor
+ * ActionOptionsDialog/DefenseOptionsDialog) without passing the live actor
  * document itself - VueDialog wraps its props in Vue's reactive(), which
  * deep-proxies objects and breaks Foundry's EmbeddedCollection internals
  * (actor.effects) if the actor is passed directly.

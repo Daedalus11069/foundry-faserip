@@ -14,7 +14,7 @@ import {
   requestDotApplication,
   requestStatusEffectApplication
 } from "../socket/faserip-socket";
-import { showAttackOptionsDialog } from "../applications/dialog-utils";
+import { showActionOptionsDialog } from "../applications/dialog-utils";
 import {
   type Rank,
   RollResult,
@@ -966,7 +966,7 @@ export async function executeCombatAttack(
       manualChartShift = presetManualChartShift ?? 0;
     } else {
       // Show attack options dialog
-      const attackOptions = await showAttackOptionsDialog(
+      const attackOptions = await showActionOptionsDialog(
         attacker.name!,
         attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
         attackRank,
@@ -1093,7 +1093,7 @@ export async function executeCombatAttack(
       ? snapshotTemporaryModifiers(targets[0].actor)
       : [];
 
-    attackOptions = await showAttackOptionsDialog(
+    attackOptions = await showActionOptionsDialog(
       attacker.name!,
       attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
       attackRank,

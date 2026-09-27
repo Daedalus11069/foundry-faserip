@@ -354,10 +354,10 @@ function handleCancel() {
     <div class="mb-4 p-3 bg-blue-900/30 rounded">
       <div class="text-sm mb-2">
         <strong>{{ attackerName }}</strong> -
-        {{ powerName || attackAttribute + " Attack" }}
+        {{ powerName || attackAttribute + " Roll" }}
       </div>
       <div class="text-sm">
-        <strong>Attack Rank: </strong>
+        <strong>Rank: </strong>
         <span v-if="!rankIsModified">
           {{ displayedAttackRank }}
         </span>
@@ -746,7 +746,7 @@ function handleCancel() {
             : 'bg-gray-600 cursor-not-allowed opacity-50'
         ]"
       >
-        {{ comboCount > 1 ? "Execute Combo" : "Roll Attack" }}
+        {{ comboCount > 1 ? "Execute Combo" : "Roll" }}
       </button>
     </div>
   </div>

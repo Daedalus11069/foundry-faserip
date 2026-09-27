@@ -127,16 +127,17 @@ export async function activateBlendIn(
   const rank = stringToRank(power.rank || Rank.Typical);
   const rankValue = power.value || 6;
 
-  // rollAttribute normally prompts for karma twice (once before rolling,
-  // once after seeing the result) - fine for an attack where the second
-  // prompt reacts to a defender's response, but for a plain activation roll
-  // like this one that's just two dialogs in a row for one decision. Ask
-  // once up front instead and hand rollAttribute the answer as pre-specified
-  // shifts so it skips its own internal prompts entirely.
+  // rollAttribute normally prompts for karma twice in sequence (once before
+  // rolling, once after seeing the result) - the same combined-dialog
+  // treatment attacks get via ActionOptionsDialog (deciding both the
+  // pre-roll column shift and the post-roll die modifier up front, before
+  // rolling). Ask once here with the "combined" phase and hand both answers
+  // to rollAttribute as pre-specified shifts so it skips its own internal
+  // prompts entirely.
   const availableKarma = (actor as any).system?.resources?.karma?.value || 0;
   const karmaResult =
     availableKarma > 0
-      ? await showKarmaSpendDialog(availableKarma, "pre-roll", undefined, rank)
+      ? await showKarmaSpendDialog(availableKarma, "combined", undefined, rank)
       : null;
 
   const roll = await FaseripRoll.rollAttribute(
@@ -148,7 +149,7 @@ export async function activateBlendIn(
     undefined,
     undefined,
     karmaResult?.columnShifts || 0,
-    0,
+    karmaResult?.dieModifier || 0,
     false,
     karmaResult?.manualChartShift || 0
   );
@@ -317,6 +318,60 @@ export async function attemptSpotBlendedToken(
     ui.notifications?.info(`Spotted ${targetToken.name}!`);
   } else {
     ui.notifications?.info(`You don't see ${targetToken.name}.`);
+  }
+}
+
+/**
+ * Applies an ALREADY-rolled Intuition result against every active, unspotted
+ * Blend In token on the current scene that `observerActor`'s controlled
+ * token can measure a distance to, revealing any it qualifies to spot.
+ *
+ * This is what actually wires Blend In into normal play: rolling Intuition
+ * from the character sheet (StatsTab's plain attribute-roll button) goes
+ * through here afterward instead of requiring a separate "attempt to spot"
+ * action or console command - the same roll that appears in chat is the one
+ * that's checked, rather than silently doing nothing or requiring a second,
+ * hidden roll the player never sees.
+ */
+export async function resolveBlendInSpotChecksFromRoll(
+  observerActor: FaseripActor,
+  result: RollResult
+): Promise<void> {
+  // @ts-expect-error - Foundry canvas global
+  const observerToken = (canvas.tokens?.controlled ?? []).find(
+    (t: Token) => t.actor?.id === observerActor.id
+  ) ?? observerActor.getActiveTokens(true)[0];
+  if (!observerToken) return;
+
+  // @ts-expect-error - Foundry canvas global
+  const candidates: Token[] = (canvas.tokens?.placeables ?? []).filter(
+    (t: Token) => {
+      if (t.id === observerToken.id) return false;
+      const flag = getBlendInFlag(t.document as unknown as TokenDocument);
+      // @ts-expect-error - Foundry game.user global
+      return Boolean(flag?.active && !flag.spottedBy.includes(game.user.id));
+    }
+  );
+  if (!candidates.length) return;
+
+  // @ts-expect-error - Foundry game.user global
+  const userId: string = game.user.id;
+
+  for (const targetToken of candidates) {
+    const flag = getBlendInFlag(targetToken.document as unknown as TokenDocument);
+    if (!flag) continue;
+
+    const distance = measureTokenDistance(observerToken, targetToken);
+    const required = getRequiredSpotResult(distance, flag.rangeFt);
+
+    const spotted = required === "auto" || resultMeetsOrExceeds(result, required);
+    if (!spotted) continue;
+
+    await requestBlendInReveal(
+      targetToken.document as unknown as TokenDocument,
+      userId
+    );
+    ui.notifications?.info(`Spotted ${targetToken.name}!`);
   }
 }
 

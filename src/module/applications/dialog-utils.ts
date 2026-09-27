@@ -5,7 +5,7 @@ import IntuitionCheckOptionsDialog from "./dialogs/IntuitionCheckOptionsDialog.v
 import HackOptionsDialog from "./dialogs/HackOptionsDialog.vue";
 import HackDebuffDialog from "./dialogs/HackDebuffDialog.vue";
 import ComboDialog from "./dialogs/ComboDialog.vue";
-import AttackOptionsDialog from "./dialogs/AttackOptionsDialog.vue";
+import ActionOptionsDialog from "./dialogs/ActionOptionsDialog.vue";
 import DefenseOptionsDialog from "./dialogs/DefenseOptionsDialog.vue";
 import MovementSettingsDialog from "./dialogs/MovementSettingsDialog.vue";
 import TableEffectsEditor from "./dialogs/TableEffectsEditor.vue";
@@ -13,7 +13,7 @@ import { Rank } from "../enums";
 import type { Talent, SelectedTalent } from "../types";
 import type { TemporaryModifierSnapshot } from "../utils/temp-effects";
 
-interface KarmaSpendResult {
+export interface KarmaSpendResult {
   karmaSpent: number;
   columnShifts?: number;
   dieModifier?: number;
@@ -54,7 +54,7 @@ export async function showTalentSelectionDialog(
  */
 export async function showKarmaSpendDialog(
   availableKarma: number,
-  phase: "pre-roll" | "post-roll",
+  phase: "pre-roll" | "post-roll" | "combined",
   currentRoll?: number,
   currentRank?: string
 ): Promise<KarmaSpendResult | null> {
@@ -75,7 +75,9 @@ export async function showKarmaSpendDialog(
         title:
           phase === "pre-roll"
             ? "Spend Karma (Pre-Roll)"
-            : "Spend Karma (Post-Roll)",
+            : phase === "post-roll"
+              ? "Spend Karma (Post-Roll)"
+              : "Spend Karma",
         icon: "fas fa-sparkles",
         minimizable: false,
         resizable: false
@@ -291,9 +293,10 @@ export async function showComboDialog(
 }
 
 /**
- * Show attack options dialog (karma spending + modifiers + combo attacks)
+ * Show action options dialog (karma spending + modifiers + combo attacks) -
+ * used for any attribute/power roll, not just attacks.
  */
-export async function showAttackOptionsDialog(
+export async function showActionOptionsDialog(
   attackerName: string,
   attackAttribute: string,
   attackRank: Rank,
@@ -317,7 +320,7 @@ export async function showAttackOptionsDialog(
   hasExhaustion?: boolean;
 } | null> {
   const result = await VueDialog.show(
-    AttackOptionsDialog,
+    ActionOptionsDialog,
     {
       attackerName,
       attackAttribute,
@@ -331,7 +334,7 @@ export async function showAttackOptionsDialog(
     },
     {
       window: {
-        title: "Attack Options",
+        title: "Action Options",
         icon: "fas fa-crosshairs",
         minimizable: false,
         resizable: false

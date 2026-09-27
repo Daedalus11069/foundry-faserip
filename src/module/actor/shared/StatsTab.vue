@@ -12,7 +12,7 @@ import { stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import {
   showTalentSelectionDialog,
-  showAttackOptionsDialog
+  showActionOptionsDialog
 } from "../../applications/dialog-utils";
 import { snapshotTemporaryModifiers } from "../../utils/temp-effects";
 import {
@@ -32,7 +32,12 @@ import {
   togglePowerAura,
   isPowerAuraActive
 } from "../../utils/power-aura";
-import { activateBlendIn, deactivateBlendIn, getBlendInFlag } from "../../utils/blend-in";
+import {
+  activateBlendIn,
+  deactivateBlendIn,
+  getBlendInFlag,
+  resolveBlendInSpotChecksFromRoll
+} from "../../utils/blend-in";
 import type { Talent } from "../../types";
 import {
   executeCombatAttack,
@@ -87,7 +92,7 @@ const actor = inject("actor") as FaseripActor;
 /**
  * Snapshot of the currently-targeted token's actor "incoming attack"
  * modifiers (e.g. "foes get +2CS to hit me next attack"), for display in the
- * Attack Options dialog. Empty if no target is selected or it has none.
+ * Action Options dialog. Empty if no target is selected or it has none.
  */
 function getDefenderTemporaryModifiers() {
   // @ts-expect-error - game.user.targets is a Set
@@ -567,7 +572,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
       const actionsBeforeUnarmed = getActionsThisTurn(reactiveActor.system);
 
-      const comboResult = await showAttackOptionsDialog(
+      const comboResult = await showActionOptionsDialog(
         actor.name || "Unknown",
         "Fighting",
         fightingRank,
@@ -822,7 +827,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
   // All stats go through the attack options dialog
   const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
 
-  const comboResult = await showAttackOptionsDialog(
+  const comboResult = await showActionOptionsDialog(
     actor.name || "Unknown",
     attrLabel,
     rank,
@@ -866,7 +871,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
     }
   } else {
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
-    await FaseripRoll.rollAttribute(
+    const standardRoll = await FaseripRoll.rollAttribute(
       attrLabel,
       rank,
       attr.value,
@@ -879,6 +884,14 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
       false,
       comboResult.manualChartShift ?? 0
     );
+
+    // An Intuition roll from the sheet doubles as a spot check against any
+    // active, unspotted Blend In tokens on the scene - see
+    // resolveBlendInSpotChecksFromRoll for why this reuses the roll that's
+    // already in chat instead of rolling again separately.
+    if (attrKey === "intuition" && standardRoll) {
+      await resolveBlendInSpotChecksFromRoll(actor, standardRoll.result);
+    }
   }
 }
 
@@ -956,7 +969,7 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
       ? `${weaponList[0].name} + ${weaponList[1].name} (Dual-Wield)`
       : `${weaponList.map(w => w.name).join(" + ")} (${weaponCount} Arms)`;
 
-  const comboResult = await showAttackOptionsDialog(
+  const comboResult = await showActionOptionsDialog(
     actor.name || "Unknown",
     "Fighting",
     attackRank,
@@ -1204,7 +1217,7 @@ async function rollAllEquippedWeapons() {
   const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
   const weaponLabel = `${equipped.map(w => w.name).join(" + ")} (${weaponCount} Weapons)`;
 
-  const comboResult = await showAttackOptionsDialog(
+  const comboResult = await showActionOptionsDialog(
     actor.name || "Unknown",
     "Attack",
     attackRank,
@@ -1450,7 +1463,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
   const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
   const actionsBeforeWeapon = getActionsThisTurn(reactiveActor.system);
 
-  const comboResult = await showAttackOptionsDialog(
+  const comboResult = await showActionOptionsDialog(
     actor.name || "Unknown",
     attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
     attackRank,
@@ -2308,7 +2321,7 @@ async function rollPower(power: any) {
     const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
     const actionsBeforePower = getActionsThisTurn(reactiveActor.system);
 
-    const comboResult = await showAttackOptionsDialog(
+    const comboResult = await showActionOptionsDialog(
       actor.name || "Unknown",
       attackAttribute.charAt(0).toUpperCase() + attackAttribute.slice(1),
       rank,
@@ -2500,7 +2513,7 @@ async function rollPower(power: any) {
   }
   const availableKarma = reactiveActor.system.resources?.karma?.value || 0;
 
-  const comboResult = await showAttackOptionsDialog(
+  const comboResult = await showActionOptionsDialog(
     actor.name || "Unknown",
     power.name,
     rank,

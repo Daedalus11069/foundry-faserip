@@ -9,6 +9,7 @@ import { FaseripRoll } from "../rolling/FaseripRoll";
 import { Rank } from "../enums";
 import { getEffectiveAttributeData } from "./stat-debuffs";
 import { showIntuitionCheckOptionsDialog } from "../applications/dialog-utils";
+import { resolveBlendInSpotChecksFromRoll } from "./blend-in";
 
 /**
  * Roll an intuition check for the given actor
@@ -65,7 +66,7 @@ export async function rollIntuitionCheck(actor: FaseripActor): Promise<void> {
   }
 
   // Roll the intuition check using the rollAttribute method
-  await FaseripRoll.rollAttribute(
+  const roll = await FaseripRoll.rollAttribute(
     "Intuition",
     rank,
     value,
@@ -78,4 +79,12 @@ export async function rollIntuitionCheck(actor: FaseripActor): Promise<void> {
     false,
     manualChartShift
   );
+
+  // This is the token HUD's dedicated "Intuition" button - i.e. exactly the
+  // roll a player uses to try to spot something - so it doubles as a Blend
+  // In spot check against every active, unspotted blending token on the
+  // scene, using this same roll rather than a separate hidden one.
+  if (roll) {
+    await resolveBlendInSpotChecksFromRoll(actor, roll.result);
+  }
 }

@@ -42,7 +42,7 @@
         </div>
       </div>
 
-      <div v-if="phase === 'pre-roll'" class="space-y-2">
+      <div v-if="phase === 'pre-roll' || phase === 'combined'" class="space-y-2">
         <label class="font-semibold text-sm">Column Shifts to Apply</label>
         <input
           type="number"
@@ -66,11 +66,13 @@
         </div>
       </div>
 
-      <div v-if="phase === 'post-roll'" class="space-y-2">
-        <div class="text-sm mb-2">
+      <div v-if="phase === 'post-roll' || phase === 'combined'" class="space-y-2">
+        <div v-if="phase === 'post-roll'" class="text-sm mb-2">
           <strong>Current Roll:</strong> {{ currentRoll }}
         </div>
-        <label class="font-semibold text-sm">Points to Add to Roll</label>
+        <label class="font-semibold text-sm">{{
+          phase === "combined" ? "Points to Add to Roll (decided before rolling)" : "Points to Add to Roll"
+        }}</label>
         <input
           type="number"
           v-model.number="dieModifier"
@@ -81,7 +83,8 @@
         />
         <div v-if="dieModifier > 0" class="text-sm space-y-1">
           <div class="text-blue-400">
-            New Roll: +{{ (currentRoll || 0) + dieModifier }}
+            <template v-if="phase === 'post-roll'">New Roll: +{{ (currentRoll || 0) + dieModifier }}</template>
+            <template v-else>+{{ dieModifier }} to the roll</template>
           </div>
           <div class="text-yellow-400">
             <strong>Karma Cost:</strong> {{ postRollKarmaCost }}
@@ -125,7 +128,12 @@ import {
 
 interface Props {
   availableKarma: number;
-  phase: "pre-roll" | "post-roll";
+  // "combined" shows both the column-shift and die-modifier sections in one
+  // dialog, deciding both before rolling (like ActionOptionsDialog does for
+  // attacks) - used by single-roll activations that would otherwise need two
+  // separate sequential dialogs (see FaseripRoll.rollAttribute's own
+  // pre-roll/post-roll prompts).
+  phase: "pre-roll" | "post-roll" | "combined";
   currentRoll?: number;
   currentRank?: string;
   dialog: VueDialog;
@@ -141,7 +149,7 @@ const manualChartShift = ref(0);
 // Calculate karma cost for pre-roll (based on rank score difference)
 const preRollKarmaCost = computed(() => {
   if (
-    props.phase !== "pre-roll" ||
+    (props.phase !== "pre-roll" && props.phase !== "combined") ||
     columnShifts.value === 0 ||
     !props.currentRank
   ) {
@@ -161,7 +169,10 @@ const preRollKarmaCost = computed(() => {
 
 // Calculate karma cost for post-roll (1:1 with minimum 10)
 const postRollKarmaCost = computed(() => {
-  if (props.phase !== "post-roll" || dieModifier.value === 0) {
+  if (
+    (props.phase !== "post-roll" && props.phase !== "combined") ||
+    dieModifier.value === 0
+  ) {
     return 0;
   }
 
@@ -170,7 +181,7 @@ const postRollKarmaCost = computed(() => {
 
 // Max column shifts based on available karma (approximation)
 const maxColumnShifts = computed(() => {
-  if (props.phase !== "pre-roll") return 0;
+  if (props.phase !== "pre-roll" && props.phase !== "combined") return 0;
 
   // Try to find max affordable shifts (limit to 5 for safety)
   let maxShifts = 0;
@@ -192,15 +203,21 @@ const maxColumnShifts = computed(() => {
 
 // Max die modifier based on available karma and roll cap
 const maxDieModifier = computed(() => {
-  if (props.phase !== "post-roll" || !props.currentRoll) return 0;
+  if (props.phase === "post-roll") {
+    if (!props.currentRoll) return 0;
+    // Can't go over 100
+    const maxByRoll = 100 - props.currentRoll;
+    // Can spend up to available karma (1:1 ratio, but cost min 10)
+    return Math.min(maxByRoll, props.availableKarma);
+  }
 
-  // Can't go over 100
-  const maxByRoll = 100 - props.currentRoll;
+  if (props.phase === "combined") {
+    // The roll hasn't happened yet, so there's no current-total cap to check
+    // against - just bound by available karma (1:1 ratio, but cost min 10).
+    return props.availableKarma;
+  }
 
-  // Can spend up to available karma (1:1 ratio, but cost min 10)
-  const maxByKarma = props.availableKarma;
-
-  return Math.min(maxByRoll, maxByKarma);
+  return 0;
 });
 
 // Helper to get shifted rank name for display
@@ -216,11 +233,19 @@ const canConfirm = computed(() => {
     return (
       columnShifts.value > 0 && preRollKarmaCost.value <= props.availableKarma
     );
-  } else {
+  }
+  if (props.phase === "post-roll") {
     return (
       dieModifier.value > 0 && postRollKarmaCost.value <= props.availableKarma
     );
   }
+  // combined: at least one of the two must be spent, and both must fit
+  // together within the same karma pool.
+  const totalCost = preRollKarmaCost.value + postRollKarmaCost.value;
+  return (
+    (columnShifts.value > 0 || dieModifier.value > 0) &&
+    totalCost <= props.availableKarma
+  );
 });
 
 function handleConfirm() {
@@ -233,6 +258,16 @@ function handleConfirm() {
   } else if (props.phase === "post-roll" && dieModifier.value > 0) {
     props.dialog.submit({
       karmaSpent: postRollKarmaCost.value,
+      dieModifier: dieModifier.value,
+      manualChartShift: manualChartShift.value
+    });
+  } else if (
+    props.phase === "combined" &&
+    (columnShifts.value > 0 || dieModifier.value > 0)
+  ) {
+    props.dialog.submit({
+      karmaSpent: preRollKarmaCost.value + postRollKarmaCost.value,
+      columnShifts: columnShifts.value,
       dieModifier: dieModifier.value,
       manualChartShift: manualChartShift.value
     });
