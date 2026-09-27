@@ -29,7 +29,8 @@ import {
   applyHealingToActor,
   isActorDead,
   isActorUnconscious,
-  isPhysicalDefenseAttribute
+  isPhysicalDefenseAttribute,
+  type DamageComponent
 } from "../utils/damage-application";
 import { isPowersNegated } from "../utils/power-negation";
 import { getPowerAuraDamageShift } from "../utils/power-aura";
@@ -71,7 +72,8 @@ interface AttackData {
   powerName?: string;
   powerRank?: Rank; // Base rank of the attacking power
   damageRoll?: string; // Optional: For house rules only - FASERIP uses result colors, not damage rolls
-  damageType?: string; // Type of damage (fire, cold, etc.)
+  damageType?: string; // Type of damage (fire, cold, etc.) - single-type callers
+  damageTypes?: string[]; // Multiple simultaneous damage types (e.g. a weapon/power dealing both Physical and Magic in one hit) - each receives the full rolled damage amount, soaked independently. Falls back to damageType/Physical when unset. Combo/deferred cumulative damage only honors the first entry (see deferDamageApplication below).
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   targetArmorOnly?: boolean; // Optional: Attack is aimed specifically at the target's armor, ignoring armor piercing and dealing no overflow damage to health
   leechPercent?: number; // Optional: Life-link/leech - % of health damage dealt that heals the attacker
@@ -1946,7 +1948,9 @@ export async function executeCombatAttack(
             targetTokenId: target.id,
             targetName: targetActor.name!,
             totalDamage: damageResult.damage,
-            damageType: attackData.damageType,
+            // Deferred/cumulative combo damage only supports a single type -
+            // a multi-type weapon/power contributes its first listed type.
+            damageType: attackData.damageTypes?.[0] ?? attackData.damageType,
             armorPiercing: attackData.armorPiercing,
             armorRank: targetArmorRank,
             targetArmorOnly: attackData.targetArmorOnly,
@@ -2109,6 +2113,17 @@ export async function executeCombatAttack(
         }
       } else {
         // Apply damage immediately (normal flow)
+        // Multi-type attacks (a weapon/power with more than one damageType)
+        // deal the full rolled damage amount in each listed type, soaked
+        // independently by matching armor - see DamageComponent.
+        const damageComponents: DamageComponent[] | undefined =
+          attackData.damageTypes && attackData.damageTypes.length > 1
+            ? attackData.damageTypes.map(type => ({
+                type,
+                amount: damageResult.damage
+              }))
+            : undefined;
+
         // Apply damage to target actor via socket (executes on target owner's client)
         const damageApplication = await requestDamageApplication(
           targetActor,
@@ -2120,7 +2135,8 @@ export async function executeCombatAttack(
           targetArmorRank, // Pass target's armor rank
           undefined,
           undefined,
-          attackData.targetArmorOnly
+          attackData.targetArmorOnly,
+          damageComponents
         );
 
         // Handle case where damage application failed

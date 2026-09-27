@@ -1,4 +1,4 @@
-import { Rank } from "../enums";
+import { Rank, DamageType } from "../enums";
 import type {
   PowerStatDebuffData,
   PowerDamageDebuffData,
@@ -298,6 +298,12 @@ export class ArmorDataModel extends ItemDataModel {
   declare rank: string;
   declare value: number;
   declare maxValue: number;
+  declare physicalValue: number | null;
+  declare physicalMaxValue: number | null;
+  declare magicValue: number;
+  declare magicMaxValue: number;
+  declare mentalValue: number;
+  declare mentalMaxValue: number;
   declare equipped: boolean;
   declare formIds: string[];
 
@@ -321,6 +327,49 @@ export class ArmorDataModel extends ItemDataModel {
         min: 0,
         initial: 6
       }),
+      // Per-type armor soak values. `physicalValue`/`physicalMaxValue` default
+      // to null, meaning "not configured - fall back to the legacy value/
+      // maxValue above", so existing armor keeps soaking physical damage at
+      // its current rank with no migration. Magic/mental default to 0 since
+      // there is no legacy equivalent for those buckets.
+      physicalValue: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: null,
+        nullable: true
+      }),
+      physicalMaxValue: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: null,
+        nullable: true
+      }),
+      magicValue: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: 0
+      }),
+      magicMaxValue: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: 0
+      }),
+      mentalValue: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: 0
+      }),
+      mentalMaxValue: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: 0
+      }),
       equipped: new BooleanField({ required: true, initial: false }),
       formIds: new ArrayField(new StringField(), {
         required: false,
@@ -337,6 +386,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare weaponType: string;
   declare damage: string;
   declare damageRank: string;
+  declare damageTypes: string[];
   declare equipped: boolean;
   declare talents?: string[];
   declare armorPiercing?: string;
@@ -370,6 +420,14 @@ export class WeaponDataModel extends ItemDataModel {
         initial: Rank.Typical,
         choices: Object.values(Rank)
       }),
+      // Damage type(s) this weapon deals - each listed type receives the
+      // weapon's full rolled damage amount (e.g. an enchanted blade dealing
+      // both Physical and Magic damage in one hit, each soaked separately
+      // by the target's per-type armor).
+      damageTypes: new ArrayField(
+        new StringField({ choices: Object.values(DamageType) }),
+        { required: false, initial: [DamageType.Physical] }
+      ),
       equipped: new BooleanField({ required: true, initial: false }),
       talents: new ArrayField(new StringField(), {
         required: false,

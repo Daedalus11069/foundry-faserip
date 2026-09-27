@@ -11,7 +11,72 @@ import {
   type ArmorPiercingResult
 } from "./armor-piercing";
 import { rollResistance, type ResistanceRollResult } from "./resistance-roll";
-import { Rank, RANK_VALUES } from "../enums";
+import { Rank, RANK_VALUES, DamageType } from "../enums";
+
+/** A single typed damage component of an attack (an attack may carry more than one). */
+export interface DamageComponent {
+  type: DamageType | string;
+  amount: number;
+}
+
+/** Per-type armor soak lookup. Physical falls back to the legacy flat `value`
+ * field when not explicitly configured; Magic/Mental have no legacy
+ * equivalent and default to 0. Any other damage type (fire, cold, etc.)
+ * keeps today's behavior of soaking off the flat `value` field. */
+function getArmorSoak(
+  source: {
+    value?: number;
+    physicalValue?: number | null;
+    magicValue?: number;
+    mentalValue?: number;
+  },
+  type: DamageType | string
+): number {
+  if (type === DamageType.Physical) {
+    return source.physicalValue ?? source.value ?? 0;
+  }
+  if (type === DamageType.Magic) {
+    return source.magicValue ?? 0;
+  }
+  if (type === DamageType.Mental) {
+    return source.mentalValue ?? 0;
+  }
+  return source.value ?? 0;
+}
+
+/** Reduce the per-type armor field(s) that correspond to `type` by `amount`.
+ * Returns the new remaining value for that bucket and whether it hit 0. */
+function degradeArmorSoak(
+  source: {
+    value?: number;
+    physicalValue?: number | null;
+    magicValue?: number;
+    mentalValue?: number;
+  },
+  type: DamageType | string,
+  amount: number
+): { newValue: number; destroyed: boolean } {
+  if (type === DamageType.Magic) {
+    const newValue = Math.max(0, (source.magicValue ?? 0) - amount);
+    source.magicValue = newValue;
+    return { newValue, destroyed: newValue === 0 };
+  }
+  if (type === DamageType.Mental) {
+    const newValue = Math.max(0, (source.mentalValue ?? 0) - amount);
+    source.mentalValue = newValue;
+    return { newValue, destroyed: newValue === 0 };
+  }
+  // Physical (and any unbucketed type) degrades the legacy flat value,
+  // unless physicalValue has been explicitly configured as its own bucket.
+  if (type === DamageType.Physical && source.physicalValue != null) {
+    const newValue = Math.max(0, source.physicalValue - amount);
+    source.physicalValue = newValue;
+    return { newValue, destroyed: newValue === 0 };
+  }
+  const newValue = Math.max(0, (source.value ?? 0) - amount);
+  source.value = newValue;
+  return { newValue, destroyed: newValue === 0 };
+}
 
 const PHYSICAL_DEFENSE_ATTRIBUTES = new Set([
   "fighting",
@@ -39,18 +104,38 @@ export function isActorDead(actor: FaseripActor): boolean {
   return typeof health === "number" && health <= -20;
 }
 
-export interface DamageApplicationResult {
+export interface PerTypeDamageResult {
   armorDamage: number;
+  overflow: number;
   healthDamage: number;
   newArmorValue: number;
+  armorDestroyed: boolean;
+  bodyArmorDestroyed: boolean;
+  resistanceRollResult?: ResistanceRollResult;
+  vulnerabilityPower?: any;
+  vulnerabilityIncrease?: number;
+  originalDamage?: number;
+  piercingResult?: ArmorPiercingResult;
+}
+
+export interface DamageApplicationResult {
+  /** Per damage-type breakdown, keyed by DamageType value. */
+  perType: Record<string, PerTypeDamageResult>;
+  healthDamage: number;
   newHealthValue: number;
   armorDestroyed: boolean;
   bodyArmorDestroyed: boolean;
-  resistanceRollResult?: ResistanceRollResult; // Resistance roll result (if resistance was triggered)
-  vulnerabilityPower?: any; // Vulnerability power that was applied
-  vulnerabilityIncrease?: number; // Amount of damage increased by vulnerability
-  originalDamage?: number; // Original damage before resistance/vulnerability
-  piercingResult?: ArmorPiercingResult; // Armor piercing breakdown
+
+  // Flattened fields for the common single-damage-type case, so existing
+  // callers reading a single result don't need to change. Populated from
+  // the sole entry in `perType` when there was exactly one component.
+  armorDamage?: number;
+  newArmorValue?: number;
+  resistanceRollResult?: ResistanceRollResult;
+  vulnerabilityPower?: any;
+  vulnerabilityIncrease?: number;
+  originalDamage?: number;
+  piercingResult?: ArmorPiercingResult;
 
   /** @deprecated Use resistanceRollResult instead */
   resistancePower?: any;
@@ -61,13 +146,17 @@ export interface DamageApplicationResult {
 export interface DamageApplicationData {
   reactiveSystem?: any; // Optional reactive system data to modify directly (for sheets)
   actor: FaseripActor; // The real actor (for accessing items collection, or extracting system if reactiveSystem not provided)
-  damage: number;
+  /** Typed damage components - an attack may deal more than one damage type at once. */
+  damageComponents?: DamageComponent[];
+  /** @deprecated use damageComponents */
+  damage?: number;
+  /** @deprecated use damageComponents */
   damageType?: string;
   degradingArmorMode?: string; // "none", "full", "per-hit"
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
   hitCount?: number; // Number of hits that contributed to this damage (for per-hit degradation)
-  hitDamages?: number[]; // Per-hit damage amounts (for cumulative combo damage - armor soaks each hit separately)
+  hitDamages?: number[]; // Per-hit damage amounts for cumulative combo damage (single-type path only - see hitDamages/damageComponents note in applyDamageToActor)
   targetArmorOnly?: boolean; // Attack is aimed at armor specifically: ignores armor piercing and any overflow beyond armor's capacity is not applied to health
 }
 
@@ -87,7 +176,22 @@ export async function applyDamageToActor(
   // Check for vulnerability powers (house rule)
   const vulnerabilityEnabled =
     game.settings.get("faserip", "vulnerabilityPowers") ?? false;
-  let damage = data.damage;
+
+  // Normalize into typed components. Legacy callers pass damage/damageType;
+  // an unset/"none" legacy type is treated as Physical, preserving the old
+  // implicit-physical behavior for un-migrated callers.
+  const damageComponents: DamageComponent[] =
+    data.damageComponents && data.damageComponents.length > 0
+      ? data.damageComponents
+      : [
+          {
+            type:
+              data.damageType && data.damageType !== "none"
+                ? data.damageType
+                : DamageType.Physical,
+            amount: data.damage ?? 0
+          }
+        ];
 
   // Find correct form ID using same fallback logic as prepareDerivedData
   let currentFormId = system.currentFormId;
@@ -120,231 +224,282 @@ export async function applyDamageToActor(
         item.system.formIds.includes(currentFormId))
   );
 
-  // Calculate total armor from body armor power + all equipped armor items
-  const bodyArmorValue = bodyArmorPower?.value ?? 0;
-  const equippedArmorValue = equippedArmorItems.reduce(
-    (sum, item) => sum + (item.system.value || 0),
-    0
-  );
-  const totalArmor = bodyArmorValue + equippedArmorValue;
+  const perType: Record<string, PerTypeDamageResult> = {};
+  let totalHealthDamage = 0;
+  let anyArmorDestroyed = false;
+  let anyBodyArmorDestroyed = false;
 
-  let armorDamage = 0;
-  let healthDamage = 0;
-  let overflow = 0;
-  let armorDestroyed = false;
-  let bodyArmorDestroyed = false;
-  let resistanceRollResult: ResistanceRollResult | undefined;
-  let vulnerabilityPower: any = undefined;
-  let vulnerabilityIncrease = 0;
-  const originalDamage = damage;
-  let piercingResult: ArmorPiercingResult | undefined;
+  for (const component of damageComponents) {
+    const type = component.type;
+    let damage = component.amount;
 
-  // Calculate effective armor with piercing
-  // An attack aimed specifically at armor ignores armor piercing entirely -
-  // it's trying to wear the armor down, not bypass it.
-  let effectiveArmor = totalArmor;
-
-  if (data.armorPiercing && totalArmor > 0 && !data.targetArmorOnly) {
-    piercingResult = calculateArmorPiercing(
-      totalArmor,
-      data.armorRank as Rank,
-      data.armorPiercing as Rank
+    // Total armor available against this specific damage type
+    const bodyArmorValueForType = bodyArmorPower
+      ? getArmorSoak(bodyArmorPower, type)
+      : 0;
+    const equippedArmorValueForType = equippedArmorItems.reduce(
+      (sum, item) => sum + getArmorSoak(item.system as any, type),
+      0
     );
-    effectiveArmor = piercingResult.effectiveArmor;
-  }
+    const totalArmor = bodyArmorValueForType + equippedArmorValueForType;
 
-  // Apply vulnerability if enabled and matching power found
-  if (vulnerabilityEnabled && data.damageType && data.damageType !== "none") {
-    vulnerabilityPower = (system.powers || []).find(
-      (p: any) =>
-        p.vulnerabilityType === data.damageType &&
-        (!p.formIds?.length || p.formIds.includes(currentFormId))
-    );
+    let armorDamage = 0;
+    let overflow = 0;
+    let armorDestroyed = false;
+    let bodyArmorDestroyed = false;
+    let resistanceRollResult: ResistanceRollResult | undefined;
+    let vulnerabilityPower: any = undefined;
+    let vulnerabilityIncrease = 0;
+    const originalDamage = damage;
+    let piercingResult: ArmorPiercingResult | undefined;
 
-    if (vulnerabilityPower) {
-      // Vulnerability increases damage by configured percentage (house rule)
-      const vulnerabilityPercent = game.settings.get(
-        "faserip",
-        "vulnerabilityDamageIncrease"
-      ) as number;
-      vulnerabilityIncrease = Math.floor(damage * (vulnerabilityPercent / 100));
-      damage += vulnerabilityIncrease;
-    }
-  }
+    // Calculate effective armor with piercing. AP rank is a property of the
+    // attack as a whole, applied against each type's armor total independently.
+    // An attack aimed specifically at armor ignores armor piercing entirely -
+    // it's trying to wear the armor down, not bypass it.
+    let effectiveArmor = totalArmor;
 
-  if (totalArmor > 0) {
-    // Armor soaks damage using effective armor after piercing - fully
-    // pierced armor (effectiveArmor <= 0) soaks nothing and all damage goes
-    // to health, but still degrades below: a hit that penetrates armor
-    // entirely still wears it down, per the degradingArmor world setting.
-    // For cumulative combo damage, armor soaks each individual hit
-    // separately (up to its rank each time) rather than soaking the
-    // lump total once - otherwise a rank-5 armor absorbing three
-    // rank-4 hits would only block 5 total instead of 4 per hit.
-    const hitAmounts =
-      data.hitDamages && data.hitDamages.length > 0
-        ? data.hitDamages
-        : [damage];
-
-    for (const hitDamage of hitAmounts) {
-      const soaked = Math.max(0, Math.min(hitDamage, effectiveArmor));
-      armorDamage += soaked;
-      overflow += hitDamage - soaked;
+    if (data.armorPiercing && totalArmor > 0 && !data.targetArmorOnly) {
+      piercingResult = calculateArmorPiercing(
+        totalArmor,
+        data.armorRank as Rank,
+        data.armorPiercing as Rank
+      );
+      effectiveArmor = piercingResult.effectiveArmor;
     }
 
-    // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
-    // "full" mode degrades by what armor would have soaked with no piercing
-    // applied (pre-AP), even though the actual (post-AP) armorDamage may be
-    // lower or zero - a fully-pierced hit still wears the armor down.
-    const preApArmorDamage = Math.min(damage, totalArmor);
-    let remainingArmorDamage = preApArmorDamage;
+    // Apply vulnerability if enabled and matching power found
+    if (vulnerabilityEnabled && type && type !== "none") {
+      vulnerabilityPower = (system.powers || []).find(
+        (p: any) =>
+          p.vulnerabilityType === type &&
+          (!p.formIds?.length || p.formIds.includes(currentFormId))
+      );
 
-    // Apply armor degradation based on mode
-    if (degradingArmorMode === "full") {
-      // Full degradation: Reduce armor by damage soaked (pre-AP)
-      // Equipped armor items soak first (update each directly)
-      for (const armorItem of equippedArmorItems) {
-        if (remainingArmorDamage <= 0) break;
+      if (vulnerabilityPower) {
+        // Vulnerability increases damage by configured percentage (house rule)
+        const vulnerabilityPercent = game.settings.get(
+          "faserip",
+          "vulnerabilityDamageIncrease"
+        ) as number;
+        vulnerabilityIncrease = Math.floor(
+          damage * (vulnerabilityPercent / 100)
+        );
+        damage += vulnerabilityIncrease;
+      }
+    }
 
-        const armorValue = armorItem.system.value || 0;
-        const armorReduction = Math.min(remainingArmorDamage, armorValue);
+    if (totalArmor > 0) {
+      // Armor soaks damage using effective armor after piercing - fully
+      // pierced armor (effectiveArmor <= 0) soaks nothing and all damage goes
+      // to health, but still degrades below. For cumulative combo damage
+      // (single-type only), armor soaks each individual hit separately.
+      const hitAmounts =
+        damageComponents.length === 1 &&
+        data.hitDamages &&
+        data.hitDamages.length > 0
+          ? data.hitDamages
+          : [damage];
 
-        if (armorReduction > 0) {
-          const newValue = Math.max(0, armorValue - armorReduction);
-          await armorItem.update({
-            "system.value": newValue
-          } as Record<string, unknown>);
-          remainingArmorDamage -= armorReduction;
-
-          if (newValue === 0) {
-            armorDestroyed = true;
-          }
-        }
+      for (const hitDamage of hitAmounts) {
+        const soaked = Math.max(0, Math.min(hitDamage, effectiveArmor));
+        armorDamage += soaked;
+        overflow += hitDamage - soaked;
       }
 
-      // Body Armor power soaks remainder
-      if (bodyArmorPower && remainingArmorDamage > 0) {
-        const bodyArmorReduction = Math.min(
-          remainingArmorDamage,
-          bodyArmorPower.value
-        );
-        bodyArmorPower.value = Math.max(
-          0,
-          bodyArmorPower.value - bodyArmorReduction
-        );
+      // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power).
+      // Each damage type degrades only its own soak bucket independently.
+      // "full" mode degrades by what armor would have soaked with no
+      // piercing applied (pre-AP), even though the actual (post-AP)
+      // armorDamage may be lower or zero - a fully-pierced hit still wears
+      // the armor down.
+      const preApArmorDamage = Math.min(damage, totalArmor);
+      let remainingArmorDamage = preApArmorDamage;
 
-        if (bodyArmorPower.value === 0) {
-          bodyArmorDestroyed = true;
-        }
-      }
-    } else if (degradingArmorMode === "per-hit" && preApArmorDamage > 0) {
-      // Per-hit degradation: Reduce armor by hitCount (default 1) whenever
-      // the hit would have reached armor (pre-AP), including fully-pierced hits.
-      const degradationAmount = data.hitCount || 1;
-
-      // Prioritize equipped armor degradation first
-      if (equippedArmorItems.length > 0) {
-        let remainingDegradation = degradationAmount;
-
-        // Degrade equipped armor items until all degradation is applied
+      if (degradingArmorMode === "full") {
         for (const armorItem of equippedArmorItems) {
-          if (remainingDegradation <= 0) break;
-          if (armorItem.system.value <= 0) continue;
+          if (remainingArmorDamage <= 0) break;
 
-          const reduction = Math.min(
-            remainingDegradation,
-            armorItem.system.value
-          );
-          const newValue = armorItem.system.value - reduction;
+          const armorValue = getArmorSoak(armorItem.system as any, type);
+          const armorReduction = Math.min(remainingArmorDamage, armorValue);
 
-          await armorItem.update({
-            "system.value": newValue
-          } as Record<string, unknown>);
+          if (armorReduction > 0) {
+            const { newValue, destroyed } = degradeArmorSoak(
+              armorItem.system as any,
+              type,
+              armorReduction
+            );
+            const updateKey =
+              type === DamageType.Magic
+                ? "system.magicValue"
+                : type === DamageType.Mental
+                  ? "system.mentalValue"
+                  : type === DamageType.Physical &&
+                      (armorItem.system as any).physicalValue != null
+                    ? "system.physicalValue"
+                    : "system.value";
+            await armorItem.update({
+              [updateKey]: newValue
+            } as Record<string, unknown>);
+            remainingArmorDamage -= armorReduction;
 
-          remainingDegradation -= reduction;
-
-          if (newValue === 0) {
-            armorDestroyed = true;
+            if (destroyed) {
+              armorDestroyed = true;
+            }
           }
         }
 
-        // If equipped armor couldn't absorb all degradation, apply remainder to body armor
-        if (
-          remainingDegradation > 0 &&
-          bodyArmorPower &&
-          bodyArmorPower.value > 0
-        ) {
-          const reduction = Math.min(
-            remainingDegradation,
-            bodyArmorPower.value
+        if (bodyArmorPower && remainingArmorDamage > 0) {
+          const bodyArmorValue = getArmorSoak(bodyArmorPower, type);
+          const bodyArmorReduction = Math.min(
+            remainingArmorDamage,
+            bodyArmorValue
           );
-          bodyArmorPower.value -= reduction;
-          if (bodyArmorPower.value === 0) {
+          if (bodyArmorReduction > 0) {
+            const { destroyed } = degradeArmorSoak(
+              bodyArmorPower,
+              type,
+              bodyArmorReduction
+            );
+            if (destroyed) {
+              bodyArmorDestroyed = true;
+            }
+          }
+        }
+      } else if (degradingArmorMode === "per-hit" && preApArmorDamage > 0) {
+        // Per-hit degradation: Reduce armor by hitCount (default 1) whenever
+        // the hit would have reached armor (pre-AP), including fully-pierced hits.
+        const degradationAmount = data.hitCount || 1;
+
+        if (equippedArmorItems.length > 0) {
+          let remainingDegradation = degradationAmount;
+
+          for (const armorItem of equippedArmorItems) {
+            if (remainingDegradation <= 0) break;
+            const armorValue = getArmorSoak(armorItem.system as any, type);
+            if (armorValue <= 0) continue;
+
+            const reduction = Math.min(remainingDegradation, armorValue);
+            const { newValue, destroyed } = degradeArmorSoak(
+              armorItem.system as any,
+              type,
+              reduction
+            );
+            const updateKey =
+              type === DamageType.Magic
+                ? "system.magicValue"
+                : type === DamageType.Mental
+                  ? "system.mentalValue"
+                  : type === DamageType.Physical &&
+                      (armorItem.system as any).physicalValue != null
+                    ? "system.physicalValue"
+                    : "system.value";
+            await armorItem.update({
+              [updateKey]: newValue
+            } as Record<string, unknown>);
+
+            remainingDegradation -= reduction;
+
+            if (destroyed) {
+              armorDestroyed = true;
+            }
+          }
+
+          if (
+            remainingDegradation > 0 &&
+            bodyArmorPower &&
+            getArmorSoak(bodyArmorPower, type) > 0
+          ) {
+            const reduction = Math.min(
+              remainingDegradation,
+              getArmorSoak(bodyArmorPower, type)
+            );
+            const { destroyed } = degradeArmorSoak(
+              bodyArmorPower,
+              type,
+              reduction
+            );
+            if (destroyed) {
+              bodyArmorDestroyed = true;
+            }
+          }
+        } else if (bodyArmorPower && getArmorSoak(bodyArmorPower, type) > 0) {
+          const reduction = Math.min(
+            degradationAmount,
+            getArmorSoak(bodyArmorPower, type)
+          );
+          const { destroyed } = degradeArmorSoak(bodyArmorPower, type, reduction);
+          if (destroyed) {
             bodyArmorDestroyed = true;
           }
         }
-      } else if (bodyArmorPower && bodyArmorPower.value > 0) {
-        // No equipped armor, degrade body armor power
-        const reduction = Math.min(degradationAmount, bodyArmorPower.value);
-        bodyArmorPower.value -= reduction;
-        if (bodyArmorPower.value === 0) {
-          bodyArmorDestroyed = true;
+      }
+      // "none" mode: No degradation, armor soaks but keeps full value
+
+      // An attack aimed at armor only damages armor - any overflow beyond what
+      // the armor could soak is wasted rather than spilling into health.
+      if (data.targetArmorOnly) {
+        overflow = 0;
+      }
+
+      // Check resistance for overflow damage (roll-based system), per type
+      if (overflow > 0 && type && type !== "none") {
+        resistanceRollResult = await rollResistance(
+          actor,
+          type,
+          overflow,
+          currentFormId
+        );
+
+        if (resistanceRollResult) {
+          overflow = resistanceRollResult.finalDamage;
         }
       }
-    }
-    // "none" mode: No degradation, armor soaks but keeps full value
-
-    // An attack aimed at armor only damages armor - any overflow beyond what
-    // the armor could soak is wasted rather than spilling into health.
-    if (data.targetArmorOnly) {
+    } else if (data.targetArmorOnly) {
+      // No armor to target - an armor-only attack has nothing to hit.
       overflow = 0;
-    }
+    } else {
+      // No armor - check resistance for all damage (roll-based system)
+      let actualDamage = damage;
 
-    // Check resistance for overflow damage (roll-based system)
-    if (overflow > 0 && data.damageType && data.damageType !== "none") {
-      resistanceRollResult = await rollResistance(
-        actor,
-        data.damageType,
-        overflow,
-        currentFormId
-      );
+      if (type && type !== "none") {
+        resistanceRollResult = await rollResistance(
+          actor,
+          type,
+          actualDamage,
+          currentFormId
+        );
 
-      if (resistanceRollResult) {
-        // Apply resistance roll result
-        overflow = resistanceRollResult.finalDamage;
+        if (resistanceRollResult) {
+          actualDamage = resistanceRollResult.finalDamage;
+        }
       }
+
+      overflow = actualDamage;
     }
 
-    // Apply overflow to health
-    if (overflow > 0) {
-      healthDamage = overflow;
-    }
-  } else if (data.targetArmorOnly) {
-    // No armor to target - an armor-only attack has nothing to hit.
-    healthDamage = 0;
-  } else {
-    // No armor - check resistance for all damage (roll-based system)
-    let actualDamage = damage;
+    const healthDamageForType = Math.max(0, overflow);
+    totalHealthDamage += healthDamageForType;
+    if (armorDestroyed) anyArmorDestroyed = true;
+    if (bodyArmorDestroyed) anyBodyArmorDestroyed = true;
 
-    if (data.damageType && data.damageType !== "none") {
-      resistanceRollResult = await rollResistance(
-        actor,
-        data.damageType,
-        actualDamage,
-        currentFormId
-      );
-
-      if (resistanceRollResult) {
-        actualDamage = resistanceRollResult.finalDamage;
-      }
-    }
-
-    // All damage goes to health (after resistance)
-    healthDamage = actualDamage;
+    perType[type] = {
+      armorDamage,
+      overflow,
+      healthDamage: healthDamageForType,
+      newArmorValue: totalArmor - armorDamage,
+      armorDestroyed,
+      bodyArmorDestroyed,
+      resistanceRollResult,
+      vulnerabilityPower,
+      vulnerabilityIncrease,
+      originalDamage,
+      piercingResult
+    };
   }
 
   // Update health in healthByForm
-  const newHealthValue = Math.max(-20, currentHealth - healthDamage);
+  const newHealthValue = Math.max(-20, currentHealth - totalHealthDamage);
 
   // Ensure healthByForm exists
   if (!system.healthByForm) {
@@ -357,35 +512,27 @@ export async function applyDamageToActor(
     await actor.toggleStatusEffect("dead", { active: true });
   }
 
-  // Calculate new armor value for display. Degradation is based on what
-  // armor would have soaked before armor piercing (preApArmorDamage), since
-  // a fully-pierced hit still wears armor down even though armorDamage
-  // (post-AP) may be 0.
-  const preApArmorDamageForDisplay =
-    totalArmor > 0 ? Math.min(damage, totalArmor) : 0;
-  const degradationAmount = data.hitCount || 1;
-  const newArmorValue =
-    degradingArmorMode === "full"
-      ? totalArmor - preApArmorDamageForDisplay
-      : degradingArmorMode === "per-hit" && preApArmorDamageForDisplay > 0
-        ? totalArmor - degradationAmount
-        : totalArmor;
+  const singleTypeResult =
+    damageComponents.length === 1 ? perType[damageComponents[0].type] : undefined;
 
-  const result = {
-    armorDamage,
-    healthDamage,
-    newArmorValue,
+  const result: DamageApplicationResult = {
+    perType,
+    healthDamage: totalHealthDamage,
     newHealthValue,
-    armorDestroyed,
-    bodyArmorDestroyed,
-    resistanceRollResult,
-    vulnerabilityPower,
-    vulnerabilityIncrease,
-    originalDamage,
-    piercingResult,
+    armorDestroyed: anyArmorDestroyed,
+    bodyArmorDestroyed: anyBodyArmorDestroyed,
+    // Flattened fields for single-type callers
+    armorDamage: singleTypeResult?.armorDamage,
+    newArmorValue: singleTypeResult?.newArmorValue,
+    resistanceRollResult: singleTypeResult?.resistanceRollResult,
+    vulnerabilityPower: singleTypeResult?.vulnerabilityPower,
+    vulnerabilityIncrease: singleTypeResult?.vulnerabilityIncrease,
+    originalDamage: singleTypeResult?.originalDamage,
+    piercingResult: singleTypeResult?.piercingResult,
     // Deprecated fields for backward compatibility
-    resistancePower: resistanceRollResult?.resistancePower,
-    resistanceReduction: resistanceRollResult?.totalDamageResisted
+    resistancePower: singleTypeResult?.resistanceRollResult?.resistancePower,
+    resistanceReduction:
+      singleTypeResult?.resistanceRollResult?.totalDamageResisted
   };
 
   return result;

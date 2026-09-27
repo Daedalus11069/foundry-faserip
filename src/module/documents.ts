@@ -282,8 +282,10 @@ export class FaseripActor<
       const update: Record<string, unknown> = {};
       for (const id of Object.keys(existing ?? {})) {
         if (!(id in detectionModes)) {
-          // @ts-expect-error - foundry.data.operators type not fully recognized
-          update[`${pathPrefix}.${id}`] = new foundry.data.operators.ForcedDeletion();
+          // Foundry's document update deletes a nested key when its last path
+          // segment is prefixed with "-=" and the value is null - there is no
+          // dedicated "deletion operator" class for this.
+          update[`${pathPrefix}.-=${id}`] = null;
         }
       }
       for (const [id, value] of Object.entries(detectionModes)) {
@@ -309,6 +311,8 @@ export class FaseripActor<
           )
         },
         { render: false }
+      ).catch((err: unknown) =>
+        console.error("FASERIP | Failed to sync vision to prototype token:", err)
       );
     }
 
@@ -330,7 +334,9 @@ export class FaseripActor<
           ...buildDetectionModesUpdate("detectionModes", t.detectionModes)
         }));
       if (updates.length) {
-        scene.updateEmbeddedDocuments("Token", updates);
+        scene.updateEmbeddedDocuments("Token", updates).catch((err: unknown) =>
+          console.error("FASERIP | Failed to sync vision to placed tokens:", err)
+        );
       }
     }
   }

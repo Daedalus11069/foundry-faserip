@@ -5,7 +5,8 @@ import {
   applyChartShift,
   Rank,
   RollResult,
-  RANK_VALUES
+  RANK_VALUES,
+  DamageType
 } from "../../enums";
 import { FaseripRoll } from "../../rolling/FaseripRoll";
 import { stringToRank } from "../../utils";
@@ -84,6 +85,7 @@ interface Weapon {
   damageBuffs?: PowerDamageDebuffData[];
   dots?: PowerDotData[];
   areaOfEffect?: WeaponAreaOfEffectData;
+  damageTypes?: string[]; // Damage type(s) this weapon deals (defaults to Physical)
 }
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -170,7 +172,8 @@ const weapons = computed<Weapon[]>(() => {
     dots: item.system.dots as PowerDotData[] | undefined,
     areaOfEffect: item.system.areaOfEffect as
       | WeaponAreaOfEffectData
-      | undefined
+      | undefined,
+    damageTypes: item.system.damageTypes as string[] | undefined
   }));
 
   // Merge both sources
@@ -1071,6 +1074,9 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
         effectType: "damage" as const,
         powerName: `${weapon.name} (Arm ${j + 1}/${weaponCount})`,
         powerRank: damageRanks[j],
+        // Deferred/cumulative combo damage only supports a single type per
+        // hit - use the weapon's first listed damage type (default Physical).
+        damageType: weapon.damageTypes?.[0] ?? DamageType.Physical,
         armorPiercing: weapon.armorPiercing,
         talentNames: appliedTalentNames.length > 0 ? appliedTalentNames : undefined,
         talentCS: talentCS > 0 ? talentCS : undefined,
@@ -1315,6 +1321,9 @@ async function rollAllEquippedWeapons() {
         effectType: "damage" as const,
         powerName: `${weapon.name} (Arm ${j + 1}/${weaponCount})`,
         powerRank: getWeaponDamageRankFor(weapon),
+        // Deferred/cumulative combo damage only supports a single type per
+        // hit - use the weapon's first listed damage type (default Physical).
+        damageType: weapon.damageTypes?.[0] ?? DamageType.Physical,
         armorPiercing: weapon.armorPiercing,
         talentNames: talentNames.length > 0 ? talentNames : undefined,
         talentCS: talentCS > 0 ? talentCS : undefined,
@@ -1419,6 +1428,10 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
 
   const attackAttribute = weapon.stat;
   const attackType = weapon.type;
+  const damageTypes =
+    weapon.damageTypes && weapon.damageTypes.length > 0
+      ? weapon.damageTypes
+      : [DamageType.Physical];
   let damageRank: Rank;
 
   // Calculate damage based on weapon type
@@ -1571,7 +1584,8 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
         effectType: "damage",
         powerName: `${weapon.name}${armLabel}`,
         powerRank: damageRank,
-        damageType: undefined,
+        damageType: damageTypes[0],
+        damageTypes,
         armorPiercing: weapon.armorPiercing, // Add armor piercing
         talentNames: talentNames.length > 0 ? talentNames : undefined,
         talentCS: talentCS > 0 ? talentCS : undefined,
@@ -1663,7 +1677,8 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
       effectType: "damage",
       powerName: `${weapon.name}${armLabel}`,
       powerRank: damageRank,
-      damageType: undefined,
+      damageType: damageTypes[0],
+      damageTypes,
       armorPiercing: weapon.armorPiercing, // Add armor piercing
       talentNames: talentNames.length > 0 ? talentNames : undefined,
       talentCS: talentCS > 0 ? talentCS : undefined,
@@ -2356,8 +2371,11 @@ async function rollPower(power: any) {
           powerName: power.name,
           powerRank: rank,
           damageRoll: `1d${rankValue}`,
+          // Deferred/cumulative combo damage only supports a single type -
+          // use the power's first listed damage type.
           damageType:
-            power.damageType !== "none" ? power.damageType : undefined,
+            power.damageTypes?.[0] ??
+            (power.damageType !== "none" ? power.damageType : undefined),
           talentNames: talentNames.length > 0 ? talentNames : undefined,
           talentCS: totalCS > 0 ? totalCS : undefined,
           // Pass karma settings from combo dialog
@@ -2433,7 +2451,13 @@ async function rollPower(power: any) {
         powerName: power.name,
         powerRank: rank,
         damageRoll: `1d${rankValue}`,
-        damageType: power.damageType !== "none" ? power.damageType : undefined,
+        damageType:
+          power.damageTypes?.[0] ??
+          (power.damageType !== "none" ? power.damageType : undefined),
+        damageTypes:
+          power.damageTypes && power.damageTypes.length > 0
+            ? power.damageTypes
+            : undefined,
         talentNames: talentNames.length > 0 ? talentNames : undefined,
         talentCS: totalCS > 0 ? totalCS : undefined,
         // Pass karma settings from combo dialog

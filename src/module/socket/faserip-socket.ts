@@ -13,7 +13,8 @@ import {
   applyDamageToActor,
   isActorDead,
   isActorUnconscious,
-  isPhysicalDefenseAttribute
+  isPhysicalDefenseAttribute,
+  type DamageComponent
 } from "../utils/damage-application";
 import { getActiveLifeLinkRedirect } from "../utils/power-aura";
 import { createEffectRegion, type CreateEffectRegionOptions } from "../utils/region-effects";
@@ -136,6 +137,34 @@ const activeDefensePrompts = new Map<
 >();
 
 /**
+ * Persisted (Actor flag) record of a defense prompt that has been shown to
+ * the defender but not yet resolved. Written right before the dialog is
+ * rendered and cleared once it resolves, so a refreshed/relogged-in
+ * defender client can detect it on the `ready` hook and re-show the same
+ * dialog instead of the prompt silently vanishing.
+ */
+interface PendingAttackFlag extends DefensePromptData {
+  promptId: string;
+  createdAt: number;
+}
+
+/** How long a pending-attack flag can sit unresolved before we give up on
+ * it automatically resolving as a take-hit rather than blocking forever. */
+const PENDING_ATTACK_STALE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Persisted (Actor flag) record of the outcome of a defense prompt, written
+ * whenever a prompt resolves (live or recovered-after-refresh). This lets
+ * the attacker's client - whose original socketlib RPC call died if the
+ * defender's browser refreshed mid-prompt - recover the answer by polling
+ * the actor's flags instead of only awaiting the (now-dead) direct response.
+ */
+interface DefenseResolutionFlag {
+  promptId: string;
+  response: DefenseResponse;
+}
+
+/**
  * Data structure for counter-attack prompt sent to defender
  */
 interface CounterAttackPromptData {
@@ -216,6 +245,14 @@ export function initializeSocket(): void {
   socket.register("createEffectRegion", handleCreateEffectRegion);
   socket.register("deleteEffectRegion", handleDeleteEffectRegion);
 }
+
+// Re-show any defense prompts left unresolved on actors this user owns from
+// before a refresh/relogin. Registered as its own `ready` hook (separate
+// from initializeSocket's) so it runs once actors/canvas are available
+// regardless of socketlib's own readiness gating above.
+Hooks.once("ready", () => {
+  checkPendingAttacksOnReady();
+});
 
 /**
  * GM-side: create a Region embedded document (a power aura or a weapon's
@@ -804,6 +841,54 @@ export async function requestSetDoorLockState(
  * Request a defense response from the target's owner
  * Called by the attacker's client
  */
+const DEFENSE_POLL_INTERVAL_MS = 3000;
+const DEFENSE_POLL_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Poll the target actor's flags for a resolution matching `promptId`. This
+ * is a fallback for when the defender's client refreshed mid-prompt: the
+ * direct socketlib RPC call below then hangs forever (its connection died),
+ * but the recovered client (see checkPendingAttacksOnReady) writes the
+ * eventual answer to a flag once the player responds, which every other
+ * client - including this one - receives via normal Foundry document sync.
+ */
+function pollForDefenseResolution(
+  targetActor: FaseripActor,
+  promptId: string
+): { promise: Promise<DefenseResponse | null>; cancel: () => void } {
+  let cancelled = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  const promise = new Promise<DefenseResponse | null>(resolve => {
+    const start = Date.now();
+    timer = setInterval(async () => {
+      if (cancelled) return;
+      if (Date.now() - start > DEFENSE_POLL_TIMEOUT_MS) {
+        clearInterval(timer);
+        resolve(null);
+        return;
+      }
+      const resolution = targetActor.getFlag(
+        "faserip",
+        "defenseResolution"
+      ) as DefenseResolutionFlag | undefined;
+      if (resolution && resolution.promptId === promptId) {
+        clearInterval(timer);
+        await targetActor.unsetFlag("faserip", "defenseResolution");
+        resolve(resolution.response);
+      }
+    }, DEFENSE_POLL_INTERVAL_MS);
+  });
+
+  return {
+    promise,
+    cancel: () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    }
+  };
+}
+
 export async function requestDefenseResponse(
   data: DefensePromptData
 ): Promise<DefenseResponse | null> {
@@ -849,10 +934,21 @@ export async function requestDefenseResponse(
     return { defenseType: "takeHit" };
   }
 
-  // If only one user, just send to them
+  // If only one user, just send to them - racing against the flag-poll
+  // fallback in case their client refreshes mid-prompt (see
+  // pollForDefenseResolution).
   if (potentialControllers.length === 1) {
     const user = potentialControllers[0];
-    return await socket.executeAsUser("promptDefense", user.id, data);
+    const poll = pollForDefenseResolution(targetActor, promptId);
+    try {
+      const response = await Promise.race([
+        socket.executeAsUser("promptDefense", user.id, data),
+        poll.promise
+      ]);
+      return finalizeDefenseResponse(response);
+    } finally {
+      poll.cancel();
+    }
   }
 
   // Multiple GMs - race condition handling (first to respond wins)
@@ -888,31 +984,53 @@ export async function requestDefenseResponse(
     })
   );
 
-  // Wait for first response or all timeouts
-  const response = (await Promise.race([
-    winnerPromise,
-    Promise.all(gmPromises).then(() => winningResponse)
-  ])) as DefenseResponse & { _targetActor?: FaseripActor };
+  // Wait for first response (direct, or via the flag-poll fallback if every
+  // controller's client refreshed mid-prompt) or all timeouts
+  const poll = pollForDefenseResolution(targetActor, promptId);
+  let response: DefenseResponse | null;
+  try {
+    response = await Promise.race([
+      winnerPromise,
+      Promise.all(gmPromises).then(() => winningResponse),
+      poll.promise
+    ]);
+  } finally {
+    poll.cancel();
+  }
 
   if (!response) {
     console.warn("FASERIP Socket | No response - defaulting to takeHit");
     return { defenseType: "takeHit" };
   }
 
-  // Reconstruct target actor on this client
-  if (response._targetActorId) {
+  return finalizeDefenseResponse(response);
+}
+
+/** Reconstruct non-JSON-serializable fields (actor reference, Roll object)
+ * on a defense response received from another client. */
+function finalizeDefenseResponse(
+  response: DefenseResponse | null
+): DefenseResponse | null {
+  if (!response) {
+    return { defenseType: "takeHit" };
+  }
+
+  const withExtras = response as DefenseResponse & {
+    _targetActor?: FaseripActor;
+  };
+
+  if (withExtras._targetActorId) {
     // @ts-expect-error - Foundry game.actors collection
-    response._targetActor = game.actors?.find(
-      (a: FaseripActor) => a.id === response._targetActorId
+    withExtras._targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === withExtras._targetActorId
     ) as FaseripActor | undefined;
   }
 
-  // Reconstruct roll object from JSON
-  if (response._rollJSON) {
-    (response as any)._rollObject = Roll.fromData(response._rollJSON);
+  if (withExtras._rollJSON) {
+    (withExtras as any)._rollObject = Roll.fromData(withExtras._rollJSON);
   }
 
-  return response;
+  return withExtras;
 }
 
 /**
@@ -1090,6 +1208,16 @@ async function handleDefensePrompt(
     0
   );
 
+  // Persist that a dialog is about to be shown, so if this client refreshes
+  // before the player responds, the `ready` hook can detect it and re-show
+  // the same prompt instead of it silently vanishing (see checkPendingAttacksOnReady).
+  const pendingFlag: PendingAttackFlag = {
+    ...data,
+    promptId,
+    createdAt: Date.now()
+  };
+  await targetActor.setFlag("faserip", "pendingAttack", pendingFlag);
+
   // Create dialog instance BEFORE showing it so we can track and cancel it
   const dialog = new VueDialog(
     DefenseResponseModal,
@@ -1139,31 +1267,86 @@ async function handleDefensePrompt(
   // Clean up the prompt from tracking
   activeDefensePrompts.delete(promptId);
 
-  // Handle cancellation by another GM
-  if (!result) {
-    return { defenseType: "takeHit" };
+  let response: DefenseResponse;
+  if (!result || result.defenseType === "takeHit") {
+    // No response means cancellation by another GM (multi-GM race)
+    response = { defenseType: "takeHit" };
+  } else {
+    // Build response with roll data
+    response = {
+      defenseType: result.defenseType,
+      defenseRoll: result.defenseRoll,
+      defenseAttribute: result.defenseAttribute,
+      defended: result.defended,
+      _rollJSON: result._rollJSON,
+      _defenseSuccess: result._defenseSuccess,
+      _resultText: result._resultText,
+      _resultClass: result._resultClass,
+      _targetActorId: targetActor.id!,
+      // @ts-expect-error - Foundry game.user global
+      _respondingUserId: game.user?.id,
+      _isUltimateBotch: result._isUltimateBotch,
+      _isBotch: result._isBotch
+    };
   }
 
-  if (result.defenseType === "takeHit") {
-    return { defenseType: "takeHit" };
-  }
+  // Resolve the persisted prompt: clear the "still pending" flag and record
+  // the outcome so an attacker whose original RPC call died (because this
+  // client had refreshed and just recovered the prompt) can pick it up by
+  // polling instead of only awaiting the now-dead direct response.
+  await targetActor.unsetFlag("faserip", "pendingAttack");
+  const resolutionFlag: DefenseResolutionFlag = { promptId, response };
+  await targetActor.setFlag("faserip", "defenseResolution", resolutionFlag);
 
-  // Build response with roll data
-  return {
-    defenseType: result.defenseType,
-    defenseRoll: result.defenseRoll,
-    defenseAttribute: result.defenseAttribute,
-    defended: result.defended,
-    _rollJSON: result._rollJSON,
-    _defenseSuccess: result._defenseSuccess,
-    _resultText: result._resultText,
-    _resultClass: result._resultClass,
-    _targetActorId: targetActor.id!,
-    // @ts-expect-error - Foundry game.user global
-    _respondingUserId: game.user?.id,
-    _isUltimateBotch: result._isUltimateBotch,
-    _isBotch: result._isBotch
-  };
+  return response;
+}
+
+/**
+ * On login/reload, re-show any defense prompt(s) that were left unresolved
+ * on an actor this user owns (because this client refreshed while the
+ * dialog was open). Stale prompts (older than PENDING_ATTACK_STALE_MS) are
+ * auto-resolved as a take-hit instead of being shown, to avoid getting
+ * stuck forever if a prompt is truly abandoned.
+ */
+async function checkPendingAttacksOnReady(): Promise<void> {
+  // @ts-expect-error - Foundry game.actors collection
+  const actors = (game.actors ?? []) as FaseripActor[];
+
+  for (const actor of actors) {
+    if (!actor.isOwner) continue;
+
+    const pending = actor.getFlag(
+      "faserip",
+      "pendingAttack"
+    ) as PendingAttackFlag | undefined;
+    if (!pending) continue;
+
+    if (Date.now() - pending.createdAt > PENDING_ATTACK_STALE_MS) {
+      console.warn(
+        `FASERIP Socket | Discarding stale pending attack prompt on ${actor.name} (auto-resolving as take hit)`
+      );
+      await actor.unsetFlag("faserip", "pendingAttack");
+      await actor.setFlag("faserip", "defenseResolution", {
+        promptId: pending.promptId,
+        response: { defenseType: "takeHit" }
+      } as DefenseResolutionFlag);
+      continue;
+    }
+
+    console.log(
+      `FASERIP Socket | Re-showing recovered defense prompt on ${actor.name}`
+    );
+    const response = await handleDefensePrompt(pending);
+    // Some paths through handleDefensePrompt (stunned/dead/unconscious/not
+    // owner) return early without going through the dialog and therefore
+    // without writing pendingAttack/defenseResolution flags at all - ensure
+    // both are always settled here so a polling attacker always gets an answer.
+    await actor.unsetFlag("faserip", "pendingAttack");
+    await actor.setFlag("faserip", "defenseResolution", {
+      promptId: pending.promptId,
+      response: response ?? { defenseType: "takeHit" }
+    } as DefenseResolutionFlag);
+  }
 }
 
 /**
@@ -1368,6 +1551,8 @@ interface ApplyDamageData {
   targetTokenId?: string;
   damage: number;
   damageType?: string; // Type of damage (fire, cold, etc.) for resistance checking
+  /** Typed damage components for multi-type attacks - overrides damage/damageType above when set. */
+  damageComponents?: DamageComponent[];
   powerName?: string; // Name of attacking power for resistance messages
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
@@ -1392,7 +1577,8 @@ export async function requestDamageApplication(
   armorRank?: string,
   hitCount?: number,
   hitDamages?: number[],
-  targetArmorOnly?: boolean
+  targetArmorOnly?: boolean,
+  damageComponents?: DamageComponent[]
 ): Promise<{
   armorDamage: number;
   healthDamage: number;
@@ -1412,6 +1598,7 @@ export async function requestDamageApplication(
         targetTokenId,
         damage,
         damageType,
+        damageComponents,
         powerName,
         armorPiercing,
         armorRank,
@@ -1432,6 +1619,7 @@ export async function requestDamageApplication(
       targetTokenId,
       damage,
       damageType,
+      damageComponents,
       powerName,
       armorPiercing,
       armorRank,
@@ -1447,6 +1635,7 @@ export async function requestDamageApplication(
     targetTokenId,
     damage,
     damageType,
+    damageComponents,
     powerName,
     armorPiercing,
     armorRank,
@@ -1540,6 +1729,7 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     actor: targetActor,
     damage: data.damage,
     damageType: data.damageType,
+    damageComponents: data.damageComponents,
     degradingArmorMode: degradingMode,
     armorPiercing: data.armorPiercing,
     armorRank: data.armorRank,

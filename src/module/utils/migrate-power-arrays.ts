@@ -9,7 +9,7 @@
  * required in addition to that one.
  *
  * To force re-run the migration (for testing or recovery):
- * `await game.settings.set("faserip", "powerArrayFieldsMigrationCompleted", false)`
+ * `await game.settings.set("faserip", "powerArrayFieldsMigrationCompletedV2", false)`
  */
 
 function migrateEntryBuffDebuffFields(entry: any): boolean {
@@ -35,6 +35,25 @@ function migrateEntryBuffDebuffFields(entry: any): boolean {
 }
 
 /**
+ * Upgrade a power's legacy singular `damageType` string into the new
+ * `damageTypes` array, so old data authored before multi-type damage
+ * support keeps its original damage type without manual re-entry.
+ */
+function migratePowerDamageTypes(power: any): boolean {
+  const hasLegacyType =
+    typeof power.damageType === "string" && power.damageType !== "none";
+  const hasNewTypes =
+    Array.isArray(power.damageTypes) && power.damageTypes.length > 0;
+
+  if (hasLegacyType && !hasNewTypes) {
+    power.damageTypes = [power.damageType];
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Migrate a single actor's system.powers/system.weapons entries
  */
 async function migrateActorPowerArrays(actor: Actor): Promise<boolean> {
@@ -44,6 +63,7 @@ async function migrateActorPowerArrays(actor: Actor): Promise<boolean> {
   const powers = Array.isArray(system.powers) ? system.powers : [];
   for (const power of powers) {
     if (migrateEntryBuffDebuffFields(power)) changed = true;
+    if (migratePowerDamageTypes(power)) changed = true;
   }
 
   const weapons = Array.isArray(system.weapons) ? system.weapons : [];
@@ -73,7 +93,7 @@ async function migrateActorPowerArrays(actor: Actor): Promise<boolean> {
  * Main migration function - migrates all actors in the world
  */
 export async function migratePowerArrayFields(): Promise<void> {
-  const migrationKey = "powerArrayFieldsMigrationCompleted";
+  const migrationKey = "powerArrayFieldsMigrationCompletedV2";
   const hasMigrated = game.settings.get("faserip", migrationKey);
 
   if (hasMigrated) {
@@ -113,6 +133,6 @@ export async function migratePowerArrayFields(): Promise<void> {
  * Force re-run migration (for development/testing)
  */
 export async function forceMigratePowerArrayFields(): Promise<void> {
-  await game.settings.set("faserip", "powerArrayFieldsMigrationCompleted", false);
+  await game.settings.set("faserip", "powerArrayFieldsMigrationCompletedV2", false);
   await migratePowerArrayFields();
 }

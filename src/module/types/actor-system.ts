@@ -161,7 +161,14 @@ export interface PowerData {
   vulnerabilityType?: string; // For vulnerability/weakness powers
   effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // For damage/healing powers
   attackType?: "none" | "melee" | "ranged" | "psyche"; // Attack type for defense attribute selection
+  /** @deprecated use damageTypes */
   damageType?: string; // Damage type (fire, cold, energy, etc.)
+  damageTypes?: string[]; // Damage type(s) dealt - each receives the power's full damage amount
+  physicalValue?: number | null; // Per-type armor soak (Body Armor-style powers). null = fall back to value/maxValue
+  magicValue?: number;
+  magicMaxValue?: number;
+  mentalValue?: number;
+  mentalMaxValue?: number;
   formIds?: string[]; // Form IDs this power is active in
   targetType?: "any" | "others" | "self"; // Who this power can target: others only, self only, or either
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs

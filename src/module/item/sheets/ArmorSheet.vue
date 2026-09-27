@@ -47,7 +47,12 @@
 
       <!-- Current Value -->
       <div class="fsr-form-group">
-        <label class="fsr-form-label">Current Armor Value</label>
+        <label class="fsr-form-label"
+          >Current Armor Value
+          <span class="fsr-help-text"
+            >(Physical soak, unless overridden below)</span
+          ></label
+        >
         <input
           v-model.number="reactiveItem.system.value"
           type="number"
@@ -65,6 +70,68 @@
           min="1"
           class="fsr-input"
         />
+      </div>
+
+      <!-- Per-type armor soak (Physical / Magic / Mental) -->
+      <div class="fsr-form-group">
+        <label class="fsr-form-label"
+          >Per-Type Armor
+          <span class="fsr-help-text"
+            >(optional - leave Physical blank to use the Current/Max Armor
+            Value above; Magic and Mental default to 0)</span
+          ></label
+        >
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="text-xs text-gray-400">Physical</label>
+            <input
+              v-model.number="reactiveItem.system.physicalValue"
+              type="number"
+              min="0"
+              class="fsr-input text-sm"
+              placeholder="(uses value above)"
+            />
+            <input
+              v-model.number="reactiveItem.system.physicalMaxValue"
+              type="number"
+              min="0"
+              class="fsr-input text-sm mt-1"
+              placeholder="Max"
+            />
+          </div>
+          <div>
+            <label class="text-xs text-gray-400">Magic</label>
+            <input
+              v-model.number="reactiveItem.system.magicValue"
+              type="number"
+              min="0"
+              class="fsr-input text-sm"
+            />
+            <input
+              v-model.number="reactiveItem.system.magicMaxValue"
+              type="number"
+              min="0"
+              class="fsr-input text-sm mt-1"
+              placeholder="Max"
+            />
+          </div>
+          <div>
+            <label class="text-xs text-gray-400">Mental/Psionic</label>
+            <input
+              v-model.number="reactiveItem.system.mentalValue"
+              type="number"
+              min="0"
+              class="fsr-input text-sm"
+            />
+            <input
+              v-model.number="reactiveItem.system.mentalMaxValue"
+              type="number"
+              min="0"
+              class="fsr-input text-sm mt-1"
+              placeholder="Max"
+            />
+          </div>
+        </div>
       </div>
 
       <!-- Equipped Checkbox -->

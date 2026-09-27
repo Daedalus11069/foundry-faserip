@@ -1,6 +1,38 @@
 <script setup lang="ts">
 import { inject, computed, ref } from "vue";
-import { formatRankDisplay, RANK_VALUES } from "../../enums";
+import { formatRankDisplay, RANK_VALUES, DamageType } from "../../enums";
+
+const DAMAGE_TYPE_LABELS: Record<string, string> = {
+  [DamageType.None]: "Normal/Physical (legacy)",
+  [DamageType.Physical]: "Physical",
+  [DamageType.Fire]: "Fire",
+  [DamageType.Cold]: "Cold",
+  [DamageType.Electricity]: "Electricity",
+  [DamageType.Energy]: "Energy",
+  [DamageType.Radiation]: "Radiation",
+  [DamageType.Sonic]: "Sonic",
+  [DamageType.Acid]: "Acid",
+  [DamageType.Poison]: "Poison",
+  [DamageType.Mental]: "Mental/Psionic",
+  [DamageType.Magic]: "Magic",
+  [DamageType.Force]: "Force"
+};
+const DAMAGE_TYPE_OPTIONS = Object.values(DamageType).filter(
+  t => t !== DamageType.None
+);
+
+function toggleDamageType(power: any, type: string, checked: boolean) {
+  const current: string[] = Array.isArray(power.damageTypes)
+    ? [...power.damageTypes]
+    : [];
+  if (checked) {
+    if (!current.includes(type)) current.push(type);
+  } else {
+    const idx = current.indexOf(type);
+    if (idx !== -1) current.splice(idx, 1);
+  }
+  power.damageTypes = current;
+}
 import { getRankValue, stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import { applyHitStatDebuff, applyHitDamageBuff } from "../../combat/combat-flow";
@@ -1141,22 +1173,35 @@ function toggleItem(id: string) {
 
           <!-- Damage Type, Armor Piercing, Resistance Type, and Vulnerability Type -->
           <div class="grid grid-cols-2 gap-2 mb-2">
-            <div v-if="power.effectType === 'damage'">
-              <label class="fsr-label">Damage Type</label>
-              <select v-model="power.damageType" class="fsr-select text-sm">
-                <option value="none">Normal/Physical</option>
-                <option value="fire">Fire</option>
-                <option value="cold">Cold</option>
-                <option value="electricity">Electricity</option>
-                <option value="energy">Energy</option>
-                <option value="radiation">Radiation</option>
-                <option value="sonic">Sonic</option>
-                <option value="acid">Acid</option>
-                <option value="poison">Poison</option>
-                <option value="mental">Mental/Psychic</option>
-                <option value="magic">Magic</option>
-                <option value="force">Force</option>
-              </select>
+            <div v-if="power.effectType === 'damage'" class="col-span-2">
+              <label class="fsr-label"
+                >Damage Type(s)
+                <span class="fsr-help-text"
+                  >(select one or more - each deals the power's full damage,
+                  soaked independently by matching armor)</span
+                ></label
+              >
+              <div class="flex flex-wrap gap-2">
+                <label
+                  v-for="type in DAMAGE_TYPE_OPTIONS"
+                  :key="type"
+                  class="flex items-center gap-1 cursor-pointer text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-gray-600 text-blue-500 focus:ring-2 focus:ring-blue-500"
+                    :checked="(power.damageTypes ?? []).includes(type)"
+                    @change="
+                      toggleDamageType(
+                        power,
+                        type,
+                        ($event.target as HTMLInputElement).checked
+                      )
+                    "
+                  />
+                  {{ DAMAGE_TYPE_LABELS[type] }}
+                </label>
+              </div>
             </div>
             <div v-if="power.effectType === 'damage'">
               <label class="fsr-label">Armor Piercing</label>

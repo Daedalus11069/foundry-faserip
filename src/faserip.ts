@@ -535,7 +535,7 @@ const initHandler = () => {
 
   // Migration flag for converting legacy statDebuff/damageBuff/dot fields
   // on plain-data actor powers/weapons to arrays
-  game.settings.register("faserip", "powerArrayFieldsMigrationCompleted", {
+  game.settings.register("faserip", "powerArrayFieldsMigrationCompletedV2", {
     name: "Power Array Fields Migration Completed",
     hint: "Internal flag tracking whether legacy statDebuff/damageBuff/dot fields have been migrated to arrays.",
     scope: "world",

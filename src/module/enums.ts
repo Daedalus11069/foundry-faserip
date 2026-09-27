@@ -134,7 +134,8 @@ export enum RollResult {
  * Damage types for powers and resistances
  */
 export enum DamageType {
-  None = "none", // Normal/untyped damage (physical weapons, etc.)
+  None = "none", // Legacy/unspecified damage - treated as Physical by applyDamageToActor
+  Physical = "physical", // Kinetic/physical damage (weapons, blunt/melee attacks, etc.)
   Fire = "fire",
   Cold = "cold",
   Electricity = "electricity",
@@ -147,6 +148,18 @@ export enum DamageType {
   Magic = "magic",
   Force = "force" // Force fields, telekinesis
 }
+
+/**
+ * The three damage types that have dedicated per-type armor soak values.
+ * All other DamageType values continue to soak against an armor source's
+ * flat legacy `value`/`maxValue` fields.
+ */
+export const SOAK_DAMAGE_TYPES = [
+  DamageType.Physical,
+  DamageType.Magic,
+  DamageType.Mental
+] as const;
+export type SoakDamageType = (typeof SOAK_DAMAGE_TYPES)[number];
 
 /**
  * Rank short codes for Universal Table lookup

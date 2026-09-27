@@ -336,9 +336,48 @@ export function definePowerRefSchema() {
       initial: "none",
       choices: ["none", "melee", "ranged", "psyche", "strength"]
     }),
+    /** @deprecated use damageTypes - kept so migrate-power-arrays.ts can upgrade old data */
     damageType: new StringField({ required: false, initial: "none" }),
+    damageTypes: new ArrayField(new StringField(), {
+      required: false,
+      initial: () => []
+    }),
     resistanceType: new StringField({ required: false, nullable: true }),
     vulnerabilityType: new StringField({ required: false, nullable: true }),
+    // Per-type armor soak values, used when this power is a "Body Armor"
+    // style defensive power. physicalValue defaults to null - meaning "not
+    // configured, fall back to the legacy value/maxValue fields above".
+    physicalValue: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: null,
+      nullable: true
+    }),
+    magicValue: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 0
+    }),
+    magicMaxValue: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 0
+    }),
+    mentalValue: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 0
+    }),
+    mentalMaxValue: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 0
+    }),
     multiHit: new BooleanField({
       required: false,
       initial: false,

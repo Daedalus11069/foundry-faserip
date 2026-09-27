@@ -62,6 +62,37 @@
         </select>
       </div>
 
+      <!-- Damage Type(s) -->
+      <div class="fsr-form-group">
+        <label class="fsr-form-label"
+          >Damage Type(s)
+          <span class="text-xs text-gray-400"
+            >(each deals the weapon's full damage, soaked independently by
+            matching armor)</span
+          ></label
+        >
+        <div class="flex flex-wrap gap-2">
+          <label
+            v-for="type in DAMAGE_TYPE_OPTIONS"
+            :key="type"
+            class="flex items-center gap-1 cursor-pointer text-sm"
+          >
+            <input
+              type="checkbox"
+              class="w-4 h-4 rounded border-gray-600 text-red-500 focus:ring-2 focus:ring-red-500"
+              :checked="(reactiveItem.system.damageTypes ?? []).includes(type)"
+              @change="
+                toggleDamageType(
+                  type,
+                  ($event.target as HTMLInputElement).checked
+                )
+              "
+            />
+            {{ DAMAGE_TYPE_LABELS[type] }}
+          </label>
+        </div>
+      </div>
+
       <!-- Armor Piercing -->
       <div class="fsr-form-group">
         <label class="fsr-form-label">
@@ -635,7 +666,7 @@
 
 <script setup lang="ts">
 import { inject, computed, watch } from "vue";
-import { Rank, RANK_VALUES, formatRankDisplay } from "../../enums";
+import { Rank, RANK_VALUES, formatRankDisplay, DamageType } from "../../enums";
 import { stringToRank } from "../../utils";
 import type { Item } from "@league-of-foundry-developers/foundry-vtt-types/src/foundry/client/data/documents/item";
 
@@ -724,6 +755,41 @@ const statusEffectChoices = computed(() => {
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 });
+
+const DAMAGE_TYPE_LABELS: Record<string, string> = {
+  [DamageType.Physical]: "Physical",
+  [DamageType.Fire]: "Fire",
+  [DamageType.Cold]: "Cold",
+  [DamageType.Electricity]: "Electricity",
+  [DamageType.Energy]: "Energy",
+  [DamageType.Radiation]: "Radiation",
+  [DamageType.Sonic]: "Sonic",
+  [DamageType.Acid]: "Acid",
+  [DamageType.Poison]: "Poison",
+  [DamageType.Mental]: "Mental/Psionic",
+  [DamageType.Magic]: "Magic",
+  [DamageType.Force]: "Force"
+};
+const DAMAGE_TYPE_OPTIONS = Object.values(DamageType).filter(
+  t => t !== DamageType.None
+);
+
+function toggleDamageType(type: string, checked: boolean) {
+  const current: string[] = Array.isArray(reactiveItem.system.damageTypes)
+    ? [...reactiveItem.system.damageTypes]
+    : [];
+  if (checked) {
+    if (!current.includes(type)) current.push(type);
+  } else {
+    const idx = current.indexOf(type);
+    if (idx !== -1) current.splice(idx, 1);
+  }
+  reactiveItem.system.damageTypes = current;
+}
+
+if (!reactiveItem.system.damageTypes) {
+  reactiveItem.system.damageTypes = [DamageType.Physical];
+}
 
 if (!reactiveItem.system.statDebuffs) {
   reactiveItem.system.statDebuffs = [];
