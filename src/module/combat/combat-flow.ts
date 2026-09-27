@@ -24,6 +24,7 @@ import {
 import { type ArmorItem, isArmorItem } from "../types/items";
 import { createRoll } from "../utils/manual-roll-handler";
 import { getCharmanService } from "../charman-service";
+import { applyHealingToActor } from "../utils/damage-application";
 import { isPowersNegated } from "../utils/power-negation";
 import { getPowerAuraDamageShift } from "../utils/power-aura";
 import {
@@ -65,6 +66,8 @@ interface AttackData {
   damageRoll?: string; // Optional: For house rules only - FASERIP uses result colors, not damage rolls
   damageType?: string; // Type of damage (fire, cold, etc.)
   armorPiercing?: string | null; // Armor-piercing rank (optional)
+  targetArmorOnly?: boolean; // Optional: Attack is aimed specifically at the target's armor, ignoring armor piercing and dealing no overflow damage to health
+  leechPercent?: number; // Optional: Life-link/leech - % of health damage dealt that heals the attacker
   talentNames?: string[]; // Optional: Talent names that apply to this attack
   talentCS?: number; // Optional: Column shift bonus from talents
   karmaColumnShifts?: number; // Optional: Pre-determined karma column shifts (from combo dialog)
@@ -95,6 +98,8 @@ export interface PendingDamage {
   damageType?: string;
   armorPiercing?: string | null;
   armorRank?: string;
+  targetArmorOnly?: boolean;
+  leechPercent?: number;
   powerName?: string;
   hits: Array<{
     damage: number;
@@ -227,6 +232,38 @@ function buildDamageModifierHtml(
 ): string {
   const style = getStatModifierStyle(applied.chartShift);
   return `<div style="font-size: 0.8rem; background: ${style.background}; color: ${style.color}; padding: 0.25rem 0.5rem; border-radius: 3px; ${margin}">${getStatModifierLabel(applied.chartShift)}: <strong>${applied.chartShift > 0 ? "+" : ""}${applied.chartShift} CS Damage</strong> for <strong>${applied.roundsRemaining}</strong> rounds (${applied.durationFormula})</div>`;
+}
+
+/**
+ * Life-link/leech: heal the attacker for a percentage of the health damage
+ * actually dealt to the target (armor soak/resistance already applied).
+ * Runs on the attacker's own client (executeCombatAttack is always invoked
+ * by the attacking user), so the attacker's actor can be updated directly.
+ * Only heals health - never restores karma.
+ */
+async function applyLeechHealing(
+  attacker: FaseripActor,
+  healthDamageDealt: number,
+  leechPercent: number | undefined
+): Promise<number> {
+  if (!leechPercent || leechPercent <= 0 || healthDamageDealt <= 0) {
+    return 0;
+  }
+
+  const healAmount = Math.round(healthDamageDealt * (leechPercent / 100));
+  if (healAmount <= 0) {
+    return 0;
+  }
+
+  const system = foundry.utils.deepClone(attacker.system) as any;
+  const newHealthValue = await applyHealingToActor(system, healAmount, attacker);
+
+  await attacker.update({
+    "system.healthByForm": system.healthByForm
+  } as Record<string, unknown>);
+
+  void newHealthValue;
+  return healAmount;
 }
 
 export async function applyHitDamageBuff(
@@ -1775,6 +1812,8 @@ export async function executeCombatAttack(
             damageType: attackData.damageType,
             armorPiercing: attackData.armorPiercing,
             armorRank: targetArmorRank,
+            targetArmorOnly: attackData.targetArmorOnly,
+            leechPercent: attackData.leechPercent,
             powerName: attackData.powerName,
             hits: [
               {
@@ -1938,7 +1977,10 @@ export async function executeCombatAttack(
           attackData.powerName,
           target.id, // Pass token ID for unlinked tokens
           attackData.armorPiercing, // Pass armor piercing rank
-          targetArmorRank // Pass target's armor rank
+          targetArmorRank, // Pass target's armor rank
+          undefined,
+          undefined,
+          attackData.targetArmorOnly
         );
 
         // Handle case where damage application failed
@@ -2003,6 +2045,16 @@ export async function executeCombatAttack(
             damageApplicationText = `${piercingText}<div style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${armorText}</div>`;
           } else if (damageApplication.healthDamage > 0) {
             damageApplicationText = `${piercingText}<div style="font-size: 0.8rem; background: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+          }
+
+          // Leech/life-link: heal the attacker for a percentage of the health damage dealt
+          const leechHealed = await applyLeechHealing(
+            attacker,
+            damageApplication.healthDamage,
+            attackData.leechPercent
+          );
+          if (leechHealed > 0) {
+            damageApplicationText += `<div style="font-size: 0.8rem; background: #dcfce7; color: #166534; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">🩸 ${attacker.name} leeches ${leechHealed} health</div>`;
           }
         }
 
@@ -2305,7 +2357,8 @@ export async function applyPendingDamages(
       pending.armorPiercing, // Pass armor piercing rank
       pending.armorRank, // Pass target's armor rank
       pending.hits.length, // Pass hit count for per-hit degradation
-      pending.hits.map(hit => hit.damage) // Per-hit damage so armor soaks each hit separately
+      pending.hits.map(hit => hit.damage), // Per-hit damage so armor soaks each hit separately
+      pending.targetArmorOnly
     );
 
     // Build summary message showing all hits
@@ -2359,6 +2412,16 @@ export async function applyPendingDamages(
         damageApplicationText = `${piercingText}<div style="font-size: 0.85rem; background: #fef3c7; color: #92400e; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${armorText}</div>`;
       } else if (damageApplication.healthDamage > 0) {
         damageApplicationText = `${piercingText}<div style="font-size: 0.85rem; background: #fee2e2; color: #991b1b; padding: 0.35rem 0.5rem; border-radius: 3px; margin: 0.35rem 0;">${damageApplication.healthDamage} to health (${damageApplication.newHealthValue} remaining)</div>`;
+      }
+
+      // Leech/life-link: heal the attacker for a percentage of the health damage dealt
+      const leechHealed = await applyLeechHealing(
+        attacker,
+        damageApplication.healthDamage,
+        pending.leechPercent
+      );
+      if (leechHealed > 0) {
+        damageApplicationText += `<div style="font-size: 0.8rem; background: #dcfce7; color: #166534; padding: 0.25rem 0.5rem; border-radius: 3px; margin: 0.25rem 0;">🩸 ${attacker.name} leeches ${leechHealed} health</div>`;
       }
     }
 

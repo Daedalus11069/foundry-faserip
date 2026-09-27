@@ -639,6 +639,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
             karmaResultShift: attackKarma?.resultShift ?? 0,
             manualChartShift: comboResult.manualChartShift ?? 0,
             damageRankBump: comboResult.damageRankBump ?? 0,
+            targetArmorOnly: comboResult.targetArmorOnly || undefined,
             perAttackKarma: {
               damageRankShift: attackKarma?.damageRankShift ?? 0,
               damageBonus: attackKarma?.damageBonus ?? 0
@@ -722,6 +723,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           karmaResultShift: firstAttackKarma?.resultShift ?? 0,
           manualChartShift: comboResult.manualChartShift ?? 0,
           damageRankBump: comboResult.damageRankBump ?? 0,
+          targetArmorOnly: comboResult.targetArmorOnly || undefined,
           perAttackKarma: {
             damageRankShift: firstAttackKarma?.damageRankShift ?? 0,
             damageBonus: firstAttackKarma?.damageBonus ?? 0
@@ -1015,6 +1017,7 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
         talentCS: talentCS > 0 ? talentCS : undefined,
         karmaColumnShifts: attackKarma?.columnShifts ?? 0,
         karmaResultShift: attackKarma?.resultShift ?? 0,
+        targetArmorOnly: comboResult.targetArmorOnly || undefined,
         manualChartShift: comboResult.manualChartShift ?? 0,
         damageRankBump: comboResult.damageRankBump ?? 0,
         perAttackKarma: {
@@ -1258,6 +1261,7 @@ async function rollAllEquippedWeapons() {
         talentCS: talentCS > 0 ? talentCS : undefined,
         karmaColumnShifts: attackKarma?.columnShifts ?? 0,
         karmaResultShift: attackKarma?.resultShift ?? 0,
+        targetArmorOnly: comboResult.targetArmorOnly || undefined,
         manualChartShift: comboResult.manualChartShift ?? 0,
         damageRankBump: comboResult.damageRankBump ?? 0,
         perAttackKarma: {
@@ -1515,6 +1519,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
         karmaResultShift: attackKarma?.resultShift ?? 0,
         manualChartShift: comboResult.manualChartShift ?? 0,
         damageRankBump: comboResult.damageRankBump ?? 0,
+        targetArmorOnly: comboResult.targetArmorOnly || undefined,
         perAttackKarma: {
           damageRankShift: attackKarma?.damageRankShift ?? 0,
           damageBonus: attackKarma?.damageBonus ?? 0
@@ -1605,6 +1610,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
       karmaResultShift: firstAttackKarma?.resultShift ?? 0,
       manualChartShift: comboResult.manualChartShift ?? 0,
       damageRankBump: comboResult.damageRankBump ?? 0,
+      targetArmorOnly: comboResult.targetArmorOnly || undefined,
       perAttackKarma: {
         damageRankShift: firstAttackKarma?.damageRankShift ?? 0,
         damageBonus: firstAttackKarma?.damageBonus ?? 0
@@ -1724,8 +1730,28 @@ async function rollPower(power: any) {
   }
 
   // Auras aren't rolled against a target - using the power toggles its
-  // region on/off instead of running the normal roll/targeting flow.
+  // region on/off instead of running the normal roll/targeting flow. A
+  // life-link aura is the one exception: it still needs a target selected
+  // (like a normal attack/power), since the region is only a range check -
+  // the bond itself is to that specific actor, chosen here at activation.
   if (power.isAura) {
+    if (power.isLifeLink && !isPowerAuraActive(actor, power)) {
+      // @ts-expect-error - game.user.targets is a Set
+      const targets = Array.from(game.user?.targets || []);
+      if (targets.length !== 1) {
+        ui.notifications?.error(
+          `${power.name} is a life-link and needs exactly one target to bond with. Select a target token first.`
+        );
+        return;
+      }
+      const boundTargetActor = (targets[0] as any).actor;
+      if (!boundTargetActor) {
+        ui.notifications?.error(`${power.name}: selected target has no actor.`);
+        return;
+      }
+      await togglePowerAura(actor, power, boundTargetActor);
+      return;
+    }
     await togglePowerAura(actor, power);
     return;
   }
@@ -2266,6 +2292,7 @@ async function rollPower(power: any) {
           talentCS: totalCS > 0 ? totalCS : undefined,
           // Pass karma settings from combo dialog
           karmaColumnShifts: attackKarma?.columnShifts ?? 0,
+          targetArmorOnly: comboResult.targetArmorOnly || undefined,
           karmaResultShift: attackKarma?.resultShift ?? 0,
           manualChartShift: comboResult.manualChartShift ?? 0,
           actionsBeforeThisCombo: actionsBeforePower,
@@ -2273,6 +2300,7 @@ async function rollPower(power: any) {
           comboTotal: comboResult.comboCount,
           multiHit: power.multiHit || false,
           armorPiercing: power.armorPiercing, // Add armor piercing
+          leechPercent: power.leechPercent || undefined,
           statDebuffs: power.statDebuffs,
           damageBuffs: power.damageBuffs,
           dots: power.dots,
@@ -2339,10 +2367,12 @@ async function rollPower(power: any) {
         talentCS: totalCS > 0 ? totalCS : undefined,
         // Pass karma settings from combo dialog
         karmaColumnShifts: firstAttackKarma?.columnShifts ?? 0,
+        targetArmorOnly: comboResult.targetArmorOnly || undefined,
         karmaResultShift: firstAttackKarma?.resultShift ?? 0,
         manualChartShift: comboResult.manualChartShift ?? 0,
         multiHit: power.multiHit || false,
         armorPiercing: power.armorPiercing, // Add armor piercing
+        leechPercent: power.leechPercent || undefined,
         statDebuffs: power.statDebuffs,
         damageBuffs: power.damageBuffs,
         dots: power.dots,

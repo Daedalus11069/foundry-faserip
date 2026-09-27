@@ -313,6 +313,7 @@ export async function showAttackOptionsDialog(
   }>;
   manualChartShift: number;
   damageRankBump: number;
+  targetArmorOnly?: boolean;
   hasExhaustion?: boolean;
 } | null> {
   const result = await VueDialog.show(
@@ -351,6 +352,7 @@ export async function showAttackOptionsDialog(
     }>;
     manualChartShift: number;
     damageRankBump: number;
+    targetArmorOnly?: boolean;
     hasExhaustion?: boolean;
   } | null;
 }

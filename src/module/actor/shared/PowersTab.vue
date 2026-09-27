@@ -102,6 +102,15 @@ const filteredPowers = computed(() => {
     if (!power.armorPiercing) {
       power.armorPiercing = null;
     }
+    if (power.leechPercent === undefined) {
+      power.leechPercent = 0;
+    }
+    if (power.lifeLinkPercent === undefined) {
+      power.lifeLinkPercent = 0;
+    }
+    if (!power.lifeLinkDirection) {
+      power.lifeLinkDirection = "protect";
+    }
     ensureStatDebuffs(power);
     ensureDamageBuffs(power);
     ensureDots(power);
@@ -164,13 +173,17 @@ function addPower() {
     resistanceType: undefined,
     vulnerabilityType: undefined,
     armorPiercing: null,
+    leechPercent: 0,
     statDebuffs: [],
     damageBuffs: [],
     dots: [],
     isAura: false,
     auraDisposition: "any",
     auraIncludeSelf: false,
-    autoHealEachRound: false
+    autoHealEachRound: false,
+    isLifeLink: false,
+    lifeLinkPercent: 0,
+    lifeLinkDirection: "protect"
   };
   reactiveActor.system.powers.push(newPower);
 }
@@ -326,6 +339,8 @@ function toggleItem(id: string) {
             vs {{ power.attackType === 'melee' ? 'Fighting' : power.attackType === 'ranged' ? 'Agility' : power.attackType === 'strength' ? 'Strength' : 'Psyche' }}
           </span>
           <span v-if="power.armorPiercing" class="text-xs px-2 py-0.5 rounded bg-purple-900/60 text-purple-300 shrink-0">AP</span>
+          <span v-if="power.leechPercent" class="text-xs px-2 py-0.5 rounded bg-red-900/60 text-red-300 shrink-0">Leech {{ power.leechPercent }}%</span>
+          <span v-if="power.isLifeLink" class="text-xs px-2 py-0.5 rounded bg-pink-900/60 text-pink-300 shrink-0">Life-Link {{ power.lifeLinkPercent }}% ({{ power.lifeLinkDirection }})</span>
           <span v-if="power.isAura" class="text-xs px-2 py-0.5 rounded shrink-0" :class="isPowerAuraActive(actor, power) ? 'bg-purple-600 text-white' : 'bg-purple-900/60 text-purple-300'">
             {{ isPowerAuraActive(actor, power) ? 'Aura Active' : 'Aura' }}
           </span>
@@ -536,6 +551,40 @@ function toggleItem(id: string) {
                   />
                   <span class="fsr-label mb-0">Include Self</span>
                 </label>
+              </div>
+            </div>
+
+            <div v-if="power.isAura" class="pt-2 border-t border-purple-800/60">
+              <label class="flex items-center gap-2 cursor-pointer mb-0">
+                <input
+                  v-model="power.isLifeLink"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
+                />
+                <span class="fsr-label mb-0"
+                  >Life-Link <span class="fsr-help-text">(bonds the owner to a SPECIFIC target selected when activated, redirecting a % of health damage between them - the aura region is only a range check, the target must stay within it for the bond to work)</span></span
+                >
+              </label>
+
+              <div v-if="power.isLifeLink" class="grid grid-cols-2 gap-2 mt-2">
+                <div>
+                  <label class="fsr-label">Direction</label>
+                  <select v-model="power.lifeLinkDirection" class="fsr-select text-sm">
+                    <option value="protect">Owner protects others (owner takes the damage)</option>
+                    <option value="share">Owner shares own damage (others take the damage)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="fsr-label">Redirect %</label>
+                  <input
+                    type="number"
+                    v-model.number="power.lifeLinkPercent"
+                    min="0"
+                    max="100"
+                    class="fsr-input text-sm"
+                    placeholder="0"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -912,6 +961,17 @@ function toggleItem(id: string) {
                   {{ label }}
                 </option>
               </select>
+            </div>
+            <div v-if="power.effectType === 'damage'">
+              <label class="fsr-label">Leech / Life-Link %</label>
+              <input
+                type="number"
+                v-model.number="power.leechPercent"
+                min="0"
+                max="100"
+                class="fsr-input text-sm"
+                placeholder="0"
+              />
             </div>
             <div v-if="power.effectType === 'none'">
               <label class="fsr-label">Resistance Type</label>

@@ -161,12 +161,16 @@ export interface PowerData {
   skipDialogs?: boolean; // Roll directly without talent/combo dialogs
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   armorPiercing?: string | null; // Armor-piercing rank (for damage powers that pierce armor)
+  leechPercent?: number; // Life-link/leech: % of health damage dealt to the target that heals the attacker (0-100)
   statDebuffs?: PowerStatDebuffData[];
   damageBuffs?: PowerDamageDebuffData[];
   dots?: PowerDotData[];
   isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
+  isLifeLink?: boolean; // Bonds the owner to whoever is in the aura region, redirecting a % of health damage between them
+  lifeLinkPercent?: number; // % of health damage redirected by the life-link bond (0-100)
+  lifeLinkDirection?: "protect" | "share"; // "protect": the owner soaks damage for others in range. "share": the owner offloads their own damage onto others in range
   autoHealEachRound?: boolean; // For heal-health/heal-armor powers: apply Rank value automatically at the start of every round
 }
 

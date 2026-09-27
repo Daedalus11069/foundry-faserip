@@ -164,9 +164,26 @@ export function isPowerAuraActive(actor: any, power: any): boolean {
  * on the owner token's current scene carrying those RESOLVED shifts. Nothing
  * is rolled again when someone enters/leaves the region - see the file
  * header comment.
+ *
+ * A life-link aura (power.isLifeLink) is bound to a SPECIFIC target actor
+ * chosen at cast time (`boundTarget`, required in that case) - the region is
+ * only a range check (must stay within it to keep the bond active), not a
+ * "whoever wanders in" effect like a stat/damage aura. See
+ * getActiveLifeLinkRedirect, which only redirects for that one bound actor.
  */
-export async function activatePowerAura(actor: any, power: any): Promise<void> {
+export async function activatePowerAura(
+  actor: any,
+  power: any,
+  boundTarget?: any
+): Promise<void> {
   if (isPowerAuraActive(actor, power)) return;
+
+  if (power.isLifeLink && !boundTarget) {
+    ui.notifications?.error(
+      `${power.name} is a life-link and needs a target to bond with. Select a target token first.`
+    );
+    return;
+  }
 
   // Clear any stale flag entry (pointing at a region that no longer exists)
   // before creating a fresh one, so it doesn't linger as an orphaned key.
@@ -250,7 +267,9 @@ export async function activatePowerAura(actor: any, power: any): Promise<void> {
           disposition: power.auraDisposition ?? "any",
           includeSelf: !!power.auraIncludeSelf,
           resolvedStatShifts,
-          resolvedDamageShift
+          resolvedDamageShift,
+          lifeLinkPercent: power.isLifeLink ? power.lifeLinkPercent || 0 : 0,
+          lifeLinkDirection: power.lifeLinkDirection ?? "protect"
         },
         flags: {
           faserip: {
@@ -258,7 +277,9 @@ export async function activatePowerAura(actor: any, power: any): Promise<void> {
             ownerActorId: actor.id,
             sourcePowerId: power.id,
             indefinite,
-            roundsRemaining
+            roundsRemaining,
+            lifeLinkTargetActorId: power.isLifeLink ? boundTarget.id : undefined,
+            lifeLinkTargetName: power.isLifeLink ? boundTarget.name : undefined
           }
         }
       }
@@ -283,7 +304,9 @@ export async function activatePowerAura(actor: any, power: any): Promise<void> {
     resolvedDamageShift !== 0
       ? `Damage ${resolvedDamageShift > 0 ? "+" : ""}${resolvedDamageShift}CS`
       : "";
-  const effectText = [statText, damageText].filter(Boolean).join(" | ") || "no effect configured";
+  const effectText = power.isLifeLink
+    ? `Life-Link (${power.lifeLinkDirection ?? "protect"}, ${power.lifeLinkPercent || 0}%) bonded to <strong>${boundTarget.name}</strong>`
+    : [statText, damageText].filter(Boolean).join(" | ") || "no effect configured";
 
   const durationText = indefinite
     ? "until removed"
@@ -324,12 +347,20 @@ export async function deactivatePowerAura(actor: any, power: any): Promise<void>
   }
 }
 
-/** Toggle a power's aura on/off - the entry point wired into rollPower. */
-export async function togglePowerAura(actor: any, power: any): Promise<void> {
+/**
+ * Toggle a power's aura on/off - the entry point wired into rollPower.
+ * `boundTarget` is only used (and required) when activating a life-link
+ * power - see activatePowerAura.
+ */
+export async function togglePowerAura(
+  actor: any,
+  power: any,
+  boundTarget?: any
+): Promise<void> {
   if (isPowerAuraActive(actor, power)) {
     await deactivatePowerAura(actor, power);
   } else {
-    await activatePowerAura(actor, power);
+    await activatePowerAura(actor, power, boundTarget);
   }
 }
 
@@ -372,7 +403,48 @@ export async function tickPowerAuraRegions(): Promise<void> {
         if ((behavior as any).type !== "powerAura") continue;
 
         const flags = (behavior as any).flags?.faserip;
-        if (!flags || flags.indefinite || flags.roundsRemaining === undefined) {
+        if (!flags) continue;
+
+        // Life-link safety net: the tokenExit handler (see
+        // PowerAuraRegionBehaviorType) already cancels the power the moment
+        // its bound target steps out of range, but Region events aren't
+        // guaranteed to fire (token deleted/teleported, scene swapped, etc.)
+        // - see region-effects.ts's header comment. Catch anything that slips
+        // through here, once per round, by directly checking whether the
+        // bound target is still an occupant of the region right now.
+        const boundTargetActorId: string | undefined =
+          (behavior as any).system?.lifeLinkPercent > 0
+            ? flags.lifeLinkTargetActorId
+            : undefined;
+        if (boundTargetActorId) {
+          const stillInRange = Array.from(
+            (region as any).tokens ?? []
+          ).some((t: any) => t.actor?.id === boundTargetActorId);
+          if (!stillInRange) {
+            const ownerActor = flags.ownerActorId
+              ? game.actors?.get(flags.ownerActorId)
+              : null;
+            if (ownerActor && flags.sourcePowerId) {
+              await deactivatePowerAura(ownerActor, {
+                id: flags.sourcePowerId,
+                name: (region as any).name ?? "Life-Link"
+              });
+              const boundTargetActor = game.actors?.get(boundTargetActorId);
+              if (boundTargetActor) {
+                await setLifeLinkIndicator(boundTargetActor, false);
+              }
+              await ChatMessage.create({
+                content: `<div class="fsr-combat-message" style="background: #7f1d1d; color: #fecaca; padding: 0.5rem; border-radius: 4px;">
+                  <strong>Life-Link Broken</strong>
+                  <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem;">${flags.lifeLinkTargetName ?? "The bonded target"} is out of range - the bond has been cancelled.</p>
+                </div>`
+              });
+            }
+            continue;
+          }
+        }
+
+        if (flags.indefinite || flags.roundsRemaining === undefined) {
           continue;
         }
 
@@ -394,4 +466,131 @@ export async function tickPowerAuraRegions(): Promise<void> {
       }
     }
   }
+}
+
+/**
+ * Create/remove a purely cosmetic "Life-Linked" ActiveEffect on the actor so
+ * the bond is visible as a status icon on the token/sheet. Like
+ * setPowersNegatedIndicator (power-negation.ts), this is display-only and
+ * best-effort - it depends on the Region tokenEnter/tokenExit events actually
+ * firing - and is NOT consulted by getActiveLifeLinkRedirect, which computes
+ * the real redirect live from region containment instead.
+ */
+export async function setLifeLinkIndicator(
+  actor: any,
+  linked: boolean
+): Promise<void> {
+  const existing = actor.effects?.filter(
+    (effect: any) => effect.flags?.faserip?.lifeLinked === true
+  );
+
+  if (linked) {
+    if (existing?.length) return;
+    await actor.createEmbeddedDocuments("ActiveEffect", [
+      {
+        name: "Life-Linked",
+        img: "icons/svg/regen.svg",
+        statuses: ["faseripLifeLink"],
+        changes: [],
+        flags: { faserip: { lifeLinked: true } }
+      }
+    ]);
+  } else if (existing?.length) {
+    await actor.deleteEmbeddedDocuments(
+      "ActiveEffect",
+      existing.map((effect: any) => effect.id)
+    );
+  }
+}
+
+export interface LifeLinkRedirect {
+  redirectActor: any; // FaseripActor to redirect a share of health damage to
+  percent: number;
+}
+
+/**
+ * "protect" direction: is `actor` the SPECIFIC target bound to someone else's
+ * active life-link aura (chosen when it was cast - see activatePowerAura),
+ * and are they currently within its range? Reuses getApplicableAuraBehaviors
+ * for the containment/disposition check (the region is only a range check),
+ * then requires the aura's bound target to actually be this actor - a
+ * life-link never protects/shares with bystanders who merely wander into the
+ * region.
+ */
+function getProtectingLifeLink(actor: any): LifeLinkRedirect | null {
+  for (const behavior of getApplicableAuraBehaviors(actor)) {
+    const percent = Number(behavior.system?.lifeLinkPercent || 0);
+    if (percent <= 0 || behavior.system?.lifeLinkDirection !== "protect") {
+      continue;
+    }
+
+    const boundTargetActorId = behavior.flags?.faserip?.lifeLinkTargetActorId;
+    if (!boundTargetActorId || boundTargetActorId !== actor.id) continue;
+
+    const ownerActorId = behavior.flags?.faserip?.ownerActorId;
+    const ownerActor = ownerActorId ? game.actors?.get(ownerActorId) : null;
+    if (!ownerActor || ownerActor.id === actor.id) continue;
+
+    return { redirectActor: ownerActor, percent };
+  }
+  return null;
+}
+
+/**
+ * "share" direction: does `actor` OWN an active life-link aura configured to
+ * share its own damage outward, AND is that aura's specific bound target
+ * (chosen at cast time) currently within range (i.e. currently an occupant
+ * of the region, per the core Region document's own `tokens` set)? If the
+ * bound target has stepped out of range, the bond simply doesn't redirect
+ * anything right now - it does NOT fall back to redirecting onto whoever
+ * else happens to be nearby.
+ */
+function getSharingLifeLink(actor: any): LifeLinkRedirect | null {
+  const regionMap = getAuraRegionMap(actor);
+
+  for (const [powerId, regionId] of Object.entries(regionMap)) {
+    const region = findAuraRegion(regionId);
+    if (!region) continue;
+
+    const behavior = (region.behaviors ?? []).find(
+      (b: any) =>
+        b.type === "powerAura" && b.flags?.faserip?.sourcePowerId === powerId
+    );
+    const percent = Number(behavior?.system?.lifeLinkPercent || 0);
+    if (percent <= 0 || behavior?.system?.lifeLinkDirection !== "share") {
+      continue;
+    }
+
+    const boundTargetActorId = behavior.flags?.faserip?.lifeLinkTargetActorId;
+    if (!boundTargetActorId) continue;
+
+    const ownerToken = actor?.getActiveTokens?.(true)?.[0];
+
+    for (const tokenDoc of region.tokens ?? []) {
+      const occupantActor = tokenDoc.actor;
+      if (!occupantActor || occupantActor.id !== boundTargetActorId) continue;
+
+      if (behavior.system.disposition !== "any") {
+        const relation = resolveAuraRelation(
+          ownerToken?.document?.disposition,
+          tokenDoc.disposition
+        );
+        if (relation !== behavior.system.disposition) continue;
+      }
+
+      return { redirectActor: occupantActor, percent };
+    }
+  }
+  return null;
+}
+
+/**
+ * Live-computed life-link redirect for `actor` taking damage right now - see
+ * faserip-socket.ts's handleApplyDamage, the only caller. Checks "protect"
+ * (someone else is shielding `actor`) before "share" (`actor` is offloading
+ * its own damage onto someone else); only one redirect applies per hit even
+ * if both were somehow active at once.
+ */
+export function getActiveLifeLinkRedirect(actor: any): LifeLinkRedirect | null {
+  return getProtectingLifeLink(actor) ?? getSharingLifeLink(actor);
 }

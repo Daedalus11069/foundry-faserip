@@ -349,6 +349,14 @@ export function definePowerRefSchema() {
       nullable: true,
       initial: null
     }),
+    leechPercent: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      max: 100,
+      initial: 0,
+      label: "Leech/Life-Link: % of health damage dealt that heals the attacker"
+    }),
     targetType: new StringField({
       required: false,
       initial: "any",
@@ -467,6 +475,23 @@ export function definePowerRefSchema() {
       required: false,
       initial: false,
       label: "Automatically heal Rank value at the start of every round"
+    }),
+    isLifeLink: new BooleanField({
+      required: false,
+      initial: false,
+      label: "Life-Link: bonds the owner to whoever is in the aura region"
+    }),
+    lifeLinkPercent: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      max: 100,
+      initial: 0
+    }),
+    lifeLinkDirection: new StringField({
+      required: false,
+      initial: "protect",
+      choices: ["protect", "share"]
     })
   });
 }

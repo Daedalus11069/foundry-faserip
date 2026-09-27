@@ -628,6 +628,15 @@ const initHandler = () => {
     img: "icons/svg/blind.svg"
   });
 
+  // Register the "Life-Linked" status so a life-link bond (see
+  // setLifeLinkIndicator/getActiveLifeLinkRedirect in utils/power-aura.ts)
+  // shows a labeled icon on both bonded tokens
+  CONFIG.statusEffects.push({
+    id: "faseripLifeLink",
+    name: "Life-Linked",
+    img: "icons/svg/regen.svg"
+  });
+
   // Register "Force Next Roll: Critical/Failure" statuses - toggling them via
   // the token HUD applies the same flags.faserip.kind "forcedResult" temp
   // effect data as the Effects tab buttons (see EffectsTab.vue), so

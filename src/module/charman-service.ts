@@ -120,6 +120,7 @@ export interface CharmanPower {
   vulnerabilityType?: string; // Type of damage this power is weak to (for vulnerability/weakness powers)
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   armorPiercing?: string | null; // Armor-piercing rank (optional)
+  leechPercent?: number; // Life-link/leech: % of health damage dealt that heals the attacker (0-100)
   targetType?: "any" | "others" | "self"; // Who this power can target
   statDebuffs?: CharmanPowerStatDebuff[]; // Temporary stat debuffs applied on hit
   damageBuffs?: CharmanPowerDamageBuff[]; // Temporary damage buffs/debuffs applied on hit
@@ -127,6 +128,9 @@ export interface CharmanPower {
   isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
+  isLifeLink?: boolean; // Bonds the owner to a target selected on cast, redirecting a % of health damage between them while the target stays within the aura's range
+  lifeLinkPercent?: number; // % of health damage redirected by the life-link bond (0-100)
+  lifeLinkDirection?: "protect" | "share"; // "protect": owner soaks damage for the target. "share": owner offloads their own damage onto the target
 }
 
 export interface CharmanTalent {
@@ -627,6 +631,7 @@ export class CharmanService {
         vulnerabilityType: power.vulnerabilityType || undefined,
         multiHit: power.multiHit || false,
         armorPiercing: power.armorPiercing || null,
+        leechPercent: power.leechPercent || 0,
         targetType: power.targetType || "any",
         statDebuffs: (power.statDebuffs || []).map(sd => ({
           enabled: sd.enabled ?? false,
@@ -652,6 +657,9 @@ export class CharmanService {
         isAura: power.isAura || false,
         auraDisposition: power.auraDisposition || "any",
         auraIncludeSelf: power.auraIncludeSelf || false,
+        isLifeLink: power.isLifeLink || false,
+        lifeLinkPercent: power.lifeLinkPercent || 0,
+        lifeLinkDirection: power.lifeLinkDirection || "protect",
         value: power.value || getRankValue(rankName),
         maxValue: power.maxValue || getRankValue(rankName)
       };

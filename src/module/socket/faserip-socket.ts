@@ -10,6 +10,7 @@ import { VueDialog } from "../applications/vue-dialog";
 import { formatRankDisplay } from "../enums";
 import type { BaseActorSystemData } from "../types/actor-system";
 import { applyDamageToActor } from "../utils/damage-application";
+import { getActiveLifeLinkRedirect } from "../utils/power-aura";
 import type { ArmorPiercingResult } from "../utils/armor-piercing";
 import { getEffectiveAttributeData } from "../utils/stat-debuffs";
 import { applyTemporaryModifier } from "../utils/temp-effects";
@@ -177,6 +178,7 @@ export function initializeSocket(): void {
   socket.register("promptCounterAttack", handleCounterAttackPrompt);
   socket.register("cancelCounterAttackPrompt", handleCancelCounterAttackPrompt);
   socket.register("applyDamage", handleApplyDamage);
+  socket.register("applyLifeLinkRedirect", handleApplyLifeLinkRedirect);
   socket.register("applyStatDebuff", handleApplyStatDebuff);
   socket.register("applyDamageBuff", handleApplyDamageBuff);
   socket.register("applyDot", handleApplyDot);
@@ -1168,6 +1170,7 @@ interface ApplyDamageData {
   armorRank?: string; // Target's armor rank (optional)
   hitCount?: number; // Number of hits for per-hit armor degradation
   hitDamages?: number[]; // Per-hit damage amounts (armor soaks each hit separately)
+  targetArmorOnly?: boolean; // Attack is aimed at armor: ignores armor piercing, no overflow to health
   armorUpdates?: any[]; // Legacy: Deprecated - armor is now Item documents
   powerUpdates?: any[];
 }
@@ -1185,7 +1188,8 @@ export async function requestDamageApplication(
   armorPiercing?: string | null,
   armorRank?: string,
   hitCount?: number,
-  hitDamages?: number[]
+  hitDamages?: number[],
+  targetArmorOnly?: boolean
 ): Promise<{
   armorDamage: number;
   healthDamage: number;
@@ -1209,7 +1213,8 @@ export async function requestDamageApplication(
         armorPiercing,
         armorRank,
         hitCount,
-        hitDamages
+        hitDamages,
+        targetArmorOnly
       });
     }
     console.error("FASERIP Socket | Cannot apply damage locally");
@@ -1228,7 +1233,8 @@ export async function requestDamageApplication(
       armorPiercing,
       armorRank,
       hitCount,
-      hitDamages
+      hitDamages,
+      targetArmorOnly
     });
   }
 
@@ -1242,7 +1248,8 @@ export async function requestDamageApplication(
     armorPiercing,
     armorRank,
     hitCount,
-    hitDamages
+    hitDamages,
+    targetArmorOnly
   });
 
   return result;
@@ -1334,8 +1341,46 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     armorPiercing: data.armorPiercing,
     armorRank: data.armorRank,
     hitCount: data.hitCount,
-    hitDamages: data.hitDamages
+    hitDamages: data.hitDamages,
+    targetArmorOnly: data.targetArmorOnly
   });
+
+  // Life-link: redirect a % of the health damage just dealt onto a bonded
+  // actor instead (see getActiveLifeLinkRedirect in utils/power-aura.ts).
+  // Only the FINAL health-damage number is split (after armor/resistance) -
+  // the redirected share is applied to the linked actor as-is, not re-run
+  // through their own armor/resistance. Single hop only: the linked actor's
+  // own life-link (if any) is not itself checked, to avoid infinite chains.
+  if (result.healthDamage > 0) {
+    const redirect = getActiveLifeLinkRedirect(targetActor);
+    if (redirect && redirect.redirectActor.id !== targetActor.id) {
+      const redirectedAmount = Math.round(
+        result.healthDamage * (redirect.percent / 100)
+      );
+      if (redirectedAmount > 0) {
+        let redirectFormId = system.currentFormId;
+        if (!redirectFormId && system.forms?.length > 0) {
+          const primaryForm = system.forms.find((f: any) => f.isPrimary);
+          redirectFormId = primaryForm ? primaryForm.id : system.forms[0].id;
+        }
+        if (!redirectFormId) redirectFormId = "default";
+
+        result.healthDamage -= redirectedAmount;
+        result.newHealthValue += redirectedAmount;
+        system.healthByForm[redirectFormId] = result.newHealthValue;
+
+        await requestLifeLinkRedirect(redirect.redirectActor, redirectedAmount);
+
+        await ChatMessage.create({
+          content: `<div class="fsr-chat-card">
+            <h3>Life-Link</h3>
+            <p><strong>${redirect.redirectActor.name}</strong> is bonded to <strong>${targetActor.name}</strong> and takes <strong>${redirectedAmount}</strong> of the health damage instead.</p>
+          </div>`,
+          speaker: ChatMessage.getSpeaker({ actor: targetActor })
+        });
+      }
+    }
+  }
 
   // Show resistance chat messages if applicable
   if (result.resistanceRollResult) {
@@ -1533,6 +1578,83 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   };
 
   return returnResult;
+}
+
+/**
+ * Life-link: apply a pre-computed, already-mitigated health-damage share to
+ * a bonded actor (armor/resistance were already applied once to the original
+ * target in handleApplyDamage - this is a raw health subtraction only, no
+ * second mitigation pass). Routed through socket like requestDamageApplication
+ * so it lands on the redirect actor's own owner's client.
+ */
+async function requestLifeLinkRedirect(
+  targetActor: FaseripActor,
+  amount: number
+): Promise<void> {
+  const data = { targetActorId: targetActor.id!, amount };
+
+  if (!socket) {
+    // @ts-expect-error - Foundry game.user global
+    if (game.user?.isGM || targetActor.isOwner) {
+      await handleApplyLifeLinkRedirect(data);
+    }
+    return;
+  }
+
+  const owner = findTokenControllers(targetActor)[0];
+  if (!owner) {
+    await handleApplyLifeLinkRedirect(data);
+    return;
+  }
+
+  await socket.executeAsUser("applyLifeLinkRedirect", owner.id, data);
+}
+
+async function handleApplyLifeLinkRedirect(data: {
+  targetActorId: string;
+  amount: number;
+}): Promise<void> {
+  // @ts-expect-error - Foundry game.actors collection
+  const targetActor = game.actors?.get(data.targetActorId) as
+    | FaseripActor
+    | undefined;
+  if (!targetActor) {
+    console.error("FASERIP Socket | Life-link redirect target not found");
+    return;
+  }
+
+  // @ts-expect-error - Foundry game.user global
+  if (!game.user?.isGM && !targetActor.isOwner) {
+    console.warn(
+      "FASERIP Socket | User doesn't own life-link redirect target"
+    );
+    return;
+  }
+
+  const system = targetActor.system as any;
+  let currentFormId = system.currentFormId;
+  if (!currentFormId && system.forms?.length > 0) {
+    const primaryForm = system.forms.find((f: any) => f.isPrimary);
+    currentFormId = primaryForm ? primaryForm.id : system.forms[0].id;
+  }
+  if (!currentFormId) currentFormId = "default";
+
+  const healthByForm = system.healthByForm || {};
+  const currentHealth =
+    healthByForm[currentFormId] ?? system.resources?.health?.value ?? 0;
+  const newHealthValue = Math.max(-20, currentHealth - data.amount);
+
+  await targetActor.update({
+    [`system.healthByForm.${currentFormId}`]: newHealthValue
+  } as Record<string, unknown>);
+
+  if (newHealthValue <= -20) {
+    await targetActor.toggleStatusEffect("dead", { active: true });
+  }
+
+  for (const token of targetActor.getActiveTokens()) {
+    token.drawBars();
+  }
 }
 
 async function handleApplyStatDebuff(

@@ -98,6 +98,7 @@ const pendingIncomingShiftTotal = computed(() =>
 const comboCount = ref(1);
 const manualChartShift = ref(0);
 const damageRankBump = ref(0);
+const targetArmorOnly = ref(false);
 const attackKarmaSettings = ref<AttackKarma[]>([
   { columnShifts: 0, resultShift: 0, damageRankShift: 0, damageBonus: 0 }
 ]);
@@ -338,6 +339,7 @@ function handleSubmit() {
     attackKarmaSettings: attackKarmaSettings.value,
     manualChartShift: manualChartShift.value,
     damageRankBump: damageRankBump.value,
+    targetArmorOnly: targetArmorOnly.value,
     hasExhaustion: hasExhaustionWarning.value
   });
 }
@@ -531,6 +533,19 @@ function handleCancel() {
           ({{ formatRankDisplay(attackRank) }} →
           {{ formatRankDisplay(applyChartShift(attackRank, damageRankBump)) }})
         </span>
+      </div>
+    </div>
+
+    <!-- Target Armor -->
+    <div class="f-group mb-4 p-3 bg-gray-800 rounded border border-gray-700">
+      <label class="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+        <input type="checkbox" v-model="targetArmorOnly" />
+        Target Armor
+      </label>
+      <div class="text-xs text-gray-400 mt-1">
+        Aim the attack at the target's armor instead of their body. Ignores
+        armor piercing, and damage that exceeds the armor's capacity is
+        wasted rather than spilling over to health.
       </div>
     </div>
 

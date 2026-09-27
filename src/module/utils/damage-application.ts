@@ -42,6 +42,7 @@ export interface DamageApplicationData {
   armorRank?: string; // Target's armor rank (optional)
   hitCount?: number; // Number of hits that contributed to this damage (for per-hit degradation)
   hitDamages?: number[]; // Per-hit damage amounts (for cumulative combo damage - armor soaks each hit separately)
+  targetArmorOnly?: boolean; // Attack is aimed at armor specifically: ignores armor piercing and any overflow beyond armor's capacity is not applied to health
 }
 
 /**
@@ -113,9 +114,11 @@ export async function applyDamageToActor(
   let piercingResult: ArmorPiercingResult | undefined;
 
   // Calculate effective armor with piercing
+  // An attack aimed specifically at armor ignores armor piercing entirely -
+  // it's trying to wear the armor down, not bypass it.
   let effectiveArmor = totalArmor;
 
-  if (data.armorPiercing && totalArmor > 0) {
+  if (data.armorPiercing && totalArmor > 0 && !data.targetArmorOnly) {
     piercingResult = calculateArmorPiercing(
       totalArmor,
       data.armorRank as Rank,
@@ -265,6 +268,12 @@ export async function applyDamageToActor(
     }
     // "none" mode: No degradation, armor soaks but keeps full value
 
+    // An attack aimed at armor only damages armor - any overflow beyond what
+    // the armor could soak is wasted rather than spilling into health.
+    if (data.targetArmorOnly) {
+      overflow = 0;
+    }
+
     // Check resistance for overflow damage (roll-based system)
     if (overflow > 0 && data.damageType && data.damageType !== "none") {
       resistanceRollResult = await rollResistance(
@@ -284,6 +293,9 @@ export async function applyDamageToActor(
     if (overflow > 0) {
       healthDamage = overflow;
     }
+  } else if (data.targetArmorOnly) {
+    // No armor to target - an armor-only attack has nothing to hit.
+    healthDamage = 0;
   } else {
     // No armor - check resistance for all damage (roll-based system)
     let actualDamage = damage;
