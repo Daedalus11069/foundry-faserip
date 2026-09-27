@@ -11,7 +11,8 @@ import {
   requestCounterAttackResponse,
   requestStatDebuffApplication,
   requestDamageBuffApplication,
-  requestDotApplication
+  requestDotApplication,
+  requestStatusEffectApplication
 } from "../socket/faserip-socket";
 import { showAttackOptionsDialog } from "../applications/dialog-utils";
 import {
@@ -37,6 +38,7 @@ import type {
   PowerStatDebuffData,
   PowerDamageDebuffData,
   PowerDotData,
+  PowerStatusEffectData,
   WeaponAreaOfEffectData
 } from "../types/actor-system";
 import {
@@ -82,6 +84,7 @@ interface AttackData {
   statDebuffs?: PowerStatDebuffData[]; // Optional temporary stat debuffs to apply on hit
   damageBuffs?: PowerDamageDebuffData[]; // Optional temporary damage buffs/debuffs to apply on hit
   dots?: PowerDotData[]; // Optional damage-over-time effects to apply on hit
+  statusEffects?: PowerStatusEffectData[]; // Optional Foundry status conditions (sleep, stun, prone, etc.) to apply on hit
   areaOfEffect?: WeaponAreaOfEffectData; // Optional region template placed centered on the target on hit
   deferDamageApplication?: boolean; // True to accumulate damage without applying (for cumulative combo damage)
   comboBotchCount?: number; // Optional: Number of botches so far in this combo (for cumulative penalty)
@@ -182,6 +185,14 @@ interface AppliedDotResult {
   durationFormula: string;
 }
 
+interface AppliedStatusEffectResult {
+  statusId: string;
+  statusLabel: string;
+  roundsRemaining: number;
+  indefinite: boolean;
+  durationFormula: string;
+}
+
 function getStatModifierLabel(chartShift: number): string {
   if (chartShift > 0) {
     return "Buff applied";
@@ -232,6 +243,16 @@ function buildDamageModifierHtml(
 ): string {
   const style = getStatModifierStyle(applied.chartShift);
   return `<div style="font-size: 0.8rem; background: ${style.background}; color: ${style.color}; padding: 0.25rem 0.5rem; border-radius: 3px; ${margin}">${getStatModifierLabel(applied.chartShift)}: <strong>${applied.chartShift > 0 ? "+" : ""}${applied.chartShift} CS Damage</strong> for <strong>${applied.roundsRemaining}</strong> rounds (${applied.durationFormula})</div>`;
+}
+
+function buildStatusEffectHtml(
+  applied: AppliedStatusEffectResult,
+  margin = "margin: 0.25rem 0;"
+): string {
+  const durationText = applied.indefinite
+    ? "until removed"
+    : `for <strong>${applied.roundsRemaining}</strong> rounds (${applied.durationFormula})`;
+  return `<div style="font-size: 0.8rem; background: #ede9fe; color: #5b21b6; padding: 0.25rem 0.5rem; border-radius: 3px; ${margin}">Status applied: <strong>${applied.statusLabel}</strong> ${durationText}</div>`;
 }
 
 /**
@@ -438,6 +459,61 @@ export async function applyHitDamageOverTime(
     dotRank,
     armorPiercing: dot.armorPiercing || null,
     roundsRemaining,
+    durationFormula
+  };
+}
+
+export async function applyHitStatusEffect(
+  targetActor: FaseripActor,
+  targetTokenId: string,
+  statusEffect: PowerStatusEffectData | null | undefined,
+  attackData: Partial<AttackData>
+): Promise<AppliedStatusEffectResult | null> {
+  if (!statusEffect?.enabled || !statusEffect.statusId) {
+    return null;
+  }
+
+  const durationFormula = statusEffect.durationFormula?.trim() || "1d3";
+  const duration = await rollEntryDuration(durationFormula);
+
+  if (duration.roll) {
+    await duration.roll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor: targetActor }),
+      flavor: `<strong>${attackData.powerName || "Status Effect"}</strong> Duration Roll (${durationFormula})`
+    });
+  }
+
+  const sourceName = attackData.powerName || "Unknown Source";
+
+  const applied = await requestStatusEffectApplication(targetActor, {
+    targetActorId: targetActor.id!,
+    targetTokenId,
+    statusId: statusEffect.statusId,
+    roundsRemaining: duration.roundsRemaining,
+    indefinite: duration.indefinite,
+    sourcePowerId: attackData.powerName,
+    sourcePowerName: sourceName,
+    durationFormula,
+    combatId: (game as any).combat?.id ?? null
+  });
+
+  if (!applied) {
+    return null;
+  }
+
+  const statusConfig = (CONFIG.statusEffects as any[]).find(
+    s => s.id === statusEffect.statusId
+  );
+  const statusLabel =
+    (typeof statusConfig?.name === "string"
+      ? ((game as any).i18n?.localize(statusConfig.name) ?? statusConfig.name)
+      : statusEffect.statusId) || statusEffect.statusId;
+
+  return {
+    statusId: statusEffect.statusId,
+    statusLabel,
+    roundsRemaining: duration.roundsRemaining,
+    indefinite: duration.indefinite,
     durationFormula
   };
 }
@@ -1710,6 +1786,7 @@ export async function executeCombatAttack(
       // ActiveEffect on top of the region's live shift).
       const appliedStatDebuffs: AppliedStatDebuffResult[] = [];
       const appliedDamageBuffs: AppliedDamageBuffResult[] = [];
+      const appliedStatusEffects: AppliedStatusEffectResult[] = [];
       if (!attackData.areaOfEffect?.enabled) {
         for (const sd of attackData.statDebuffs ?? []) {
           const applied = await applyHitStatDebuff(
@@ -1739,6 +1816,15 @@ export async function executeCombatAttack(
             attackData,
             damageResult.damage
           );
+        }
+        for (const se of attackData.statusEffects ?? []) {
+          const applied = await applyHitStatusEffect(
+            targetActor,
+            target.id,
+            se,
+            attackData
+          );
+          if (applied) appliedStatusEffects.push(applied);
         }
       }
 
@@ -1832,6 +1918,9 @@ export async function executeCombatAttack(
           .join("");
         damageApplicationText += appliedDamageBuffs
           .map(applied => buildDamageModifierHtml(applied))
+          .join("");
+        damageApplicationText += appliedStatusEffects
+          .map(applied => buildStatusEffectHtml(applied))
           .join("");
 
         // Build damage modifier display text (for deferred damage)
@@ -2064,6 +2153,9 @@ export async function executeCombatAttack(
         damageApplicationText += appliedDamageBuffs
           .map(applied => buildDamageModifierHtml(applied))
           .join("");
+        damageApplicationText += appliedStatusEffects
+          .map(applied => buildStatusEffectHtml(applied))
+          .join("");
 
         // Build compact defense info
         let defenseInfo = "";
@@ -2186,6 +2278,7 @@ export async function executeCombatAttack(
       // by the region instead.
       const appliedStatDebuffs: AppliedStatDebuffResult[] = [];
       const appliedDamageBuffs: AppliedDamageBuffResult[] = [];
+      const appliedStatusEffects: AppliedStatusEffectResult[] = [];
       if (!attackData.areaOfEffect?.enabled) {
         for (const sd of attackData.statDebuffs ?? []) {
           const applied = await applyHitStatDebuff(
@@ -2209,6 +2302,15 @@ export async function executeCombatAttack(
         }
         for (const d of attackData.dots ?? []) {
           await applyHitDamageOverTime(targetActor, target.id, d, attackData);
+        }
+        for (const se of attackData.statusEffects ?? []) {
+          const applied = await applyHitStatusEffect(
+            targetActor,
+            target.id,
+            se,
+            attackData
+          );
+          if (applied) appliedStatusEffects.push(applied);
         }
       }
 
@@ -2269,8 +2371,11 @@ export async function executeCombatAttack(
             ${appliedDamageBuffs
               .map(applied => buildDamageModifierHtml(applied, "margin-top: 0.35rem;"))
               .join("")}
+            ${appliedStatusEffects
+              .map(applied => buildStatusEffectHtml(applied, "margin-top: 0.35rem;"))
+              .join("")}
           </div>
-          
+
           <div style="font-size: 0.75rem; font-style: italic; background: #f9fafb; color: #4b5563; padding: 0.15rem 0.4rem; border-radius: 3px;">Contested roll - no damage dealt</div>
         </div>`
       });

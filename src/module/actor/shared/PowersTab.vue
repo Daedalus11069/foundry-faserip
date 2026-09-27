@@ -72,6 +72,28 @@ function newDot() {
   };
 }
 
+function newStatusEffect() {
+  return {
+    enabled: false,
+    statusId: "",
+    durationFormula: "1d3"
+  };
+}
+
+// Mirrors Foundry's own registered status conditions (sleep, stun, prone,
+// etc.) instead of a hand-maintained list, so any core/module-added status
+// shows up here automatically.
+const statusEffectChoices = computed(() => {
+  // @ts-expect-error - CONFIG.statusEffects is a Foundry global
+  return ((CONFIG.statusEffects as any[]) || [])
+    .map(s => ({
+      value: s.id,
+      // @ts-expect-error - Foundry game.i18n global
+      label: typeof s.name === "string" ? game.i18n.localize(s.name) : s.id
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+});
+
 function ensureStatDebuffs(power: PowerData) {
   if (!power.statDebuffs) {
     power.statDebuffs = [];
@@ -96,6 +118,14 @@ function ensureDots(power: PowerData) {
   return power.dots;
 }
 
+function ensureStatusEffects(power: PowerData) {
+  if (!power.statusEffects) {
+    power.statusEffects = [];
+  }
+
+  return power.statusEffects;
+}
+
 const filteredPowers = computed(() => {
   const all = powers.value.map(power => {
     // Ensure powers without armor piercing have it set to null for consistency
@@ -114,6 +144,7 @@ const filteredPowers = computed(() => {
     ensureStatDebuffs(power);
     ensureDamageBuffs(power);
     ensureDots(power);
+    ensureStatusEffects(power);
     return power;
   });
   if (!filterFormId.value) return all;
@@ -177,6 +208,7 @@ function addPower() {
     statDebuffs: [],
     damageBuffs: [],
     dots: [],
+    statusEffects: [],
     isAura: false,
     auraDisposition: "any",
     auraIncludeSelf: false,
@@ -890,6 +922,92 @@ function toggleItem(id: string) {
                           : '1d3')
                     "
                     class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+                  />
+                  <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
+                </label>
+
+                <div v-if="entry.durationFormula !== 'indefinite'">
+                  <label class="fsr-label">Duration Formula</label>
+                  <input
+                    v-model="entry.durationFormula"
+                    type="text"
+                    class="fsr-input"
+                    placeholder="1d3"
+                  />
+                  <div class="text-xs text-gray-400 mt-1">
+                    Rolled when the effect lands, in rounds.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="mb-2 p-2 bg-indigo-950/30 border border-indigo-800 rounded space-y-2"
+          >
+            <div class="flex items-center justify-between">
+              <span class="fsr-label mb-0">Status Effects</span>
+              <button
+                @click="ensureStatusEffects(power).push(newStatusEffect())"
+                class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs"
+              >
+                + Add
+              </button>
+            </div>
+
+            <div
+              v-for="(entry, idx) in ensureStatusEffects(power)"
+              :key="idx"
+              class="border border-indigo-700 rounded p-2 space-y-2"
+            >
+              <div class="flex items-center justify-between">
+                <label class="flex items-center gap-2 cursor-pointer mb-0">
+                  <input
+                    v-model="entry.enabled"
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <span class="fsr-label mb-0">Enabled</span>
+                </label>
+                <button
+                  @click="ensureStatusEffects(power).splice(idx, 1)"
+                  class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div v-if="entry.enabled" class="space-y-2">
+                <div>
+                  <label class="fsr-label">Status</label>
+                  <select v-model="entry.statusId" class="fsr-select text-sm">
+                    <option value="">Select a status...</option>
+                    <option
+                      v-for="choice in statusEffectChoices"
+                      :key="choice.value"
+                      :value="choice.value"
+                    >
+                      {{ choice.label }}
+                    </option>
+                  </select>
+                </div>
+
+                <div class="text-xs text-gray-400">
+                  Applies this Foundry status condition (sleep, stun, prone, etc.) to the target on a successful hit.
+                </div>
+
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    :checked="entry.durationFormula === 'indefinite'"
+                    @change="
+                      e =>
+                        (entry.durationFormula = (e.target as HTMLInputElement).checked
+                          ? 'indefinite'
+                          : '1d3')
+                    "
+                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
                   />
                   <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
                 </label>

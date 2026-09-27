@@ -132,6 +132,12 @@ export interface PowerDotData {
   durationFormula: string;
 }
 
+export interface PowerStatusEffectData {
+  enabled: boolean;
+  statusId: string; // Foundry CONFIG.statusEffects id (e.g. "sleep", "stun", "prone")
+  durationFormula: string; // Dice formula for rounds, or "indefinite"
+}
+
 export interface WeaponAreaOfEffectData {
   enabled: boolean;
   shape: "circle" | "cone" | "ray" | "rect";
@@ -165,6 +171,7 @@ export interface PowerData {
   statDebuffs?: PowerStatDebuffData[];
   damageBuffs?: PowerDamageDebuffData[];
   dots?: PowerDotData[];
+  statusEffects?: PowerStatusEffectData[]; // Foundry status conditions (sleep, stun, prone, etc.) to apply on hit
   isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
@@ -204,6 +211,10 @@ export interface WeaponData {
   armorPiercing?: string | null; // Armor-piercing rank (for damage calculation)
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
   areaOfEffect?: WeaponAreaOfEffectData; // Region template placed centered on the target on hit
+  statDebuffs?: PowerStatDebuffData[];
+  damageBuffs?: PowerDamageDebuffData[];
+  dots?: PowerDotData[];
+  statusEffects?: PowerStatusEffectData[]; // Foundry status conditions (sleep, stun, prone, etc.) to apply on hit - e.g. tranq darts, net guns
 }
 
 /**

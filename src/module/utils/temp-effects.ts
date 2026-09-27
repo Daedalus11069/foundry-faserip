@@ -31,7 +31,14 @@ export type TemporaryModifierTrigger =
   | "nextAction";
 
 export interface TemporaryModifierFlags {
-  kind: "stat" | "damage" | "incoming" | "dot" | "forcedResult" | "roll";
+  kind:
+    | "stat"
+    | "damage"
+    | "incoming"
+    | "dot"
+    | "forcedResult"
+    | "roll"
+    | "status";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
@@ -84,10 +91,19 @@ export interface TemporaryModifierFlags {
    * from any other source (including a different aura region).
    */
   sourceRegionBehaviorUuid?: string | null;
+  /** kind: "status" only - the Foundry CONFIG.statusEffects id this effect represents (e.g. "sleep"). */
+  statusId?: string;
 }
 
 export interface ApplyTemporaryModifierOptions {
-  kind: "stat" | "damage" | "incoming" | "dot" | "forcedResult" | "roll";
+  kind:
+    | "stat"
+    | "damage"
+    | "incoming"
+    | "dot"
+    | "forcedResult"
+    | "roll"
+    | "status";
   attribute?: AttributeKey;
   chartShift: number;
   roundsRemaining: number;
@@ -104,12 +120,22 @@ export interface ApplyTemporaryModifierOptions {
   indefinite?: boolean;
   forcedOutcome?: "critical" | "failure";
   sourceRegionBehaviorUuid?: string | null;
+  /** kind: "status" only - the Foundry CONFIG.statusEffects id to apply (e.g. "sleep"). */
+  statusId?: string;
 }
 
 /**
  * Create a temporary ActiveEffect on the actor representing a stat or damage
  * chart-shift modifier. Expiry is handled entirely by flags.faserip.roundsRemaining,
  * unless a trigger is set, in which case a matching roll consumes (deletes) it first.
+ *
+ * kind "status" is a special case: rather than a system-defined chart-shift
+ * modifier, it applies one of Foundry's own registered CONFIG.statusEffects
+ * (sleep, stun, prone, etc.) via the effect's native `statuses` set, so it
+ * shows the real status icon/name and is recognized by actor.statuses like
+ * any other condition. Expiry still goes through flags.faserip.roundsRemaining
+ * like every other kind here, for the same reason described at the top of
+ * this file - only the source of the name/icon differs.
  */
 export async function applyTemporaryModifier(
   actor: any,
@@ -120,6 +146,11 @@ export async function applyTemporaryModifier(
     ? 0
     : Math.max(1, Math.floor(Number(options.roundsRemaining) || 1));
   const sourceName = options.sourceName?.trim() || "GM Applied";
+
+  const statusConfig =
+    options.kind === "status"
+      ? (CONFIG.statusEffects as any[]).find(s => s.id === options.statusId)
+      : undefined;
 
   const label =
     options.kind === "stat"
@@ -132,7 +163,12 @@ export async function applyTemporaryModifier(
             ? `${sourceName} (Next Roll: Auto-${options.forcedOutcome === "failure" ? "Fail" : "Critical"})`
             : options.kind === "roll"
               ? `${sourceName} (Next Roll ${chartShift > 0 ? "+" : ""}${chartShift}CS)`
-              : `${sourceName} (Foes ${chartShift > 0 ? "+" : ""}${chartShift}CS to hit)`;
+              : options.kind === "status"
+                ? (typeof statusConfig?.name === "string"
+                    ? ((game as any).i18n?.localize(statusConfig.name) ??
+                      statusConfig.name)
+                    : options.statusId) || "Status Effect"
+                : `${sourceName} (Foes ${chartShift > 0 ? "+" : ""}${chartShift}CS to hit)`;
 
   const usesRemaining = options.usesRemaining
     ? Math.max(1, Math.floor(Number(options.usesRemaining) || 1))
@@ -155,22 +191,26 @@ export async function applyTemporaryModifier(
     dotCasterActorId: options.dotCasterActorId ?? null,
     indefinite: options.indefinite,
     forcedOutcome: options.forcedOutcome,
-    sourceRegionBehaviorUuid: options.sourceRegionBehaviorUuid ?? null
+    sourceRegionBehaviorUuid: options.sourceRegionBehaviorUuid ?? null,
+    statusId: options.statusId
   };
 
   const [created] = await actor.createEmbeddedDocuments("ActiveEffect", [
     {
       name: label,
       img:
-        options.kind === "dot"
-          ? "icons/svg/poison.svg"
-          : options.kind === "forcedResult"
-            ? options.forcedOutcome === "failure"
-              ? "icons/svg/downgrade.svg"
-              : "icons/svg/upgrade.svg"
-            : chartShift >= 0
-              ? "icons/svg/upgrade.svg"
-              : "icons/svg/downgrade.svg", // covers "roll" alongside stat/damage/incoming
+        options.kind === "status"
+          ? statusConfig?.img || "icons/svg/paralysis.svg"
+          : options.kind === "dot"
+            ? "icons/svg/poison.svg"
+            : options.kind === "forcedResult"
+              ? options.forcedOutcome === "failure"
+                ? "icons/svg/downgrade.svg"
+                : "icons/svg/upgrade.svg"
+              : chartShift >= 0
+                ? "icons/svg/upgrade.svg"
+                : "icons/svg/downgrade.svg", // covers "roll" alongside stat/damage/incoming
+      statuses: options.kind === "status" && options.statusId ? [options.statusId] : [],
       changes: [],
       flags: {
         faserip: flags

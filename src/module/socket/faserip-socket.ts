@@ -53,6 +53,20 @@ interface ApplyDamageBuffData {
   combatId?: string | null;
 }
 
+interface ApplyStatusEffectData {
+  targetActorId: string;
+  targetTokenId?: string;
+  statusId: string;
+  roundsRemaining: number;
+  indefinite?: boolean;
+  sourcePowerId?: string;
+  sourcePowerName?: string;
+  sourceWeaponId?: string;
+  sourceWeaponName?: string;
+  durationFormula?: string;
+  combatId?: string | null;
+}
+
 interface ApplyDotData {
   targetActorId: string;
   targetTokenId?: string;
@@ -181,6 +195,7 @@ export function initializeSocket(): void {
   socket.register("applyLifeLinkRedirect", handleApplyLifeLinkRedirect);
   socket.register("applyStatDebuff", handleApplyStatDebuff);
   socket.register("applyDamageBuff", handleApplyDamageBuff);
+  socket.register("applyStatusEffect", handleApplyStatusEffect);
   socket.register("applyDot", handleApplyDot);
   socket.register("removeDot", handleRemoveDot);
   socket.register("setDoorLockState", handleSetDoorLockState);
@@ -1768,6 +1783,75 @@ export async function requestDamageBuffApplication(
   }
 
   return await socket.executeAsUser("applyDamageBuff", owner.id, data);
+}
+
+async function handleApplyStatusEffect(
+  data: ApplyStatusEffectData
+): Promise<ApplyStatusEffectData | null> {
+  let targetActor: FaseripActor | undefined;
+
+  if (data.targetTokenId) {
+    const token = canvas?.tokens?.placeables.find(
+      (t: Token) => t.id === data.targetTokenId
+    );
+    if (token) {
+      targetActor = token.actor as FaseripActor;
+    }
+  }
+
+  if (!targetActor) {
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.find(
+      (a: FaseripActor) => a.id === data.targetActorId
+    ) as FaseripActor | undefined;
+  }
+
+  if (!targetActor) {
+    console.error("FASERIP Socket | Target actor not found for status effect");
+    return null;
+  }
+
+  // @ts-expect-error - Foundry game.user global
+  if (!game.user?.isGM && !targetActor.isOwner) {
+    console.warn(
+      "FASERIP Socket | User doesn't own target - cannot apply status effect"
+    );
+    return null;
+  }
+
+  await applyTemporaryModifier(targetActor, {
+    kind: "status",
+    chartShift: 0,
+    roundsRemaining: data.roundsRemaining,
+    indefinite: data.indefinite,
+    statusId: data.statusId,
+    sourceName: data.sourcePowerName,
+    sourcePowerId: data.sourcePowerId,
+    sourceWeaponId: data.sourceWeaponId,
+    sourceWeaponName: data.sourceWeaponName
+  });
+
+  return data;
+}
+
+export async function requestStatusEffectApplication(
+  targetActor: FaseripActor,
+  data: ApplyStatusEffectData
+): Promise<ApplyStatusEffectData | null> {
+  if (!socket) {
+    // @ts-expect-error - Foundry game.user global
+    if (game.user?.isGM || targetActor.isOwner) {
+      return await handleApplyStatusEffect(data);
+    }
+    return null;
+  }
+
+  const owner = findTokenControllers(targetActor)[0];
+  if (!owner) {
+    return await handleApplyStatusEffect(data);
+  }
+
+  return await socket.executeAsUser("applyStatusEffect", owner.id, data);
 }
 
 async function handleApplyDot(data: ApplyDotData): Promise<ApplyDotData | null> {

@@ -1272,6 +1272,7 @@ async function rollAllEquippedWeapons() {
         statDebuffs: weapon.statDebuffs,
         damageBuffs: weapon.damageBuffs,
         dots: weapon.dots,
+        statusEffects: weapon.statusEffects,
         areaOfEffect: weapon.areaOfEffect,
         actionsBeforeThisCombo: actionsBefore,
         comboIndex: i + 1,
@@ -1531,6 +1532,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
         statDebuffs: weapon.statDebuffs,
         damageBuffs: weapon.damageBuffs,
         dots: weapon.dots,
+        statusEffects: weapon.statusEffects,
         areaOfEffect: weapon.areaOfEffect,
         deferDamageApplication: true, // Defer damage for cumulative application
         comboBotchCount // Pass current botch count
@@ -1619,6 +1621,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
       statDebuffs: weapon.statDebuffs,
       damageBuffs: weapon.damageBuffs,
       dots: weapon.dots,
+      statusEffects: weapon.statusEffects,
       areaOfEffect: weapon.areaOfEffect,
       actionsBeforeThisCombo: actionsBeforeWeapon
     });
@@ -2304,6 +2307,7 @@ async function rollPower(power: any) {
           statDebuffs: power.statDebuffs,
           damageBuffs: power.damageBuffs,
           dots: power.dots,
+          statusEffects: power.statusEffects,
           deferDamageApplication: true, // Defer damage for cumulative application
           comboBotchCount // Pass current botch count
         });
@@ -2376,6 +2380,7 @@ async function rollPower(power: any) {
         statDebuffs: power.statDebuffs,
         damageBuffs: power.damageBuffs,
         dots: power.dots,
+        statusEffects: power.statusEffects,
         actionsBeforeThisCombo: actionsBeforePower
       });
       if (singleResult !== null) {

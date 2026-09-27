@@ -3,6 +3,7 @@ import type {
   PowerStatDebuffData,
   PowerDamageDebuffData,
   PowerDotData,
+  PowerStatusEffectData,
   WeaponAreaOfEffectData
 } from "../types/actor-system";
 
@@ -46,6 +47,21 @@ export function buildDamageBuffFieldSchema() {
     greenShift: new NumberField({ required: false, integer: true, initial: 0 }),
     yellowShift: new NumberField({ required: false, integer: true, initial: 0 }),
     redShift: new NumberField({ required: false, integer: true, initial: 0 }),
+    durationFormula: new StringField({ required: false, initial: "1d3" })
+  });
+}
+
+/**
+ * Shared schema for a single status-effect entry, reused by PowerDataModel
+ * and WeaponDataModel. statusId is a Foundry CONFIG.statusEffects id (e.g.
+ * "sleep", "stun", "prone") rather than a system-defined enum, so the
+ * selectable list always mirrors whatever statuses Foundry/core/modules
+ * register instead of a hand-maintained duplicate.
+ */
+export function buildStatusEffectFieldSchema() {
+  return new SchemaField({
+    enabled: new BooleanField({ required: false, initial: false }),
+    statusId: new StringField({ required: false, blank: true, initial: "" }),
     durationFormula: new StringField({ required: false, initial: "1d3" })
   });
 }
@@ -120,6 +136,7 @@ export class PowerDataModel extends ItemDataModel {
   declare statDebuffs?: PowerStatDebuffData[];
   declare damageBuffs?: PowerDamageDebuffData[];
   declare dots?: PowerDotData[];
+  declare statusEffects?: PowerStatusEffectData[];
   declare isAura?: boolean;
   declare auraDisposition?: string;
   declare auraIncludeSelf?: boolean;
@@ -179,7 +196,11 @@ export class PowerDataModel extends ItemDataModel {
           })
         }),
         { required: false, initial: [] }
-      )
+      ),
+      statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
+        required: false,
+        initial: []
+      })
     };
   }
 }
@@ -312,6 +333,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare statDebuffs?: PowerStatDebuffData[];
   declare damageBuffs?: PowerDamageDebuffData[];
   declare dots?: PowerDotData[];
+  declare statusEffects?: PowerStatusEffectData[];
   declare areaOfEffect?: WeaponAreaOfEffectData;
 
   static override migrateData(source: any): any {
@@ -447,6 +469,10 @@ export class WeaponDataModel extends ItemDataModel {
         }),
         { required: false, initial: [] }
       ),
+      statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
+        required: false,
+        initial: []
+      }),
       areaOfEffect: buildAreaOfEffectFieldSchema()
     };
   }

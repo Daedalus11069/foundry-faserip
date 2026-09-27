@@ -105,6 +105,12 @@ export interface CharmanPowerDot {
   durationFormula: string;
 }
 
+export interface CharmanPowerStatusEffect {
+  enabled: boolean;
+  statusId: string;
+  durationFormula: string;
+}
+
 export interface CharmanPower {
   name: string;
   rank: string | number | Record<string, string | number>; // Can be simple rank, numeric value, or form-specific ranks
@@ -125,6 +131,7 @@ export interface CharmanPower {
   statDebuffs?: CharmanPowerStatDebuff[]; // Temporary stat debuffs applied on hit
   damageBuffs?: CharmanPowerDamageBuff[]; // Temporary damage buffs/debuffs applied on hit
   dots?: CharmanPowerDot[]; // Damage-over-time effects applied on hit
+  statusEffects?: CharmanPowerStatusEffect[]; // Foundry status conditions (sleep, stun, prone, etc.) applied on hit
   isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
@@ -168,6 +175,7 @@ export interface CharmanWeapon {
   statDebuffs?: CharmanPowerStatDebuff[]; // Temporary stat debuffs applied on hit
   damageBuffs?: CharmanPowerDamageBuff[]; // Temporary damage buffs/debuffs applied on hit
   dots?: CharmanPowerDot[]; // Damage-over-time effects applied on hit
+  statusEffects?: CharmanPowerStatusEffect[]; // Foundry status conditions (sleep, stun, prone, etc.) applied on hit
   areaOfEffect?: CharmanWeaponAreaOfEffect; // Region template placed centered on the target on hit
 }
 
@@ -654,6 +662,11 @@ export class CharmanService {
           armorPiercing: d.armorPiercing ?? "",
           durationFormula: d.durationFormula ?? ""
         })),
+        statusEffects: (power.statusEffects || []).map(se => ({
+          enabled: se.enabled ?? false,
+          statusId: se.statusId ?? "",
+          durationFormula: se.durationFormula ?? ""
+        })),
         isAura: power.isAura || false,
         auraDisposition: power.auraDisposition || "any",
         auraIncludeSelf: power.auraIncludeSelf || false,
@@ -845,6 +858,11 @@ export class CharmanService {
               armorPiercing: d.armorPiercing ?? "",
               durationFormula: d.durationFormula ?? ""
             })),
+            statusEffects: (weapon.statusEffects || []).map(se => ({
+              enabled: se.enabled ?? false,
+              statusId: se.statusId ?? "",
+              durationFormula: se.durationFormula ?? ""
+            })),
             areaOfEffect: weapon.areaOfEffect
               ? {
                   enabled: weapon.areaOfEffect.enabled ?? false,
@@ -1028,6 +1046,7 @@ export class CharmanService {
           statDebuffs: charmanWeapon.statDebuffs || [],
           damageBuffs: charmanWeapon.damageBuffs || [],
           dots: charmanWeapon.dots || [],
+          statusEffects: charmanWeapon.statusEffects || [],
           areaOfEffect: charmanWeapon.areaOfEffect
         };
 
@@ -1169,6 +1188,7 @@ export class CharmanService {
               statDebuffs: weapon.statDebuffs || [],
               damageBuffs: weapon.damageBuffs || [],
               dots: weapon.dots || [],
+              statusEffects: weapon.statusEffects || [],
               areaOfEffect: weapon.areaOfEffect
             }
           };

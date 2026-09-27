@@ -15,6 +15,7 @@ import type {
   PowerStatDebuffData,
   PowerDamageDebuffData,
   PowerDotData,
+  PowerStatusEffectData,
   WeaponAreaOfEffectData
 } from "../../types/actor-system";
 
@@ -32,6 +33,7 @@ interface DisplayWeapon {
   statDebuffs?: PowerStatDebuffData[];
   damageBuffs?: PowerDamageDebuffData[];
   dots?: PowerDotData[];
+  statusEffects?: PowerStatusEffectData[];
   areaOfEffect?: WeaponAreaOfEffectData;
   isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
   itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
@@ -77,6 +79,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       statDebuffs: item.system.statDebuffs,
       damageBuffs: item.system.damageBuffs,
       dots: item.system.dots,
+      statusEffects: item.system.statusEffects,
       areaOfEffect: item.system.areaOfEffect,
       isItem: true,
       itemRef: item

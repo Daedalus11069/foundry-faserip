@@ -519,6 +519,87 @@
         </div>
       </div>
 
+      <div class="fsr-form-group border border-indigo-800 rounded p-4 bg-indigo-950/20 space-y-4">
+        <div class="flex items-center justify-between">
+          <span class="fsr-form-label mb-0">Status Effects</span>
+          <button
+            @click="reactiveItem.system.statusEffects.push(newStatusEffect())"
+            class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm"
+          >
+            + Add
+          </button>
+        </div>
+
+        <div
+          v-for="(entry, idx) in reactiveItem.system.statusEffects"
+          :key="idx"
+          class="border border-indigo-700 rounded p-3 space-y-3"
+        >
+          <div class="flex items-center justify-between">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                v-model="entry.enabled"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
+              />
+              <span class="fsr-form-label mb-0">Enabled</span>
+            </label>
+            <button
+              @click="reactiveItem.system.statusEffects.splice(idx, 1)"
+              class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+              title="Remove"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div v-if="entry.enabled" class="space-y-3">
+            <div>
+              <label class="fsr-form-label">Status</label>
+              <select v-model="entry.statusId" class="fsr-select">
+                <option value="">Select a status...</option>
+                <option
+                  v-for="choice in statusEffectChoices"
+                  :key="choice.value"
+                  :value="choice.value"
+                >
+                  {{ choice.label }}
+                </option>
+              </select>
+            </div>
+
+            <div class="text-xs text-gray-400">
+              Applies this Foundry status condition (sleep, stun, prone, etc.) to the target on a successful hit - e.g. tranq darts or a net gun.
+            </div>
+
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                :checked="entry.durationFormula === 'indefinite'"
+                @change="
+                  e =>
+                    (entry.durationFormula = (e.target as HTMLInputElement).checked
+                      ? 'indefinite'
+                      : '1d3')
+                "
+                class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
+              />
+              <span class="fsr-form-label mb-0">Until Removed (no duration limit)</span>
+            </label>
+
+            <div v-if="entry.durationFormula !== 'indefinite'">
+              <label class="fsr-form-label">Duration Formula</label>
+              <input
+                v-model="entry.durationFormula"
+                type="text"
+                class="fsr-input"
+                placeholder="1d3"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Equipped Checkbox -->
       <div class="fsr-form-group">
         <label
@@ -622,6 +703,28 @@ function newDot() {
   };
 }
 
+function newStatusEffect() {
+  return {
+    enabled: false,
+    statusId: "",
+    durationFormula: "1d3"
+  };
+}
+
+// Mirrors Foundry's own registered status conditions (sleep, stun, prone,
+// etc.) instead of a hand-maintained list, so any core/module-added status
+// shows up here automatically.
+const statusEffectChoices = computed(() => {
+  // @ts-expect-error - CONFIG.statusEffects is a Foundry global
+  return ((CONFIG.statusEffects as any[]) || [])
+    .map(s => ({
+      value: s.id,
+      // @ts-expect-error - Foundry game.i18n global
+      label: typeof s.name === "string" ? game.i18n.localize(s.name) : s.id
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+});
+
 if (!reactiveItem.system.statDebuffs) {
   reactiveItem.system.statDebuffs = [];
 }
@@ -632,6 +735,10 @@ if (!reactiveItem.system.damageBuffs) {
 
 if (!reactiveItem.system.dots) {
   reactiveItem.system.dots = [];
+}
+
+if (!reactiveItem.system.statusEffects) {
+  reactiveItem.system.statusEffects = [];
 }
 
 if (!reactiveItem.system.areaOfEffect) {
