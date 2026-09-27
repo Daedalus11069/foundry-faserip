@@ -42,7 +42,8 @@
       "powerDampening": {},
       "powerEnhancement": {},
       "forceNextRoll": {},
-      "powerAura": {}
+      "powerAura": {},
+      "weaponAreaEffect": {}
     }
   },
   "url": "",

@@ -1,7 +1,11 @@
 import { markRaw } from "vue";
 import { ActorType } from "./enums";
 import { Rank } from "./enums";
-import { calculateHealth, calculateMentalPoints, stringToRank } from "./utils";
+import {
+  calculateHealth,
+  calculateMentalPoints,
+  stringToRank
+} from "./utils";
 
 declare module "fvtt-types/configuration" {
   interface DocumentClassConfig {
@@ -178,14 +182,14 @@ export class FaseripActor<
   ): void {
     super._onUpdate(changed, options, userId);
 
+    // @ts-expect-error - game.user type not fully recognized
+    const isGM = game.user?.isGM;
+
     const aliasChanged = foundry.utils.hasProperty(changed, "system.alias");
     const nameChanged = foundry.utils.hasProperty(changed, "name");
-    if (!aliasChanged && !nameChanged) return;
+    if (isGM && (aliasChanged || nameChanged)) {
+      const displayName = (this.system as any).alias || this.name;
 
-    const displayName = (this.system as any).alias || this.name;
-
-    // @ts-expect-error - game.user type not fully recognized
-    if (game.user?.isGM) {
       this.update(
         // @ts-expect-error - prototypeToken type not fully recognized
         { "prototypeToken.name": displayName },
@@ -200,6 +204,132 @@ export class FaseripActor<
           _id: t.id,
           name: displayName
         }));
+        scene.updateEmbeddedDocuments("Token", updates);
+      }
+    }
+
+    // Re-derive on every update rather than gating on hasProperty("system.forms")
+    // etc: the Vue sheet layer (FsrBaseSheet) submits updates as flattened dot
+    // keys like "system.forms.0.visionSources", which land as a literal
+    // top-level key in `changed` rather than a nested changed.system.forms, so
+    // hasProperty-based path checks silently miss per-field edits. The sync
+    // itself is cheap and only writes when the resolved values actually differ.
+    if (isGM) {
+      this.#syncVisionToTokens();
+    }
+  }
+
+  /**
+   * Push the derived vision methods onto the prototype token and any placed
+   * tokens whenever the source data (forms, powers, active form) changes.
+   * The longest-range "sight:*" entry becomes the token's primary rendered
+   * vision; every "detect:*" entry (plus a basicSight mirror of the primary
+   * sight) becomes an additional Foundry detection mode, so multiple senses
+   * (e.g. Basic Sight + Tremorsense) can be active at once.
+   */
+  #syncVisionToTokens(): void {
+    const entries = this.resolvedVisionEntries;
+    const sightEntries = entries.filter(e => e.type.startsWith("sight:"));
+    const detectEntries = entries.filter(e => e.type.startsWith("detect:"));
+
+    const primarySight = sightEntries.reduce(
+      (best, entry) => (entry.range > (best?.range ?? -1) ? entry : best),
+      undefined as { type: string; range: number } | undefined
+    );
+    const range = primarySight?.range ?? 0;
+    const mode = primarySight ? primarySight.type.slice("sight:".length) : "basic";
+
+    const sight = {
+      enabled: range > 0,
+      range,
+      visionMode: mode
+    };
+
+    // detectionModes on a token is a keyed object (document.detectionModes.feelTremor
+    // = { enabled, range }), not an array of { id, enabled, range }.
+    const detectionModesById = new Map<string, number>();
+    detectionModesById.set("basicSight", range);
+    for (const entry of detectEntries) {
+      const id = entry.type.slice("detect:".length);
+      detectionModesById.set(id, Math.max(detectionModesById.get(id) ?? 0, entry.range));
+    }
+    const detectionModes: Record<string, { enabled: boolean; range: number }> = {};
+    for (const [id, detectRange] of detectionModesById) {
+      detectionModes[id] = { enabled: detectRange > 0, range: detectRange };
+    }
+
+    const detectionModesEqual = (
+      a: Record<string, { enabled: boolean; range: number }> | undefined,
+      b: Record<string, { enabled: boolean; range: number }>
+    ) => {
+      const aKeys = Object.keys(a ?? {});
+      const bKeys = Object.keys(b);
+      if (aKeys.length !== bKeys.length) return false;
+      return bKeys.every(
+        id =>
+          a?.[id]?.enabled === b[id].enabled && a?.[id]?.range === b[id].range
+      );
+    };
+
+    // Foundry merges nested objects on update rather than replacing them, so
+    // a mode id present in the old data but absent from the new one would
+    // otherwise linger forever. Explicitly delete stale keys alongside the
+    // new/updated ones.
+    const buildDetectionModesUpdate = (
+      pathPrefix: string,
+      existing: Record<string, { enabled: boolean; range: number }> | undefined
+    ) => {
+      const update: Record<string, unknown> = {};
+      for (const id of Object.keys(existing ?? {})) {
+        if (!(id in detectionModes)) {
+          // @ts-expect-error - foundry.data.operators type not fully recognized
+          update[`${pathPrefix}.${id}`] = new foundry.data.operators.ForcedDeletion();
+        }
+      }
+      for (const [id, value] of Object.entries(detectionModes)) {
+        update[`${pathPrefix}.${id}`] = value;
+      }
+      return update;
+    };
+
+    const prototypeToken = (this as any).prototypeToken;
+    if (
+      prototypeToken?.sight?.range !== range ||
+      prototypeToken?.sight?.visionMode !== mode ||
+      prototypeToken?.sight?.enabled !== sight.enabled ||
+      !detectionModesEqual(prototypeToken?.detectionModes, detectionModes)
+    ) {
+      this.update(
+        {
+          // @ts-expect-error - prototypeToken type not fully recognized
+          "prototypeToken.sight": sight,
+          ...buildDetectionModesUpdate(
+            "prototypeToken.detectionModes",
+            prototypeToken?.detectionModes
+          )
+        },
+        { render: false }
+      );
+    }
+
+    // @ts-expect-error - game.scenes type not fully recognized
+    for (const scene of game.scenes!) {
+      const tokens = scene.tokens.filter((t: any) => t.actor?.id === this.id);
+      if (!tokens.length) continue;
+      const updates = tokens
+        .filter(
+          (t: any) =>
+            t.sight?.range !== range ||
+            t.sight?.visionMode !== mode ||
+            t.sight?.enabled !== sight.enabled ||
+            !detectionModesEqual(t.detectionModes, detectionModes)
+        )
+        .map((t: any) => ({
+          _id: t.id,
+          sight,
+          ...buildDetectionModesUpdate("detectionModes", t.detectionModes)
+        }));
+      if (updates.length) {
         scene.updateEmbeddedDocuments("Token", updates);
       }
     }
@@ -388,6 +518,55 @@ export class FaseripActor<
   get currentEnduranceRank(): string {
     const currentForm = this.getCurrentForm();
     return currentForm?.attributes?.endurance?.rank || Rank.Typical;
+  }
+
+  /**
+   * Resolve a single vision-source entry's range (flat value, Intuition
+   * rank, or a power's rank) using the same rank-to-squares table as
+   * movement. Returns distance in scene grid units.
+   */
+  #resolveVisionSourceRange(vs: any): number {
+    const currentForm = this.getCurrentForm();
+    const source = vs?.rangeSource || "flat";
+    const gridDistance = canvas?.scene?.grid.distance ?? 1;
+
+    if (source === "flat") {
+      return Math.max(0, vs?.flatRange || 0);
+    }
+
+    let rank: Rank = Rank.Typical;
+    if (source === "intuition") {
+      rank = stringToRank(
+        currentForm?.attributes?.intuition?.rank || Rank.Typical
+      );
+    } else if (source === "power") {
+      const system = this.system as any;
+      const power = system?.powers?.find((p: any) => p.id === vs?.powerId);
+      if (!power) return 0;
+      rank = stringToRank(power.rank || Rank.Typical);
+    }
+
+    const configured = getConfiguredMovementByRank();
+    const squares = configured[rank] ?? configured[Rank.Typical];
+    return squares * gridDistance;
+  }
+
+  /**
+   * All of the current form's configured vision methods, resolved to a
+   * range. A form can combine any number of these at once (e.g. Basic Sight
+   * + Tremorsense); "sight:*" entries drive the primary rendered vision
+   * (only the longest-range one applies) while "detect:*" entries stack
+   * alongside it as additional Foundry detection modes.
+   */
+  get resolvedVisionEntries(): { type: string; range: number }[] {
+    const currentForm = this.getCurrentForm();
+    const sources = currentForm?.visionSources || [];
+    return sources
+      .map((vs: any) => ({
+        type: vs?.type || "sight:basic",
+        range: this.#resolveVisionSourceRange(vs)
+      }))
+      .filter((entry: { range: number }) => entry.range > 0);
   }
 
   /**

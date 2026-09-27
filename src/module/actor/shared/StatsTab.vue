@@ -46,7 +46,8 @@ import type {
   PowerData,
   PowerStatDebuffData,
   PowerDamageDebuffData,
-  PowerDotData
+  PowerDotData,
+  WeaponAreaOfEffectData
 } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 import { VueDialog } from "../../applications/vue-dialog";
@@ -76,6 +77,7 @@ interface Weapon {
   statDebuffs?: PowerStatDebuffData[];
   damageBuffs?: PowerDamageDebuffData[];
   dots?: PowerDotData[];
+  areaOfEffect?: WeaponAreaOfEffectData;
 }
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -159,7 +161,10 @@ const weapons = computed<Weapon[]>(() => {
     damageBuffs: item.system.damageBuffs as
       | PowerDamageDebuffData[]
       | undefined,
-    dots: item.system.dots as PowerDotData[] | undefined
+    dots: item.system.dots as PowerDotData[] | undefined,
+    areaOfEffect: item.system.areaOfEffect as
+      | WeaponAreaOfEffectData
+      | undefined
   }));
 
   // Merge both sources
@@ -1263,6 +1268,7 @@ async function rollAllEquippedWeapons() {
         statDebuffs: weapon.statDebuffs,
         damageBuffs: weapon.damageBuffs,
         dots: weapon.dots,
+        areaOfEffect: weapon.areaOfEffect,
         actionsBeforeThisCombo: actionsBefore,
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount,
@@ -1520,6 +1526,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
         statDebuffs: weapon.statDebuffs,
         damageBuffs: weapon.damageBuffs,
         dots: weapon.dots,
+        areaOfEffect: weapon.areaOfEffect,
         deferDamageApplication: true, // Defer damage for cumulative application
         comboBotchCount // Pass current botch count
       });
@@ -1606,6 +1613,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
       statDebuffs: weapon.statDebuffs,
       damageBuffs: weapon.damageBuffs,
       dots: weapon.dots,
+      areaOfEffect: weapon.areaOfEffect,
       actionsBeforeThisCombo: actionsBeforeWeapon
     });
     if (singleResult !== null) {

@@ -38,14 +38,14 @@
         />
       </div>
 
-      <!-- HoloSuite Hacking integration -->
+      <!-- Node Hacker integration -->
       <div class="fsr-form-group border border-cyan-800 rounded p-4 bg-cyan-950/20 space-y-3">
         <div class="flex items-center justify-between">
           <span class="fsr-form-label mb-0">
-            HoloSuite Hack Lock
+            Node Hacker Lock
             <i
               class="fas fa-terminal text-xs text-cyan-400 ml-1"
-              :title="'Requires the HoloSuite Hacking module'"
+              :title="'Requires the Node Hacker module'"
             ></i>
           </span>
           <label class="flex items-center gap-2 cursor-pointer">
@@ -58,27 +58,17 @@
           </label>
         </div>
 
-        <div v-if="!holoSuiteActive" class="text-xs text-yellow-400">
-          ⚠️ The HoloSuite Hacking module is not active in this world.
+        <div v-if="!nodeHackerActive" class="text-xs text-yellow-400">
+          ⚠️ The Node Hacker module is not active in this world.
         </div>
 
         <template v-if="reactiveItem.system.hack.enabled">
-          <div>
-            <label class="fsr-form-label">Minigame</label>
-            <select v-model="reactiveItem.system.hack.minigameType" class="fsr-select">
-              <option value="node-intrusion">Node Intrusion</option>
-              <option value="signal-alignment">Signal Alignment</option>
-              <option value="packet-switchboard">Packet Switchboard</option>
-              <option value="prism-lock">Prism Lock</option>
-            </select>
-          </div>
-
           <div>
             <label class="fsr-form-label">
               Check Attribute
               <i
                 class="fas fa-circle-info text-xs text-cyan-400 ml-1"
-                :title="'FASERIP resolves this with a normal attribute roll against the Universal Table; the color result sets the minigame difficulty.'"
+                :title="'FASERIP resolves each node capture attempt with a normal attribute roll against the Universal Table; the node\'s difficulty chart-shifts the check.'"
               ></i>
             </label>
             <select v-model="reactiveItem.system.hack.attribute" class="fsr-select">
@@ -105,11 +95,16 @@
           </div>
 
           <div>
-            <label class="fsr-form-label">Live Audience</label>
-            <select v-model="reactiveItem.system.hack.liveAudience" class="fsr-select">
-              <option value="everyone">GM and Players</option>
-              <option value="gm">GM Only</option>
-              <option value="none">Nobody</option>
+            <label class="fsr-form-label">
+              Node Graph
+              <i
+                class="fas fa-circle-info text-xs text-cyan-400 ml-1"
+                :title="'Optional: pick a graph built in Node Hacker\'s Node Designer. Leave blank to roll the opening hack check first and generate a network sized off its result - a bare pass generates a larger, harder network, an exceptional roll a small one.'"
+              ></i>
+            </label>
+            <select v-model="reactiveItem.system.hack.graphName" class="fsr-select">
+              <option value="">(generate from opening roll)</option>
+              <option v-for="name in nodeGraphNames" :key="name" :value="name">{{ name }}</option>
             </select>
           </div>
 
@@ -125,7 +120,7 @@
           <button
             v-if="isOwned"
             @click="attemptHack"
-            :disabled="!holoSuiteActive || !reactiveItem.system.locked || hackInProgress"
+            :disabled="!nodeHackerActive || !reactiveItem.system.locked || hackInProgress"
             class="w-full px-3 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm font-semibold"
           >
             {{ hackInProgress ? "Hacking…" : "Attempt Hack" }}
@@ -151,15 +146,25 @@
 </template>
 
 <script setup lang="ts">
-import { inject, computed, ref } from "vue";
+import { inject, computed, onMounted, ref } from "vue";
 import { Rank, RANK_ORDER, RANK_VALUES } from "../../enums";
 import { stringToRank } from "../../utils";
-import { isHoloSuiteActive, attemptFaseripHack } from "../../integrations/holosuite-hacking";
+import {
+  isNodeHackerActive,
+  attemptFaseripNodeHack,
+  listNodeHackerGraphNames
+} from "../../integrations/node-hacker-hacking";
+import { requestNodeHackMode } from "../../socket/faserip-socket";
 import { showTalentSelectionDialog } from "../../applications/dialog-utils";
 import type { Talent } from "../../types";
 
 const reactiveItem = inject("reactiveItem") as any;
 const item = inject("item") as Item;
+
+const nodeGraphNames = ref<string[]>([]);
+onMounted(async () => {
+  nodeGraphNames.value = await listNodeHackerGraphNames();
+});
 
 const attributeChoices = [
   { value: "fighting", label: "Fighting" },
@@ -175,7 +180,7 @@ const isOwned = computed(() => {
   return item.parent !== null && item.parent !== undefined;
 });
 
-const holoSuiteActive = computed(() => isHoloSuiteActive());
+const nodeHackerActive = computed(() => isNodeHackerActive());
 
 const hackInProgress = ref(false);
 
@@ -197,10 +202,9 @@ const rankChoicesWithValues = computed(() => {
 if (!reactiveItem.system.hack) {
   reactiveItem.system.hack = {
     enabled: false,
-    minigameType: "node-intrusion",
     attribute: "reasoning",
     difficultyRank: "",
-    liveAudience: "everyone"
+    graphName: ""
   };
 }
 
@@ -237,8 +241,8 @@ async function attemptHack() {
   // Let the player apply any relevant talents to the initial roll, the same
   // way a normal FASERIP attribute check does. The chosen talents (and
   // their combined chart shift) carry through to every subsequent per-node
-  // roll too, via attemptFaseripHack's __faseripHackContext tag - they're
-  // only picked once, not re-prompted per node.
+  // roll too, via the check context attemptFaseripNodeHack registers for
+  // this actor - they're only picked once, not re-prompted per node.
   const talents: Talent[] = (actor as any).system?.talents ?? [];
   let talentNames: string[] | undefined;
   if (talents.length > 0) {
@@ -259,15 +263,25 @@ async function attemptHack() {
 
   hackInProgress.value = true;
   try {
-    await attemptFaseripHack({
+    const graphName = reactiveItem.system.hack.graphName?.trim() || undefined;
+    // A lock has no defending actor, so Managed is never on the table here - the GM still
+    // picks which of the two passive trace flavors runs (see requestNodeHackMode).
+    const mode = await requestNodeHackMode({
+      attackerName: actor.name ?? "Hacker",
+      targetName: item.name,
+      canManage: false
+    });
+    const traceUnit = mode === "auto-time" ? "time" : "points";
+
+    await attemptFaseripNodeHack({
       actor,
       attributeName: `${item.name} Hack Attempt`,
       attributeRank: actorRank,
       chartShift,
       talentNames,
-      minigameType: reactiveItem.system.hack.minigameType,
       label: item.name,
-      liveAudience: reactiveItem.system.hack.liveAudience,
+      graphName,
+      traceUnit,
       onSuccess: async () => {
         reactiveItem.system.locked = false;
         // @ts-expect-error - system.locked is a boolean, but TS thinks it's a string

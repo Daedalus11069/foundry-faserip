@@ -27,7 +27,7 @@ import {
   parseRankExpression
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
-import { presentHackToActor, isHoloSuiteActive } from "./module/integrations/holosuite-hacking";
+import { presentHackToActor, isNodeHackerActive } from "./module/integrations/node-hacker-hacking";
 import { initHackProofDoorConfig } from "./module/integrations/door-hack-config";
 import { initLocknKeyDoorOverlay } from "./module/integrations/locknkey-door-overlay";
 import {
@@ -63,7 +63,10 @@ import { PowerDampeningRegionBehaviorType } from "./module/region/PowerDampening
 import { PowerEnhancementRegionBehaviorType } from "./module/region/PowerEnhancementRegionBehaviorType";
 import { ForceNextRollRegionBehaviorType } from "./module/region/ForceNextRollRegionBehaviorType";
 import { PowerAuraRegionBehaviorType } from "./module/region/PowerAuraRegionBehaviorType";
+import { WeaponAreaEffectRegionBehaviorType } from "./module/region/WeaponAreaEffectRegionBehaviorType";
 import { tickPowerAuraRegions } from "./module/utils/power-aura";
+import { applyRecurringPowerHealing } from "./module/utils/power-healing";
+import { tickWeaponAreaEffectRegions } from "./module/utils/area-of-effect";
 
 // ─── Movement Settings Menu ─────────────────────────────────────────────────────
 
@@ -435,10 +438,11 @@ const initHandler = () => {
     default: false
   });
 
-  // HoloSuite hack minigame: whether other players see it live
+  // HoloSuite door/lock hacking (unrelated to the Node Hacker minigame integration):
+  // whether other players see it live
   game.settings.register("faserip", "hackShowToOthers", {
     name: "Show Hacking Interface to Other Players",
-    hint: "Controls whether other players can watch a HoloSuite hack minigame live (door picking, Present Hack). 'Ask Always' prompts the hacking player each time.",
+    hint: "Controls whether other players can watch a HoloSuite hack minigame live (door picking). 'Ask Always' prompts the hacking player each time.",
     scope: "client",
     config: true,
     type: String,
@@ -450,7 +454,7 @@ const initHandler = () => {
     default: "ask"
   });
 
-  // HoloSuite Node Intrusion: how the trace clock advances
+  // Node Hacker minigame: how the trace clock advances
   game.settings.register("faserip", "hackTraceMode", {
     name: "Hacking Trace Type",
     hint: "Time-based: once a node hack trips detection, the trace clock starts counting down in real time. Point-based: the trace never runs on its own - each detected node hack adds a chunk of trace progress directly, with harder nodes adding more.",
@@ -602,6 +606,20 @@ const initHandler = () => {
   // @ts-expect-error - TypeScript doesn't recognize custom CONFIG property
   CONFIG.RegionBehavior.dataModels.powerAura = PowerAuraRegionBehaviorType;
   CONFIG.RegionBehavior.typeIcons.powerAura = "icons/svg/aura.svg";
+  // @ts-expect-error - TypeScript doesn't recognize custom CONFIG property
+  CONFIG.RegionBehavior.dataModels.weaponAreaEffect =
+    WeaponAreaEffectRegionBehaviorType;
+  CONFIG.RegionBehavior.typeIcons.weaponAreaEffect = "icons/svg/explosion.svg";
+
+  // Render the "dead" status as a full-token overlay icon (like Foundry's
+  // built-in defeated/unconscious overlay presets) instead of the small
+  // corner icon used for regular statuses.
+  const deadStatus = CONFIG.statusEffects.find(effect => effect.id === "dead");
+  if (deadStatus) {
+    deadStatus.flags = foundry.utils.mergeObject(deadStatus.flags ?? {}, {
+      core: { overlay: true }
+    });
+  }
 
   // Register the "Powers Negated" status so it shows a labeled icon on tokens
   CONFIG.statusEffects.push({
@@ -930,6 +948,28 @@ Hooks.on("updateToken", async (token: any, changes: any, _options: any) => {
   }
 });
 
+// ─── Token Update Hook: Auto-apply "burrow" status on movement mode change ──────
+
+Hooks.on("updateToken", async (token: any, changes: any, _options: any) => {
+  const hasProperty = foundry.utils.hasProperty;
+  if (!hasProperty(changes, "movementAction")) {
+    return;
+  }
+
+  const actor = token.actor;
+  if (!actor) {
+    return;
+  }
+
+  const isBurrowing = token.movementAction === "burrow";
+  const hasBurrowStatus = actor.statuses?.has("burrow");
+  if (isBurrowing === hasBurrowStatus) {
+    return;
+  }
+
+  await actor.toggleStatusEffect("burrow", { active: isBurrowing });
+});
+
 // ─── Token HUD: Inject Intuition Button ────────────────────────────────────────
 
 Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
@@ -975,7 +1015,7 @@ Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
 Hooks.on("getSceneControlButtons", (controls: any) => {
   // @ts-expect-error - TypeScript doesn't recognize game.user.isGM
   if (!game.user?.isGM) return;
-  if (!isHoloSuiteActive()) return;
+  if (!isNodeHackerActive()) return;
 
   const tokenControls = Array.isArray(controls)
     ? controls.find((group: any) => group.name === "tokens")
@@ -1095,6 +1135,35 @@ Hooks.on("deleteToken", (_scene: any, tokenDoc: any) => {
   if (tokenDoc?.id) removeIntuitionOverlay(tokenDoc.id);
 });
 
+// Power auras and weapon area-effect regions apply their (de)buff chart
+// shifts live, computed on demand from whatever Region/RegionBehavior
+// documents currently exist (see utils/power-aura.ts and
+// utils/area-of-effect.ts) - nothing is cached on the actor. That means a
+// currently-open actor sheet showing an affected attribute/damage value has
+// no reason to re-render on its own when a GM deletes or edits one of these
+// regions on the canvas (there's no ActiveEffect change to trigger the
+// normal "updateActor"-driven refresh), so it would otherwise keep showing
+// the stale shifted value until something unrelated forced a re-render.
+// Re-rendering every actor sheet on any Region/RegionBehavior change is
+// coarse but cheap and matches the existing "re-render all actor sheets"
+// pattern used elsewhere in this file (e.g. MovementSettingsMenu).
+function refreshActorSheetsForRegionChange(behavior: any): void {
+  const type = behavior?.type;
+  if (type !== "powerAura" && type !== "weaponAreaEffect") return;
+  for (const actor of game.actors ?? []) {
+    actor.sheet?.render(false);
+  }
+}
+
+Hooks.on("deleteRegion", (region: any) => {
+  for (const behavior of region?.behaviors ?? []) {
+    refreshActorSheetsForRegionChange(behavior);
+  }
+});
+Hooks.on("createRegionBehavior", refreshActorSheetsForRegionChange);
+Hooks.on("updateRegionBehavior", refreshActorSheetsForRegionChange);
+Hooks.on("deleteRegionBehavior", refreshActorSheetsForRegionChange);
+
 // Snapshot (round, turn) before every combat update so the updateCombat
 // handler below can tell which combatants' turns were skipped over by a
 // "Next Round"/"Previous Round" jump (which sets turn straight to 0/last
@@ -1125,6 +1194,8 @@ Hooks.on("updateCombat", async (combat: any, changes: any) => {
     await tickTemporaryModifiers(combat);
     await tickPowerAuraRegions();
     await clearExhaustionStuns(combat);
+    await applyRecurringPowerHealing(combat);
+    await tickWeaponAreaEffectRegions();
   }
 
   if (changes.turn !== undefined || changes.round !== undefined) {

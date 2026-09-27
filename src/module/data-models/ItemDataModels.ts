@@ -2,7 +2,8 @@ import { Rank } from "../enums";
 import type {
   PowerStatDebuffData,
   PowerDamageDebuffData,
-  PowerDotData
+  PowerDotData,
+  WeaponAreaOfEffectData
 } from "../types/actor-system";
 
 const { ArrayField, BooleanField, NumberField, SchemaField, StringField } =
@@ -46,6 +47,32 @@ export function buildDamageBuffFieldSchema() {
     yellowShift: new NumberField({ required: false, integer: true, initial: 0 }),
     redShift: new NumberField({ required: false, integer: true, initial: 0 }),
     durationFormula: new StringField({ required: false, initial: "1d3" })
+  });
+}
+
+/**
+ * Shared schema for a weapon's on-hit area-of-effect template. Placed
+ * centered on the target's position at the moment of a hit - it does not
+ * follow the target afterward.
+ */
+export function buildAreaOfEffectFieldSchema() {
+  return new SchemaField({
+    enabled: new BooleanField({ required: false, initial: false }),
+    shape: new StringField({
+      required: false,
+      initial: "circle",
+      choices: ["circle", "cone", "ray", "rect"]
+    }),
+    size: new NumberField({ required: false, initial: 10, min: 0 }),
+    width: new NumberField({ required: false, initial: 5, min: 0 }),
+    angle: new NumberField({
+      required: false,
+      initial: 53,
+      min: 0,
+      max: 360
+    }),
+    color: new StringField({ required: false, initial: "#ff0000" }),
+    durationRounds: new StringField({ required: false, blank: true, initial: "" })
   });
 }
 
@@ -179,10 +206,11 @@ export class EquipmentDataModel extends ItemDataModel {
   declare locked: boolean;
   declare hack: {
     enabled: boolean;
-    minigameType: string;
     attribute: string;
     difficultyRank: string;
-    liveAudience: string;
+    /** Name of a Node Hacker graph (built with its Node Designer) to hack against instead of
+     * a network generated from the opening hack roll's result. Blank = generate one. */
+    graphName: string;
   };
 
   static override defineSchema(): foundry.data.fields.DataSchema {
@@ -192,16 +220,6 @@ export class EquipmentDataModel extends ItemDataModel {
       locked: new BooleanField({ required: false, initial: false }),
       hack: new SchemaField({
         enabled: new BooleanField({ required: false, initial: false }),
-        minigameType: new StringField({
-          required: false,
-          initial: "node-intrusion",
-          choices: [
-            "node-intrusion",
-            "signal-alignment",
-            "packet-switchboard",
-            "prism-lock"
-          ]
-        }),
         attribute: new StringField({
           required: false,
           initial: "reasoning",
@@ -221,11 +239,7 @@ export class EquipmentDataModel extends ItemDataModel {
           initial: "",
           choices: ["", ...Object.values(Rank)]
         }),
-        liveAudience: new StringField({
-          required: false,
-          initial: "everyone",
-          choices: ["everyone", "gm", "none"]
-        })
+        graphName: new StringField({ required: false, blank: true, initial: "" })
       })
     };
   }
@@ -298,6 +312,7 @@ export class WeaponDataModel extends ItemDataModel {
   declare statDebuffs?: PowerStatDebuffData[];
   declare damageBuffs?: PowerDamageDebuffData[];
   declare dots?: PowerDotData[];
+  declare areaOfEffect?: WeaponAreaOfEffectData;
 
   static override migrateData(source: any): any {
     source = super.migrateData(source);
@@ -431,7 +446,8 @@ export class WeaponDataModel extends ItemDataModel {
           })
         }),
         { required: false, initial: [] }
-      )
+      ),
+      areaOfEffect: buildAreaOfEffectFieldSchema()
     };
   }
 }

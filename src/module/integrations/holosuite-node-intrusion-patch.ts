@@ -1,4 +1,4 @@
-import { RollResult } from "../enums";
+import { Rank, RollResult } from "../enums";
 import {
   rollFaseripHackCheck,
   meetsRequiredColor,
@@ -6,6 +6,46 @@ import {
   type FaseripHackContext,
   type HackTargetInfo
 } from "./holosuite-roll-adapter";
+import {
+  isPvpTurn,
+  recordAttackerCapture,
+  unleashDefender,
+  attemptRecapture,
+  attemptScan,
+  finishPvpRun,
+  getDefenderPosition,
+  setDefenderPosition,
+  resolvePvpActor,
+  initializePvpOwnership,
+  registerPvpApp,
+  unregisterPvpApp,
+  buildPvpSnapshot,
+  registerPvpActionHandler,
+  NODE_OWNER_ATTACKER,
+  type FaseripPvpConfig
+} from "./holosuite-pvp-intrusion";
+import { broadcastPvpState, openPvpDefenderView } from "../socket/faserip-socket";
+
+// Registered once at module load - lets a remote defender action (arriving
+// via faserip-socket.ts, on the attacker's client) reach this file's own
+// move/recapture/scan logic without faserip-socket needing to import this
+// file directly (see holosuite-pvp-intrusion.ts's registerPvpActionHandler).
+/** Pushes a fresh snapshot to the defender's cross-client view, if one is
+ * open for this run - a thin null-safe wrapper since buildPvpSnapshot can
+ * return null for a non-pvp app (never actually happens at these call
+ * sites, but keeps TypeScript honest). */
+function syncPvp(app: any, pvp: FaseripPvpConfig): void {
+  const snapshot = buildPvpSnapshot(app);
+  if (snapshot) broadcastPvpState(pvp, snapshot);
+}
+
+registerPvpActionHandler(async (app, pvp, action) => {
+  if (action.type === "move") {
+    await handlePvpDefenderNodeClick(app, pvp, action.nodeId);
+  } else {
+    await handlePvpScan(app, pvp);
+  }
+});
 
 declare const ui: any;
 declare const ChatMessage: any;
@@ -148,8 +188,10 @@ function renderTraceHint(root: any): void {
   const hint = globalThis.document.createElement("div");
   hint.className = TRACE_HINT_CLASS;
   hint.textContent =
-    "Two separate rolls matter: one to hack the node, one to avoid detection " +
-    "(the node's badge). Only a failed hack risks the trace - success never does.";
+    "Every node roll is checked twice: once to hack the node itself, and once " +
+    "against the node's own badge to avoid detection there. Clearing the hack " +
+    "doesn't excuse a roll that falls short of the badge's color - a Green " +
+    "against a Red-badge node still trips the trace even though it claims the node.";
   Object.assign(hint.style, {
     marginTop: "8px",
     padding: "6px 8px",
@@ -209,13 +251,50 @@ function assignDatastoreNodes(app: any): void {
  * own markup - built fresh each render since HoloSuite's own render()
  * replaces the node buttons wholesale.
  */
+/**
+ * One-time PvP setup, run from activateListeners (like assignDatastoreNodes)
+ * rather than right after startHack() returns - app.graph doesn't exist yet
+ * at that point, since HoloSuite generates the node graph asynchronously
+ * during its own first render, not synchronously in the constructor.
+ * Calling initializePvpOwnership before the graph exists silently no-ops
+ * (empty nodes array), leaving the defender with no start position and an
+ * empty snapshot ever broadcast - confirmed live as "GM has no starting
+ * node, nothing appears" - hence running this here instead, guarded so it
+ * only actually does anything the first render after the graph is real.
+ */
+function ensurePvpInitialized(app: any): void {
+  const pvp: FaseripPvpConfig | undefined = app.__faseripHackContext?.pvp;
+  if (!pvp || app.__faseripPvpInitialized) return;
+  const nodes: any[] = app.graph?.nodes ?? [];
+  // Wait for both landmark nodes to actually be typed, not just for the
+  // node list to be non-empty - defends against the graph being built in
+  // stages (raw nodes first, start/target roles assigned after) even though
+  // that hasn't been directly confirmed; retries on the next render either
+  // way since this only sets the one-time init flag once both exist.
+  if (!nodes.some(n => n.type === "start") || !nodes.some(n => n.type === "target")) {
+    return;
+  }
+  app.__faseripPvpInitialized = true;
+
+  initializePvpOwnership(app);
+  registerPvpApp(pvp.sessionId, app);
+  // Deliberately does NOT open the defender's cross-client view yet - they
+  // can't act (or see anything) until detection first trips (see
+  // checkDetection below), so popping the window up this early just shows
+  // an empty "no intrusion detected yet" dialog with nothing to do,
+  // confirmed as unwanted live. The view opens itself the moment
+  // unleashDefender actually flips.
+}
+
 function renderDifficultyBadges(app: any, html?: any): void {
+  ensurePvpInitialized(app);
   assignDatastoreNodes(app);
 
   const root: any = html?.[0] ?? html ?? app.element?.[0] ?? app.element;
   if (!root?.querySelectorAll) return;
 
   renderTraceHint(root);
+  renderPvpControls(app, root);
 
   const buttons: NodeListOf<HTMLElement> = root.querySelectorAll(
     ".node-intrusion-node[data-node-id]"
@@ -267,6 +346,8 @@ function renderDifficultyBadges(app: any, html?: any): void {
       btn.appendChild(icon);
     }
   });
+
+  renderPvpNodeStyling(app, root);
 }
 
 const PAN_ZOOM_WRAPPER_CLASS = "faserip-pan-zoom-wrapper";
@@ -437,6 +518,21 @@ function checkDetection(app: any, node: any, rollResult: RollResult): void {
   const requiredColor = DIFFICULTY_REQUIRED_COLOR[difficulty];
   if (meetsRequiredColor(rollResult, requiredColor)) return;
 
+  // PvP managed intrusions: the defender can't act at all until the first
+  // time detection trips, regardless of trace mode - and their cross-client
+  // view only opens at that same moment, not the instant the hack starts
+  // (see ensurePvpInitialized), so they aren't staring at an empty "no
+  // intrusion detected yet" window with nothing to do in the meantime.
+  const pvp: FaseripPvpConfig | undefined = app.__faseripHackContext?.pvp;
+  if (pvp) {
+    const wasUnleashed = !!app.__faseripDefenderUnleashed;
+    unleashDefender(app);
+    if (!wasUnleashed && app.__faseripDefenderUnleashed) {
+      const snapshot = buildPvpSnapshot(app);
+      if (snapshot) openPvpDefenderView(pvp, snapshot);
+    }
+  }
+
   if (getTraceMode() === "points") {
     const points = DIFFICULTY_TRACE_POINTS[difficulty];
     app.__faseripTraceDetected = true;
@@ -515,6 +611,260 @@ function resumeTrace(app: any) {
   if (app.state.hasStarted && app.state.isRunning && !app.state.result) {
     app.startTimer();
   }
+}
+
+/**
+ * True only when the same physical user is meant to be controlling both
+ * sides from this one app instance (no distinct connected defender owner,
+ * or the defender's owner happens to be this same user) - the only case
+ * where it's legitimate for THIS window (always the attacker's own) to also
+ * dispatch defender moves/recaptures/scans. Once a real, distinct defender
+ * user is connected, they get their own cross-client PvpDefenderView (see
+ * pvp-defender-view.ts) and this window must never let the attacker act on
+ * the defender's behalf just by clicking around during the defender's turn
+ * - confirmed live as "the attacker's GUI has the defender's GUI".
+ */
+function pvpSameUserControlsBothSides(pvp: FaseripPvpConfig): boolean {
+  return !pvp.defenderUserId || pvp.defenderUserId === pvp.attackerUserId;
+}
+
+/**
+ * A defender/attacker acting-side check for recapture or scan attempts isn't
+ * an attribute the hack's own FaseripHackContext carries (that's the
+ * attacker's node-hack check) - both sides roll their own Reasoning
+ * instead, mirroring how lock-picking/hacking checks elsewhere in this
+ * integration fall back to Reasoning when no dedicated skill applies.
+ */
+async function rollPvpActionCheck(actor: any, label: string) {
+  if (!actor) {
+    ui.notifications?.warn?.("Could not resolve an actor for that side - check both Combatants are still in the encounter.");
+    return null;
+  }
+  const rank: Rank =
+    actor.getCurrentForm?.()?.attributes?.reasoning?.rank ?? Rank.Typical;
+  return rollFaseripHackCheck({
+    actor,
+    attributeName: `${actor.name} ${label}`,
+    attributeRank: rank
+  });
+}
+
+/**
+ * Defender's turn: clicking a node adjacent to their current position moves
+ * them there for free, unless the attacker currently holds it - then it
+ * costs a recapture roll (against the color the attacker actually rolled
+ * when they took it, not the node's own difficulty), win or lose the turn.
+ * Reaching the attacker's own start node ends the run immediately as a
+ * defender win. Frozen entirely until the first detection trip (see
+ * checkDetection's unleashDefender call).
+ */
+export async function handlePvpDefenderNodeClick(
+  app: any,
+  pvp: FaseripPvpConfig,
+  nodeId: string
+): Promise<void> {
+  if (!app.__faseripDefenderUnleashed) {
+    ui.notifications?.warn?.("The defender hasn't detected the intrusion yet.");
+    return;
+  }
+
+  const nodes: any[] = app.graph?.nodes ?? [];
+  const currentId = getDefenderPosition(app);
+  const current = nodes.find(n => n.id === currentId);
+  const node = nodes.find(n => n.id === nodeId);
+  if (!current || !node || !current.connected?.includes(nodeId)) return;
+
+  if (node.faseripOwner === NODE_OWNER_ATTACKER) {
+    const roll = await rollPvpActionCheck(
+      resolvePvpActor(pvp, "defender"),
+      "Recapture Attempt"
+    );
+    if (!roll) return;
+    const success = attemptRecapture(node, roll.result);
+    if (!success) {
+      ui.notifications?.warn?.("Recapture failed - turn wasted.");
+      app.render(false);
+      syncPvp(app, pvp);
+      return;
+    }
+    ui.notifications?.info?.("Node recaptured.");
+  }
+
+  setDefenderPosition(app, nodeId);
+  if (node.type === "start") {
+    finishPvpRun(app, "defender", "Reached the attacker's entry point");
+    syncPvp(app, pvp);
+    return;
+  }
+  app.render(false);
+  syncPvp(app, pvp);
+}
+
+/**
+ * Scan action: costs the acting side's whole turn instead of moving or
+ * recapturing, only reveals the opponent's position within 2 graph-hops,
+ * and rolls against a color fixed back at the attacker's initial hack roll
+ * (see FaseripPvpConfig.scanRequiredColor) rather than anything re-derived
+ * here.
+ */
+async function handlePvpScan(
+  app: any,
+  pvp: FaseripPvpConfig,
+  restrictToSide?: "attacker" | "defender"
+): Promise<void> {
+  const side: "attacker" | "defender" | null = restrictToSide
+    ? isPvpTurn(pvp, restrictToSide)
+      ? restrictToSide
+      : null
+    : isPvpTurn(pvp, "attacker")
+      ? "attacker"
+      : isPvpTurn(pvp, "defender")
+        ? "defender"
+        : null;
+  if (!side) {
+    ui.notifications?.warn?.("Not your turn.");
+    return;
+  }
+
+  const nodes: any[] = app.graph?.nodes ?? [];
+  const scannerNodeId = side === "attacker" ? app.state.currentNodeId : getDefenderPosition(app);
+  const opponentNodeId = side === "attacker" ? getDefenderPosition(app) : app.state.currentNodeId;
+  if (!scannerNodeId || !opponentNodeId) return;
+
+  const roll = await rollPvpActionCheck(resolvePvpActor(pvp, side), "Scan Attempt");
+  if (!roll) return;
+
+  const { inRange, success } = attemptScan(
+    nodes,
+    scannerNodeId,
+    opponentNodeId,
+    pvp.scanRequiredColor ?? RollResult.Green,
+    roll.result
+  );
+
+  if (!inRange) {
+    ui.notifications?.warn?.("Too far from the opponent to scan (must be within 2 nodes).");
+    return;
+  }
+
+  if (success) {
+    app.__faseripPvpRevealNodeId = opponentNodeId;
+    ui.notifications?.info?.("Scan successful - opponent's position revealed.");
+  } else {
+    ui.notifications?.warn?.("Scan failed to pin down the opponent's position.");
+  }
+  app.render(false);
+  syncPvp(app, pvp);
+}
+
+const PVP_OWNER_COLOR = "#7b241c";
+const PVP_CONTROLS_CLASS = "faserip-pvp-controls";
+
+/**
+ * Marks every attacker-owned/captured node with a full red fill (a
+ * different, darker shade than the existing radar-danger red, so the two
+ * aren't confused) plus a FontAwesome arrows-to-dot icon, and outlines
+ * whichever node a successful Scan most recently revealed. Reapplied every
+ * render alongside the difficulty badges, since node buttons are rebuilt
+ * from scratch each time.
+ */
+function renderPvpNodeStyling(app: any, root: any): void {
+  const pvp: FaseripPvpConfig | undefined = app.__faseripHackContext?.pvp;
+  if (!pvp) return;
+
+  const buttons: NodeListOf<HTMLElement> = root.querySelectorAll(
+    ".node-intrusion-node[data-node-id]"
+  );
+  buttons.forEach(btn => {
+    const nodeId = (btn as HTMLElement).dataset.nodeId;
+    const node = app.graph?.nodes?.find((n: any) => n.id === nodeId);
+    if (!node) return;
+
+    if (node.faseripOwner === NODE_OWNER_ATTACKER) {
+      Object.assign((btn as HTMLElement).style, {
+        background: PVP_OWNER_COLOR,
+        boxShadow: "0 0 0 2px #922b21 inset"
+      });
+      const icon = globalThis.document.createElement("i");
+      icon.className = "fa-solid fa-arrows-to-dot faserip-pvp-owner-icon";
+      Object.assign(icon.style, {
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        fontSize: "10px",
+        color: "#fff",
+        textShadow: "0 0 2px rgba(0,0,0,0.9)",
+        pointerEvents: "none",
+        zIndex: "6"
+      });
+      btn.appendChild(icon);
+    }
+
+    if (nodeId === app.__faseripPvpRevealNodeId) {
+      (btn as HTMLElement).style.outline = "2px dashed #f1c40f";
+    }
+  });
+}
+
+/**
+ * Injects a small standby-panel block for PvP intrusions: whose turn it
+ * currently is, and a Scan button available to either side on their own
+ * turn (mutually exclusive with moving/recapturing - clicking it spends
+ * the turn instead). Rebuilt (not just re-labelled) every render since the
+ * panel it lives in is rebuilt wholesale each time too.
+ */
+function renderPvpControls(app: any, root: any): void {
+  const pvp: FaseripPvpConfig | undefined = app.__faseripHackContext?.pvp;
+  if (!pvp) return;
+
+  const anchor =
+    root.querySelector(`.${TRACE_HINT_CLASS}`) ??
+    root.querySelector(".node-intrusion-legend");
+  if (!anchor) return;
+  root.querySelector(`.${PVP_CONTROLS_CLASS}`)?.remove();
+
+  const panel = globalThis.document.createElement("div");
+  panel.className = PVP_CONTROLS_CLASS;
+  Object.assign(panel.style, {
+    marginTop: "8px",
+    padding: "6px 8px",
+    background: "rgba(0, 0, 0, 0.35)",
+    borderRadius: "4px",
+    fontSize: "11px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px"
+  });
+
+  const sameUser = pvpSameUserControlsBothSides(pvp);
+  const turnLabel = isPvpTurn(pvp, "attacker")
+    ? "Attacker"
+    : isPvpTurn(pvp, "defender")
+      ? "Defender"
+      : "Waiting on combat turn order";
+  const status = globalThis.document.createElement("div");
+  status.textContent = `PvP Intrusion - current turn: ${turnLabel}`;
+  panel.appendChild(status);
+
+  // A distinct, real defender has their own separate window (see
+  // pvp-defender-view.ts) - this button (the attacker's own) must never act
+  // on their behalf, only ever as the attacker, and only on the attacker's
+  // own turn. Only when nobody else is connected to play the defender
+  // (sameUser) does it fall back to acting as whichever side's turn it is.
+  const scanBtn = globalThis.document.createElement("button");
+  scanBtn.type = "button";
+  scanBtn.textContent = "Scan (uses your turn)";
+  scanBtn.style.fontSize = "11px";
+  if (!sameUser && !isPvpTurn(pvp, "attacker")) {
+    scanBtn.disabled = true;
+  }
+  scanBtn.addEventListener("click", () =>
+    handlePvpScan(app, pvp, sameUser ? undefined : "attacker")
+  );
+  panel.appendChild(scanBtn);
+
+  anchor.insertAdjacentElement("afterend", panel);
 }
 
 let registered = false;
@@ -703,6 +1053,29 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
         }
         if (this.state.claimingNodeId || this.__faseripRollPending) return;
 
+        // PvP managed intrusion: this window is always the attacker's own.
+        // It only doubles as the defender's controls too when nobody else
+        // is actually connected to play the defender (see
+        // pvpSameUserControlsBothSides) - otherwise the real defender has
+        // their own separate cross-client view, and a click here during
+        // their turn must be refused rather than silently acting for them.
+        if (context.pvp) {
+          if (isPvpTurn(context.pvp, "defender")) {
+            if (pvpSameUserControlsBothSides(context.pvp)) {
+              await handlePvpDefenderNodeClick(this, context.pvp, nodeId);
+            } else {
+              ui.notifications?.warn?.(
+                "It's the defender's turn - they act from their own window."
+              );
+            }
+            return;
+          }
+          if (!isPvpTurn(context.pvp, "attacker")) {
+            ui.notifications?.warn?.("Not your turn.");
+            return;
+          }
+        }
+
         const current = this.getCurrentNode();
         const node = this.graph.nodes.find(
           (candidate: any) => candidate.id === nodeId
@@ -744,13 +1117,22 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
                 ?.requiredColor) ??
             context.requiredColor;
 
-          if (!meetsRequiredColor(faseripRoll.result, requiredColor)) {
-            // Failed attempt (below the target's required color, e.g. a
-            // hackable actor's DC) - this is the only case that can trip
-            // detection; a roll that clears the node doesn't risk the trace
-            // at all, no matter how far below the node's own difficulty
-            // threshold it fell.
-            checkDetection(this, node, faseripRoll.result);
+          // Detection is its own, entirely independent check from the
+          // move's own success/failure - a node's difficulty badge is the
+          // color needed to evade detection there, full stop, regardless of
+          // whether that same roll happened to be good enough to also clear
+          // the attempt's own (possibly lower) required color. A Green
+          // roll against a level-3 (Red-to-evade) node still trips
+          // detection even though it successfully claims the node.
+          checkDetection(this, node, faseripRoll.result);
+
+          const moveSucceeded = meetsRequiredColor(
+            faseripRoll.result,
+            requiredColor
+          );
+
+          if (!moveSucceeded) {
+            if (context.pvp) syncPvp(this, context.pvp);
 
             // Reuse the minigame's own invalid-pulse feedback.
             const shell = this.element?.find?.(".node-intrusion-shell");
@@ -762,6 +1144,14 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
             return;
           }
 
+          if (context.pvp) {
+            // Stamps the color actually rolled, not just requiredColor - a
+            // recapture later must match/beat this, not the node's static
+            // difficulty threshold.
+            recordAttackerCapture(node, faseripRoll.result);
+            syncPvp(this, context.pvp);
+          }
+
           return wrapped(nodeId);
         } finally {
           // Idempotent (no-op if already resumed above) - also covers the
@@ -770,6 +1160,36 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
           resumeTrace(this);
           this.__faseripRollPending = false;
         }
+    },
+    "MIXED"
+  );
+
+  // PvP cleanup/reporting - covers both ways a managed run can end: the
+  // stock success path (attacker reaches the "target" node, handled
+  // entirely by HoloSuite's own code, never touched above) and
+  // finishPvpRun's own explicit failure call (defender reaches "start").
+  // Unrelated to the multi-target finish patch below (mutually exclusive
+  // modes - pvp is single-target only), both layer fine on the same method.
+  globalThis.libWrapper.register(
+    FASERIP_MODULE_ID,
+    `globalThis.${NODE_APP_GLOBAL_KEY}.prototype.finish`,
+    function (
+      this: any,
+      wrapped: (...args: any[]) => any,
+      result: string,
+      message: string,
+      options?: any
+    ) {
+      const pvp: FaseripPvpConfig | undefined = this.__faseripHackContext?.pvp;
+      if (pvp && !this.__faseripPvpResult) {
+        this.__faseripPvpResult = result === "success" ? "attacker" : "defender";
+      }
+      const returnValue = wrapped(result, message, options);
+      if (pvp) {
+        syncPvp(this, pvp);
+        unregisterPvpApp(pvp.sessionId);
+      }
+      return returnValue;
     },
     "MIXED"
   );

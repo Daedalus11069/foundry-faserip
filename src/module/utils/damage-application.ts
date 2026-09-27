@@ -41,6 +41,7 @@ export interface DamageApplicationData {
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
   hitCount?: number; // Number of hits that contributed to this damage (for per-hit degradation)
+  hitDamages?: number[]; // Per-hit damage amounts (for cumulative combo damage - armor soaks each hit separately)
 }
 
 /**
@@ -147,8 +148,20 @@ export async function applyDamageToActor(
     // pierced armor (effectiveArmor <= 0) soaks nothing and all damage goes
     // to health, but still degrades below: a hit that penetrates armor
     // entirely still wears it down, per the degradingArmor world setting.
-    armorDamage = Math.max(0, Math.min(damage, effectiveArmor));
-    overflow = damage - armorDamage;
+    // For cumulative combo damage, armor soaks each individual hit
+    // separately (up to its rank each time) rather than soaking the
+    // lump total once - otherwise a rank-5 armor absorbing three
+    // rank-4 hits would only block 5 total instead of 4 per hit.
+    const hitAmounts =
+      data.hitDamages && data.hitDamages.length > 0
+        ? data.hitDamages
+        : [damage];
+
+    for (const hitDamage of hitAmounts) {
+      const soaked = Math.max(0, Math.min(hitDamage, effectiveArmor));
+      armorDamage += soaked;
+      overflow += hitDamage - soaked;
+    }
 
     // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power)
     // "full" mode degrades by what armor would have soaked with no piercing

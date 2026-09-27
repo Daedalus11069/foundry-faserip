@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { inject, computed, ref, watch, watchEffect } from "vue";
+import { inject, computed, onMounted, ref, watch, watchEffect } from "vue";
 import { getCharmanService } from "../../charman-service";
 import { getRankValue } from "../../utils";
+import { listNodeHackerGraphNames } from "../../integrations/node-hacker-hacking";
 import type { Form } from "../../types";
 
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
+
+const nodeGraphNames = ref<string[]>([]);
+onMounted(async () => {
+  nodeGraphNames.value = await listNodeHackerGraphNames();
+});
 
 // @ts-expect-error - TypeScript doesn't recognize game.user
 const isGM = computed(() => game.user?.isGM ?? false);
@@ -60,7 +66,72 @@ function ensureTokenProperties(form: Form) {
   if (form.tokenScale === undefined) {
     form.tokenScale = 1;
   }
+  if (!Array.isArray(form.visionSources)) {
+    form.visionSources = [];
+  }
   // weaponSlots intentionally not defaulted — undefined means use the actor default
+}
+
+// ── Vision configuration ──────────────────────────────────────────────────────
+// A form can define any number of vision "methods" at once (e.g. Basic Sight
+// at one range plus Tremorsense at another). Each method is either a primary
+// sight mode (renders the scene - only the longest-range one is used) or an
+// additional detection mode (stacks alongside the primary sight).
+
+const visionCapablePowers = computed(() => {
+  const powers = reactiveActor.system.powers || [];
+  const formId = editForm.value?.id;
+  return powers.filter(
+    (p: any) => !p.formIds || p.formIds.length === 0 || p.formIds.includes(formId)
+  );
+});
+
+function localizeLabel(label: string | undefined, fallback: string): string {
+  // @ts-expect-error - game.i18n type not fully recognized
+  return label ? game.i18n.localize(label) : fallback;
+}
+
+// Combined list of vision "types" a method can use: Foundry's sight-rendering
+// modes (basic, darkvision, etc.) prefixed "sight:", and its detection modes
+// (tremorsense, blindsight, see invisibility, etc.) prefixed "detect:".
+const visionTypeChoices = computed(() => {
+  // @ts-expect-error - CONFIG.Canvas type not fully recognized
+  const sightModes = Object.entries(CONFIG.Canvas?.visionModes ?? {}).map(
+    ([key, mode]: any) => ({
+      value: `sight:${key}`,
+      label: `Sight: ${localizeLabel(mode.label, key)}`
+    })
+  );
+  // @ts-expect-error - CONFIG.Canvas type not fully recognized
+  const detectionModes = Object.entries(
+    // @ts-expect-error - CONFIG.Canvas type not fully recognized
+    CONFIG.Canvas?.detectionModes ?? {}
+  ).map(([key, mode]: any) => ({
+    value: `detect:${key}`,
+    label: `Detect: ${localizeLabel(mode.label, key)}`
+  }));
+  return [...sightModes, ...detectionModes];
+});
+
+function addVisionSource() {
+  if (!editForm.value) return;
+  if (!Array.isArray(editForm.value.visionSources)) {
+    editForm.value.visionSources = [];
+  }
+  editForm.value.visionSources.push({
+    id: crypto.randomUUID(),
+    type: "sight:basic",
+    rangeSource: "flat",
+    flatRange: 0,
+    powerId: ""
+  });
+}
+
+function removeVisionSource(id: string) {
+  if (!editForm.value) return;
+  editForm.value.visionSources = (editForm.value.visionSources || []).filter(
+    (vs: any) => vs.id !== id
+  );
 }
 
 // When editForm changes, ensure it has token properties
@@ -83,6 +154,7 @@ function addForm() {
     tokenWidth: 1,
     tokenHeight: 1,
     tokenScale: 1,
+    visionSources: [],
     weaponSlots: undefined,
     attributes: {
       fighting: { rank: "typical", value: 6 },
@@ -424,6 +496,19 @@ async function browseTokenImage() {
           <option value="red">Red (Amazing success only)</option>
         </select>
       </div>
+      <div v-if="reactiveActor.system.hackable" class="mt-2">
+        <label class="text-xs font-semibold text-gray-400">
+          Node Graph
+          <i
+            class="fas fa-circle-info text-xs text-cyan-400 ml-1"
+            :title="'Optional: pick a graph built in Node Hacker\'s Node Designer. Only used when this actor is the sole target of the hacking challenge - leave blank to roll the opening hack check first and generate a network sized off its result.'"
+          ></i>
+        </label>
+        <select v-model="reactiveActor.system.hackGraphName" class="fsr-select">
+          <option value="">(generate from opening roll)</option>
+          <option v-for="name in nodeGraphNames" :key="name" :value="name">{{ name }}</option>
+        </select>
+      </div>
     </div>
 
     <!-- Charman Link Section -->
@@ -708,6 +793,113 @@ async function browseTokenImage() {
 
         <p class="text-xs text-gray-500 mt-1">
           Token size in grid squares and scale multiplier (1.0 = normal size)
+        </p>
+      </div>
+
+      <!-- Token Vision -->
+      <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-yellow-400">Token Vision</h3>
+          <button
+            type="button"
+            class="fsr-btn fsr-btn-secondary fsr-btn-sm text-xs"
+            :disabled="!canEditStats"
+            @click="addVisionSource"
+          >
+            + Add Vision Method
+          </button>
+        </div>
+
+        <p v-if="!editForm.visionSources?.length" class="text-xs text-gray-500">
+          No vision methods configured — the token will have no sight.
+        </p>
+
+        <div
+          v-for="(vs, vsIndex) in editForm.visionSources"
+          :key="vs.id"
+          class="mb-3 p-2 bg-gray-900 rounded border border-gray-700"
+        >
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs font-semibold text-gray-400">
+              Method {{ vsIndex + 1 }}
+            </span>
+            <button
+              type="button"
+              class="text-xs text-red-400 hover:text-red-300"
+              :disabled="!canEditStats"
+              @click="removeVisionSource(vs.id)"
+            >
+              Remove
+            </button>
+          </div>
+
+          <div class="fsr-form-row grid grid-cols-2 gap-2">
+            <div class="fsr-form-group">
+              <label class="fsr-form-label text-xs">Type</label>
+              <select
+                v-model="vs.type"
+                class="fsr-select text-sm"
+                :disabled="!canEditStats"
+              >
+                <option
+                  v-for="choice in visionTypeChoices"
+                  :key="choice.value"
+                  :value="choice.value"
+                >
+                  {{ choice.label }}
+                </option>
+              </select>
+            </div>
+
+            <div class="fsr-form-group">
+              <label class="fsr-form-label text-xs">Range Source</label>
+              <select
+                v-model="vs.rangeSource"
+                class="fsr-select text-sm"
+                :disabled="!canEditStats"
+              >
+                <option value="flat">Flat Value</option>
+                <option value="intuition">Intuition</option>
+                <option value="power">Power</option>
+              </select>
+            </div>
+
+            <div v-if="vs.rangeSource === 'flat'" class="fsr-form-group">
+              <label class="fsr-form-label text-xs">Range (scene units)</label>
+              <input
+                v-model.number="vs.flatRange"
+                type="number"
+                class="fsr-input text-sm"
+                placeholder="0"
+                min="0"
+                :disabled="!canEditStats"
+              />
+            </div>
+
+            <div v-else-if="vs.rangeSource === 'power'" class="fsr-form-group">
+              <label class="fsr-form-label text-xs">Power</label>
+              <select
+                v-model="vs.powerId"
+                class="fsr-select text-sm"
+                :disabled="!canEditStats"
+              >
+                <option value="">-- Select Power --</option>
+                <option
+                  v-for="power in visionCapablePowers"
+                  :key="power.id"
+                  :value="power.id"
+                >
+                  {{ power.name }}
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-xs text-gray-500 mt-1">
+          Add one method per sense the token has (e.g. Basic Sight + Tremorsense).
+          Only the longest-range "Sight" method drives what's rendered; "Detect"
+          methods stack alongside it. Synced to the token automatically.
         </p>
       </div>
 

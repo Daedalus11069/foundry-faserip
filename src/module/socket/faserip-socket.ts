@@ -13,6 +13,14 @@ import { applyDamageToActor } from "../utils/damage-application";
 import type { ArmorPiercingResult } from "../utils/armor-piercing";
 import { getEffectiveAttributeData } from "../utils/stat-debuffs";
 import { applyTemporaryModifier } from "../utils/temp-effects";
+import { PvpDefenderView } from "../applications/pvp-defender-view";
+import {
+  dispatchPvpAction,
+  getPvpApp,
+  type PvpSnapshot,
+  type PvpDefenderAction,
+  type FaseripPvpConfig
+} from "../integrations/holosuite-pvp-intrusion";
 
 /**
  * Socket module instance
@@ -175,6 +183,270 @@ export function initializeSocket(): void {
   socket.register("removeDot", handleRemoveDot);
   socket.register("setDoorLockState", handleSetDoorLockState);
   socket.register("closeHackSpectator", handleCloseHackSpectator);
+  socket.register("promptManagedHackMode", handlePromptManagedHackMode);
+  socket.register("promptNodeHackMode", handlePromptNodeHackMode);
+  socket.register("openPvpDefenderView", handleOpenPvpDefenderView);
+  socket.register("pvpStateUpdate", handlePvpStateUpdate);
+  socket.register("pvpDefenderAction", handlePvpDefenderAction);
+}
+
+/** Open PvP defender views on THIS client, keyed by session id - at most
+ * one per active managed intrusion this client is defending. */
+const pvpDefenderViews = new Map<string, PvpDefenderView>();
+
+/**
+ * Opens the defender's cross-client view (see PvpDefenderView) on the
+ * defending player's own client, the moment a managed PvP intrusion starts.
+ * Runs on the defender's client via socketlib - the attacker's client never
+ * touches this view directly, only ever sends it fresh snapshots.
+ */
+function handleOpenPvpDefenderView(data: {
+  pvp: FaseripPvpConfig;
+  snapshot: PvpSnapshot;
+}): void {
+  const existing = pvpDefenderViews.get(data.snapshot.sessionId);
+  if (existing) {
+    existing.applySnapshot(data.snapshot);
+    existing.render(true);
+    return;
+  }
+
+  const view = new PvpDefenderView(data.snapshot, (action: PvpDefenderAction) => {
+    if (!socket) return;
+    socket.executeAsUser("pvpDefenderAction", data.pvp.attackerUserId, {
+      sessionId: data.snapshot.sessionId,
+      action
+    });
+  });
+  pvpDefenderViews.set(data.snapshot.sessionId, view);
+  void view.render(true);
+}
+
+/**
+ * Pushes a fresh snapshot into an already-open defender view (or opens one,
+ * defensively, if this client somehow missed the original open message -
+ * e.g. it connected after the hack started). Also closes the view a few
+ * seconds after the run ends, once the player has had a chance to read the
+ * result.
+ */
+function handlePvpStateUpdate(snapshot: PvpSnapshot): void {
+  const view = pvpDefenderViews.get(snapshot.sessionId);
+  if (!view) return; // No open() message ever arrived for this session on this client - nothing to update.
+  view.applySnapshot(snapshot);
+  if (snapshot.ended) {
+    globalThis.setTimeout(() => {
+      view.close?.();
+      pvpDefenderViews.delete(snapshot.sessionId);
+    }, 6000);
+  }
+}
+
+/**
+ * Runs on the ATTACKER's client (the one actually holding the live,
+ * authoritative Node Intrusion app instance) - applies a defender action
+ * requested remotely from their own view, via the same move/recapture/scan
+ * logic used when a GM plays both sides from one instance (see
+ * holosuite-node-intrusion-patch.ts's registerPvpActionHandler call). The
+ * resulting fresh snapshot is broadcast back so the defender's view reflects
+ * the outcome (a failed recapture, an updated turn, etc).
+ */
+async function handlePvpDefenderAction(data: {
+  sessionId: string;
+  action: PvpDefenderAction;
+}): Promise<void> {
+  // Resolve the pvp config from the live app itself (registered under this
+  // same session id) rather than trusting anything the remote client sent,
+  // since dispatchPvpAction only hands back a plain snapshot.
+  const app = getPvpApp(data.sessionId);
+  const pvp: FaseripPvpConfig | undefined = app?.__faseripHackContext?.pvp;
+  const snapshot = await dispatchPvpAction(data.sessionId, data.action);
+  if (!snapshot || !pvp) return;
+  broadcastPvpState(pvp, snapshot);
+}
+
+/**
+ * Opens the defender's cross-client view for the first time, right after a
+ * managed PvP intrusion's node graph is generated. No-op if there's no
+ * connected defender user distinct from the attacker (the GM-plays-both-
+ * sides case keeps using the single attacker-side instance, as before).
+ */
+export function openPvpDefenderView(
+  pvp: FaseripPvpConfig,
+  snapshot: PvpSnapshot
+): void {
+  if (!pvp.defenderUserId || pvp.defenderUserId === pvp.attackerUserId) return;
+  if (!socket) {
+    // requestManagedHackMode should already have refused to force managed
+    // mode without a working transport - reaching here with a distinct
+    // defenderUserId anyway means something upstream changed, so surface it
+    // loudly instead of silently leaving the defender with no window at all
+    // (again).
+    console.warn(
+      "faserip | Cannot open the PvP defender view - socketlib is not active."
+    );
+    return;
+  }
+  socket.executeAsUser("openPvpDefenderView", pvp.defenderUserId, { pvp, snapshot });
+}
+
+/** Pushes a fresh PvpSnapshot to the defender's cross-client view, if one is
+ * open for this session (no-op otherwise, e.g. GM-plays-both-sides mode). */
+export function broadcastPvpState(
+  pvp: { defenderUserId: string | null },
+  snapshot: PvpSnapshot
+): void {
+  if (!socket || !pvp.defenderUserId) return;
+  socket.executeAsUser("pvpStateUpdate", pvp.defenderUserId, snapshot);
+}
+
+interface ManagedHackModePromptData {
+  targetActorId: string;
+  targetTokenId?: string;
+  attackerName: string;
+  /** True when the target is player-owned - managed mode is mandatory then,
+   * so the prompt is informational only (no Yes/No choice). */
+  forced: boolean;
+}
+
+interface ManagedHackModeResponse {
+  managed: boolean;
+}
+
+/**
+ * Shown on the defending actor's owner's client (GM for an NPC, the
+ * controlling player for a PC) whenever a single-target HoloSuite hack is
+ * about to start, to decide whether this runs as a PvP "managed" intrusion
+ * (see holosuite-pvp-intrusion.ts - the defender actively moves/recaptures
+ * nodes on their own combat turns) or the classic point/time trace. Forced
+ * to managed with no choice when the target is player-owned, per design -
+ * a PC is always an active defender, never a passive clock.
+ */
+async function handlePromptManagedHackMode(
+  data: ManagedHackModePromptData
+): Promise<ManagedHackModeResponse> {
+  if (data.forced) return { managed: true };
+
+  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
+  const managed = await globalThis.foundry.applications.api.DialogV2.confirm({
+    window: { title: "Incoming Intrusion" },
+    content: `<p><strong>${data.attackerName}</strong> is attempting to hack a system you control. Run this as a managed defense (you actively move/recapture nodes on your own combat turns) instead of the passive trace clock?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+  return { managed: !!managed };
+}
+
+/**
+ * Requests the managed-vs-classic hack mode choice from the target's owner.
+ * Mirrors requestDefenseResponse's owner-resolution (findTokenControllers)
+ * but only ever asks the first controller - unlike a defense roll, this
+ * isn't racing simultaneous responses, just picking who gets asked.
+ */
+export async function requestManagedHackMode(
+  targetActor: FaseripActor,
+  data: Omit<ManagedHackModePromptData, "forced">
+): Promise<boolean> {
+  // A player-owned actor always defends actively - no prompt, no opt-out.
+  const forced = !targetActor.hasPlayerOwner;
+
+  if (!socket) {
+    // @ts-expect-error - Foundry game.user global
+    if (game.user?.isGM || targetActor.isOwner) {
+      // We already have write access to this actor locally (GM, or we
+      // happen to own it too) - handle the prompt (or the forced-true
+      // shortcut) right here, no transport needed.
+      const result = await handlePromptManagedHackMode({ ...data, forced });
+      return result.managed;
+    }
+    // No socketlib AND we don't own the target ourselves - there is no way
+    // to ever reach its real owner's client, so managed mode must NOT be
+    // forced blind here: every subsequent PvP message (opening the
+    // defender's view, broadcasting state, relaying their actions) would
+    // silently no-op the same way, leaving the defender permanently unable
+    // to see or do anything - confirmed live as exactly that. Fall back to
+    // the classic trace instead.
+    if (forced) {
+      ui.notifications?.warn?.(
+        "socketlib is required for managed PvP hacking against another user's target - using the standard trace instead."
+      );
+    }
+    return false;
+  }
+
+  const owner = findTokenControllers(targetActor)[0];
+  if (!owner) {
+    const result = await handlePromptManagedHackMode({ ...data, forced });
+    return result.managed;
+  }
+
+  const result = await socket.executeAsUser("promptManagedHackMode", owner.id, {
+    ...data,
+    forced
+  });
+  return result?.managed ?? forced;
+}
+
+export type NodeHackMode = "managed" | "auto-time" | "auto-points";
+
+interface NodeHackModePromptData {
+  attackerName: string;
+  targetName?: string;
+  /** Whether "Managed" is even an option - Node Hacker's managed mode needs a single real
+   * target already paired with the attacker in the active combat encounter (see
+   * shouldRunManaged in node-hacker-hacking.ts). Omitted entirely otherwise. */
+  canManage: boolean;
+}
+
+/**
+ * Shown on the GM's own client - unlike HoloSuite's requestManagedHackMode (which asked the
+ * DEFENDING actor's owner), Node Hacker's managed mode always has the GM play the trace side
+ * directly regardless of who owns the hacked actor, so the GM is who actually needs to
+ * choose. Picks between a live managed trace and the classic passive trace, and for the
+ * latter, which of the two "prior pvp code" trace flavors to use (see
+ * holosuite-node-intrusion-patch.ts's checkDetection): a timed countdown that only starts
+ * once a node attempt first fails, or a meter that only grows on failure, scaled by the
+ * failed node's difficulty.
+ */
+async function handlePromptNodeHackMode(data: NodeHackModePromptData): Promise<{ mode: NodeHackMode }> {
+  const options = [
+    `<option value="auto-time">Auto - Timed Countdown</option>`,
+    `<option value="auto-points" selected>Auto - Failure Meter</option>`
+  ];
+  if (data.canManage) {
+    options.unshift(`<option value="managed">Managed (I play the trace live)</option>`);
+  }
+
+  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
+  const mode = await globalThis.foundry.applications.api.DialogV2.prompt({
+    window: { title: "Incoming Hack" },
+    // Foundry's own `.form-group` lays out label+input as a horizontal row, which reads fine
+    // for a short label but wraps badly once the label is this much descriptive text - the
+    // description goes in its own paragraph instead, with a short, separate stacked label.
+    content: `<p><strong>${data.attackerName}</strong> is attempting to hack${data.targetName ? ` <strong>${data.targetName}</strong>` : ""}.</p><div class="form-group" style="display:flex;flex-direction:column;align-items:stretch;gap:4px;"><label>Run this trace as:</label><select name="mode">${options.join("")}</select></div>`,
+    ok: {
+      label: "Start",
+      callback: (_event: Event, button: any) => button.form.elements.mode.value
+    },
+    rejectClose: false
+  });
+  return { mode: (mode as NodeHackMode) ?? "auto-points" };
+}
+
+/** Requests the managed-vs-auto (and auto trace flavor) choice from the GM specifically. */
+export async function requestNodeHackMode(data: NodeHackModePromptData): Promise<NodeHackMode> {
+  // @ts-expect-error - Foundry game.user global
+  if (game.user?.isGM) {
+    const result = await handlePromptNodeHackMode(data);
+    return result.mode;
+  }
+  if (!socket) {
+    ui.notifications?.warn?.(
+      "socketlib is required to ask the GM how to run this hack - defaulting to a failure-meter trace."
+    );
+    return "auto-points";
+  }
+  const result = await socket.executeAsGM("promptNodeHackMode", data);
+  return result?.mode ?? "auto-points";
 }
 
 interface CloseHackSpectatorData {
@@ -287,6 +559,7 @@ interface SetDoorLockStateData {
   wallUuid: string;
   ds: number;
 }
+
 
 /** Runs on a GM client (or locally if the caller already is GM) - only a
  * GM typically holds update permission on Wall documents. */
@@ -449,7 +722,7 @@ export async function requestDefenseResponse(
 /**
  * Find users who can control this token (owner or GM)
  */
-function findTokenControllers(actor: FaseripActor): User[] {
+export function findTokenControllers(actor: FaseripActor): User[] {
   // First, find all non-GM users who own the actor
   const playerOwners: User[] =
     // @ts-expect-error - Foundry game.users collection
@@ -894,6 +1167,7 @@ interface ApplyDamageData {
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
   hitCount?: number; // Number of hits for per-hit armor degradation
+  hitDamages?: number[]; // Per-hit damage amounts (armor soaks each hit separately)
   armorUpdates?: any[]; // Legacy: Deprecated - armor is now Item documents
   powerUpdates?: any[];
 }
@@ -910,7 +1184,8 @@ export async function requestDamageApplication(
   targetTokenId?: string,
   armorPiercing?: string | null,
   armorRank?: string,
-  hitCount?: number
+  hitCount?: number,
+  hitDamages?: number[]
 ): Promise<{
   armorDamage: number;
   healthDamage: number;
@@ -933,7 +1208,8 @@ export async function requestDamageApplication(
         powerName,
         armorPiercing,
         armorRank,
-        hitCount
+        hitCount,
+        hitDamages
       });
     }
     console.error("FASERIP Socket | Cannot apply damage locally");
@@ -951,7 +1227,8 @@ export async function requestDamageApplication(
       powerName,
       armorPiercing,
       armorRank,
-      hitCount
+      hitCount,
+      hitDamages
     });
   }
 
@@ -964,7 +1241,8 @@ export async function requestDamageApplication(
     powerName,
     armorPiercing,
     armorRank,
-    hitCount
+    hitCount,
+    hitDamages
   });
 
   return result;
@@ -1055,7 +1333,8 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     degradingArmorMode: degradingMode,
     armorPiercing: data.armorPiercing,
     armorRank: data.armorRank,
-    hitCount: data.hitCount
+    hitCount: data.hitCount,
+    hitDamages: data.hitDamages
   });
 
   // Show resistance chat messages if applicable

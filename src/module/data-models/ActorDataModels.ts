@@ -251,6 +251,30 @@ export function defineFormSchema() {
       initial: 1
     }),
 
+    // Token vision - a form may define any number of vision "methods" at
+    // once (e.g. Basic Sight at one range plus Tremorsense at another).
+    // Each entry's "type" is "sight:<visionModeKey>" (Foundry rendering mode -
+    // only the longest-range one applies) or "detect:<detectionModeKey>"
+    // (an additional detection mode that stacks alongside the primary sight).
+    visionSources: new ArrayField(
+      new SchemaField({
+        id: new StringField({ required: true }),
+        type: new StringField({ required: false, initial: "sight:basic" }),
+        rangeSource: new StringField({
+          required: false,
+          initial: "flat",
+          choices: ["flat", "intuition", "power"]
+        }),
+        flatRange: new NumberField({
+          required: false,
+          min: 0,
+          initial: 0
+        }),
+        powerId: new StringField({ required: false, initial: "" })
+      }),
+      { required: false, initial: () => [] }
+    ),
+
     weaponSlots: new NumberField({
       required: false,
       integer: true,
@@ -438,6 +462,11 @@ export function definePowerRefSchema() {
     auraIncludeSelf: new BooleanField({
       required: false,
       initial: false
+    }),
+    autoHealEachRound: new BooleanField({
+      required: false,
+      initial: false,
+      label: "Automatically heal Rank value at the start of every round"
     })
   });
 }
@@ -494,6 +523,7 @@ export class ActorDataModel extends TypeDataModel<
   declare actionsThisTurn: number;
   declare hackable: boolean;
   declare hackRequiredColor: string;
+  declare hackGraphName: string;
   static override defineSchema(): foundry.data.fields.DataSchema {
     return {
       // Current form (active form for characters with multiple forms)
@@ -698,7 +728,10 @@ export class ActorDataModel extends TypeDataModel<
         required: false,
         initial: "green",
         choices: ["green", "yellow", "red"]
-      })
+      }),
+      // Optional: the name of a graph built in Node Hacker's Node Designer, used instead of
+      // a generated single-node/chain attempt when this actor is the only hacking target.
+      hackGraphName: new StringField({ required: false, blank: true, initial: "" })
     };
   }
 
