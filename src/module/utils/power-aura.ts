@@ -29,7 +29,11 @@ import {
   getDamageBuffShiftForResult,
   type AttributeKey
 } from "./stat-debuffs";
-import { createEffectRegion, getContainingRegionBehaviors } from "./region-effects";
+import { getContainingRegionBehaviors } from "./region-effects";
+import {
+  requestCreateEffectRegion,
+  requestDeleteEffectRegion
+} from "../socket/faserip-socket";
 
 const AURA_FLAG_SCOPE = "faserip";
 const AURA_FLAG_KEY = "activeAuraRegions";
@@ -129,6 +133,8 @@ export function getPowerAuraDamageShift(actor: any): number {
  * which does take a raw pixel radius).
  */
 function auraRangeDistance(power: any): number {
+  if (power.auraRange > 0) return power.auraRange;
+
   const rank = stringToRank(power.rank || Rank.Typical);
   const configured = getConfiguredMovementByRank();
   const squares = configured[rank] ?? configured[Rank.Typical];
@@ -252,12 +258,16 @@ export async function activatePowerAura(
   const range = auraRangeDistance(power);
 
   // createTokenEmanation isn't in fvtt-types yet (a newer core Foundry API);
-  // createEffectRegion casts to any internally to call it.
-  const region = await createEffectRegion({
-    scene: token.document.parent,
+  // createEffectRegion casts to any internally to call it. Creating an
+  // embedded Region requires Scene Update permission, which a player
+  // activating their own power doesn't have by default - relayed through
+  // requestCreateEffectRegion (via socketlib, as the GM) rather than calling
+  // createEffectRegion directly here.
+  const created = await requestCreateEffectRegion({
+    sceneUuid: token.document.parent.uuid,
     name: `${power.name} Aura`,
     follow: true,
-    token: token.document,
+    tokenUuid: token.document.uuid,
     shape: { type: "circle", size: range },
     behaviors: [
       {
@@ -286,7 +296,7 @@ export async function activatePowerAura(
     ]
   });
 
-  if (!region) {
+  if (!created) {
     ui.notifications?.error(
       `Failed to create the aura region for ${power.name} - see console for details.`
     );
@@ -294,7 +304,7 @@ export async function activatePowerAura(
   }
 
   const regionMap = getAuraRegionMap(actor);
-  regionMap[power.id] = region.id;
+  regionMap[power.id] = created.regionId;
   await actor.setFlag(AURA_FLAG_SCOPE, AURA_FLAG_KEY, regionMap);
 
   const statText = Object.entries(resolvedStatShifts)
@@ -336,12 +346,15 @@ export async function deactivatePowerAura(actor: any, power: any): Promise<void>
   ui.notifications?.info(`${power.name} aura deactivated.`);
 
   // The region may already be gone (e.g. a GM deleted it manually, or the
-  // owner's scene was deleted) - deleteEmbeddedDocuments on a missing id
-  // throws, so look it up across every scene the actor's tokens might be on.
+  // owner's scene was deleted) - look it up across every scene the actor's
+  // tokens might be on rather than assuming it's still there. Deleting it
+  // requires Scene Update permission, which a player deactivating their own
+  // power doesn't have by default, so the delete itself is relayed through
+  // requestDeleteEffectRegion (via socketlib, as the GM).
   for (const scene of game.scenes ?? []) {
     const region = scene.regions?.get(regionId);
     if (region) {
-      await scene.deleteEmbeddedDocuments("Region", [regionId]);
+      await requestDeleteEffectRegion(region.uuid);
       break;
     }
   }

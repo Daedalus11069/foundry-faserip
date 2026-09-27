@@ -471,6 +471,15 @@ export function definePowerRefSchema() {
       required: false,
       initial: false
     }),
+    // Radius in scene distance units (e.g. feet). 0/unset falls back to the
+    // rank-based movement table (see auraRangeDistance in utils/power-aura.ts)
+    // so existing auras keep working without needing this set explicitly.
+    auraRange: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 0
+    }),
     blendIn: new BooleanField({
       required: false,
       initial: false,

@@ -16,7 +16,8 @@
     "link-dev-dist": "./linkDevEnvDist.bat",
     "unlink-dev": "./unlinkDevEnv.bat",
     "relink-dist": "npm run unlink-dev && npm run link-dev-dist",
-    "server": "node ../../../foundry-vtt-server/main.js --dataPath=../../../foundry-vtt-server-data"
+    "server": "node ../../../foundry-vtt-server/main.js --dataPath=../../../foundry-vtt-server-data",
+    "server-dev": "node ../../../foundry-vtt-server/main.js --dataPath=../../../foundry-vtt-server-data --port=30001"
   },
   "dependencies": {
     "@vueuse/core": "^14.3.0",

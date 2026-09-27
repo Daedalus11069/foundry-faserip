@@ -1,7 +1,7 @@
 import { Rank, RANK_VALUES, formatRankDisplay } from "../enums";
 import type { PowerDotData, WeaponAreaOfEffectData } from "../types/actor-system";
-import { createEffectRegion, getContainingRegionBehaviors } from "./region-effects";
-import { requestDamageApplication } from "../socket/faserip-socket";
+import { getContainingRegionBehaviors } from "./region-effects";
+import { requestDamageApplication, requestCreateEffectRegion } from "../socket/faserip-socket";
 import type { AttributeKey } from "./stat-debuffs";
 
 /**
@@ -151,8 +151,12 @@ export async function placeAreaOfEffectOnHit(
     roundsRemaining = durationRoll.total || 0;
   }
 
-  await createEffectRegion({
-    scene,
+  // Creating an embedded Region requires Scene Update permission, which a
+  // player landing a hit doesn't have by default - relayed through
+  // requestCreateEffectRegion (via socketlib, as the GM) rather than calling
+  // createEffectRegion directly here.
+  await requestCreateEffectRegion({
+    sceneUuid: scene.uuid,
     name: `${weaponName} Area`,
     color: aoe.color,
     // Regions default to GM-only visibility - this one represents a visible

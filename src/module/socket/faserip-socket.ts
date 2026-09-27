@@ -11,6 +11,7 @@ import { formatRankDisplay } from "../enums";
 import type { BaseActorSystemData } from "../types/actor-system";
 import { applyDamageToActor } from "../utils/damage-application";
 import { getActiveLifeLinkRedirect } from "../utils/power-aura";
+import { createEffectRegion, type CreateEffectRegionOptions } from "../utils/region-effects";
 import type { ArmorPiercingResult } from "../utils/armor-piercing";
 import { getEffectiveAttributeData } from "../utils/stat-debuffs";
 import { applyTemporaryModifier } from "../utils/temp-effects";
@@ -207,6 +208,106 @@ export function initializeSocket(): void {
   socket.register("pvpDefenderAction", handlePvpDefenderAction);
   socket.register("setBlendInState", handleSetBlendInState);
   socket.register("revealBlendedToken", handleRevealBlendedToken);
+  socket.register("createEffectRegion", handleCreateEffectRegion);
+  socket.register("deleteEffectRegion", handleDeleteEffectRegion);
+}
+
+/**
+ * GM-side: create a Region embedded document (a power aura or a weapon's
+ * on-hit area-of-effect blast). Creating an embedded Region requires Scene
+ * Update permission, which players don't have by default - route through
+ * here (relayed via socketlib when the caller isn't the GM) instead of
+ * calling createEffectRegion directly from player-triggered code, or the
+ * creation silently fails with a permission error.
+ */
+interface CreateEffectRegionRequestData {
+  sceneUuid: string;
+  name: string;
+  color?: string;
+  visibility?: number;
+  follow?: boolean;
+  tokenUuid?: string;
+  origin?: { x: number; y: number };
+  shape: CreateEffectRegionOptions["shape"];
+  behaviors: any[];
+}
+
+async function handleCreateEffectRegion(
+  data: CreateEffectRegionRequestData
+): Promise<{ regionId: string; regionUuid: string } | null> {
+  // @ts-expect-error - Foundry fromUuidSync global
+  const scene = fromUuidSync(data.sceneUuid);
+  if (!scene) {
+    console.error("FASERIP Socket | Scene not found for effect region creation");
+    return null;
+  }
+
+  // @ts-expect-error - Foundry fromUuidSync global
+  const token = data.tokenUuid ? fromUuidSync(data.tokenUuid) : undefined;
+
+  const region = await createEffectRegion({
+    scene,
+    name: data.name,
+    color: data.color,
+    visibility: data.visibility,
+    follow: data.follow,
+    token,
+    origin: data.origin,
+    shape: data.shape,
+    behaviors: data.behaviors
+  });
+
+  return region ? { regionId: region.id, regionUuid: region.uuid } : null;
+}
+
+export async function requestCreateEffectRegion(
+  data: CreateEffectRegionRequestData
+): Promise<{ regionId: string; regionUuid: string } | null> {
+  // @ts-expect-error - Foundry game.user global
+  if (game.user?.isGM) {
+    return await handleCreateEffectRegion(data);
+  }
+  if (!socket) {
+    ui.notifications?.warn(
+      "socketlib is required for a player to place this power's region (e.g. an aura or blast area) - ask the GM to activate it, or enable socketlib."
+    );
+    return null;
+  }
+  return await socket.executeAsGM("createEffectRegion", data);
+}
+
+/**
+ * GM-side: delete a Region embedded document - same permission story as
+ * creation above, so it gets the same GM-relay treatment.
+ */
+interface DeleteEffectRegionRequestData {
+  regionUuid: string;
+}
+
+async function handleDeleteEffectRegion(
+  data: DeleteEffectRegionRequestData
+): Promise<boolean> {
+  // @ts-expect-error - Foundry fromUuidSync global
+  const region = fromUuidSync(data.regionUuid);
+  if (!region) return false;
+  await region.parent?.deleteEmbeddedDocuments("Region", [region.id]);
+  return true;
+}
+
+export async function requestDeleteEffectRegion(
+  regionUuid: string
+): Promise<boolean> {
+  // @ts-expect-error - Foundry game.user global
+  if (game.user?.isGM) {
+    return await handleDeleteEffectRegion({ regionUuid });
+  }
+  if (!socket) {
+    console.warn(
+      "FASERIP Socket | Socket not initialized - cannot delete effect region remotely"
+    );
+    return false;
+  }
+  return await socket.executeAsGM("deleteEffectRegion", { regionUuid });
 }
 
 /**

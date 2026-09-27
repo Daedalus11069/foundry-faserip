@@ -140,6 +140,7 @@ export class PowerDataModel extends ItemDataModel {
   declare isAura?: boolean;
   declare auraDisposition?: string;
   declare auraIncludeSelf?: boolean;
+  declare auraRange?: number;
   declare blendIn?: boolean;
   declare blendInDurationFormula?: string;
 
@@ -166,6 +167,12 @@ export class PowerDataModel extends ItemDataModel {
         choices: ["ally", "enemy", "any"]
       }),
       auraIncludeSelf: new BooleanField({ required: false, initial: false }),
+      auraRange: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: 0
+      }),
       blendIn: new BooleanField({ required: false, initial: false }),
       blendInDurationFormula: new StringField({ required: false, blank: true, initial: "" }),
       statDebuffs: new ArrayField(buildStatDebuffFieldSchema(), {

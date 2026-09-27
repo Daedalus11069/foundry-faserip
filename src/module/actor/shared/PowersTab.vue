@@ -213,6 +213,7 @@ function addPower() {
     isAura: false,
     auraDisposition: "any",
     auraIncludeSelf: false,
+    auraRange: 0,
     blendIn: false,
     blendInDurationFormula: "",
     autoHealEachRound: false,
@@ -608,7 +609,7 @@ function toggleItem(id: string) {
                 class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
               />
               <span class="fsr-label mb-0"
-                >Aura <span class="fsr-help-text">(spawns a region attached to the owner that follows them, applying the stat/damage (de)buffs below to actors inside instead of on-hit; radius comes from the power's Rank via the movement table)</span></span
+                >Aura <span class="fsr-help-text">(spawns a region attached to the owner that follows them, applying the stat/damage (de)buffs below to actors inside instead of on-hit)</span></span
               >
             </label>
 
@@ -630,6 +631,18 @@ function toggleItem(id: string) {
                   />
                   <span class="fsr-label mb-0">Include Self</span>
                 </label>
+              </div>
+              <div>
+                <label class="fsr-label"
+                  >Range (ft) <span class="fsr-help-text">(0 = use Rank's movement)</span></label
+                >
+                <input
+                  v-model.number="power.auraRange"
+                  type="number"
+                  min="0"
+                  class="fsr-input text-sm"
+                  placeholder="0"
+                />
               </div>
             </div>
 

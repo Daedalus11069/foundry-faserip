@@ -82,7 +82,10 @@ export class PowerAuraRegionBehaviorType extends foundry.data.regionBehaviors.Re
       lifeLinkDirection: new StringField({
         required: false,
         initial: "protect",
-        choices: ["protect", "share"]
+        choices: {
+          protect: "FASERIP.BEHAVIOR.TYPES.powerAura.FIELDS.lifeLinkDirection.choices.protect",
+          share: "FASERIP.BEHAVIOR.TYPES.powerAura.FIELDS.lifeLinkDirection.choices.share"
+        }
       })
     };
   }

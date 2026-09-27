@@ -135,6 +135,7 @@ export interface CharmanPower {
   isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
+  auraRange?: number; // Radius in scene distance units (e.g. feet); 0/unset falls back to the rank-based movement table
   blendIn?: boolean; // Lets the owner hide their token from other players' clients; spotting difficulty scales with distance based on this power's rank
   blendInDurationFormula?: string; // Blank/"indefinite" = stays active until manually toggled off; otherwise rolled once on activation and ticks down each combat round
   isLifeLink?: boolean; // Bonds the owner to a target selected on cast, redirecting a % of health damage between them while the target stays within the aura's range
@@ -672,6 +673,7 @@ export class CharmanService {
         isAura: power.isAura || false,
         auraDisposition: power.auraDisposition || "any",
         auraIncludeSelf: power.auraIncludeSelf || false,
+        auraRange: power.auraRange || 0,
         blendIn: power.blendIn || false,
         blendInDurationFormula: power.blendInDurationFormula || "",
         isLifeLink: power.isLifeLink || false,

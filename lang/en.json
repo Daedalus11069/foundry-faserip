@@ -96,6 +96,26 @@
             "includeSelf": {
               "label": "Include Self",
               "hint": "Whether the owner is affected by their own aura."
+            },
+            "resolvedStatShifts": {
+              "label": "Resolved Stat Shifts",
+              "hint": "Auto-populated per-attribute chart shifts, resolved once when the aura was activated. Editing this has no effect - it's set automatically."
+            },
+            "resolvedDamageShift": {
+              "label": "Resolved Damage Shift",
+              "hint": "Auto-populated damage chart shift, resolved once when the aura was activated. Editing this has no effect - it's set automatically."
+            },
+            "lifeLinkPercent": {
+              "label": "Life-Link Percent",
+              "hint": "Percentage of health damage shared through the life-link bond. 0 means this aura isn't a life-link."
+            },
+            "lifeLinkDirection": {
+              "label": "Life-Link Direction",
+              "hint": "Whether the bond protects the owner (redirects damage away) or shares damage with the bonded target.",
+              "choices": {
+                "protect": "Protect",
+                "share": "Share"
+              }
             }
           }
         },
