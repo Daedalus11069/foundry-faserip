@@ -25,7 +25,11 @@ import {
 import { type ArmorItem, isArmorItem } from "../types/items";
 import { createRoll } from "../utils/manual-roll-handler";
 import { getCharmanService } from "../charman-service";
-import { applyHealingToActor } from "../utils/damage-application";
+import {
+  applyHealingToActor,
+  isActorUnconscious,
+  isPhysicalDefenseAttribute
+} from "../utils/damage-application";
 import { isPowersNegated } from "../utils/power-negation";
 import { getPowerAuraDamageShift } from "../utils/power-aura";
 import {
@@ -1348,6 +1352,35 @@ export async function executeCombatAttack(
         speaker: ChatMessage.getSpeaker({ actor: targetActor })
       });
       // Add takeHit response without prompting
+      defenseResponses.push({ defenseType: "takeHit" });
+      continue;
+    }
+
+    // Unconscious targets cannot physically defend, but can still use mental defenses
+    const defenseAttributeForAttackType =
+      attackType === "psyche"
+        ? "psyche"
+        : attackType === "strength"
+          ? "strength"
+          : attackType === "ranged" || attackType === "thrown"
+            ? "agility"
+            : "fighting";
+
+    if (
+      isActorUnconscious(targetActor) &&
+      isPhysicalDefenseAttribute(defenseAttributeForAttackType)
+    ) {
+      ChatMessage.create({
+        content: `<div class="faserip-chat-card">
+          <div class="card-header">
+            <h3><i class="fas fa-skull"></i> Unconscious!</h3>
+          </div>
+          <div class="card-body">
+            <p><strong>${targetActor.name}</strong> is unconscious and cannot physically defend!</p>
+          </div>
+        </div>`,
+        speaker: ChatMessage.getSpeaker({ actor: targetActor })
+      });
       defenseResponses.push({ defenseType: "takeHit" });
       continue;
     }

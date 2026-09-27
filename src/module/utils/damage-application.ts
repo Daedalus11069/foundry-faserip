@@ -13,6 +13,26 @@ import {
 import { rollResistance, type ResistanceRollResult } from "./resistance-roll";
 import { Rank, RANK_VALUES } from "../enums";
 
+const PHYSICAL_DEFENSE_ATTRIBUTES = new Set([
+  "fighting",
+  "agility",
+  "strength",
+  "endurance"
+]);
+
+/**
+ * An actor is unconscious (but not dead) when health is negative but has
+ * not yet reached the -20 death threshold.
+ */
+export function isActorUnconscious(actor: FaseripActor): boolean {
+  const health = (actor.system as any)?.resources?.health?.value;
+  return typeof health === "number" && health < 0 && health >= -19;
+}
+
+export function isPhysicalDefenseAttribute(attribute: string): boolean {
+  return PHYSICAL_DEFENSE_ATTRIBUTES.has(attribute.toLowerCase());
+}
+
 export interface DamageApplicationResult {
   armorDamage: number;
   healthDamage: number;

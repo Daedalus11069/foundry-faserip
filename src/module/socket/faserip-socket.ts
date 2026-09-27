@@ -9,7 +9,11 @@ import CounterAttackModal from "../applications/CounterAttackModal.vue";
 import { VueDialog } from "../applications/vue-dialog";
 import { formatRankDisplay } from "../enums";
 import type { BaseActorSystemData } from "../types/actor-system";
-import { applyDamageToActor } from "../utils/damage-application";
+import {
+  applyDamageToActor,
+  isActorUnconscious,
+  isPhysicalDefenseAttribute
+} from "../utils/damage-application";
 import { getActiveLifeLinkRedirect } from "../utils/power-aura";
 import { createEffectRegion, type CreateEffectRegionOptions } from "../utils/region-effects";
 import type { ArmorPiercingResult } from "../utils/armor-piercing";
@@ -1017,6 +1021,11 @@ async function handleDefensePrompt(
       break;
     default:
       defenseAttribute = "Fighting";
+  }
+
+  // Unconscious targets cannot physically defend, but can still use mental defenses
+  if (isActorUnconscious(targetActor) && isPhysicalDefenseAttribute(defenseAttribute)) {
+    return { defenseType: "takeHit" };
   }
 
   // Get defender's attribute value
