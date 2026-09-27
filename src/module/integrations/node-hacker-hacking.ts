@@ -547,7 +547,10 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
   const targetActor = singleTarget
     ? ((canvas as any)?.tokens?.get?.(singleTarget.tokenId)?.actor as FaseripActor | undefined)
     : undefined;
-  const canManage = !!targetActor && shouldRunManaged(actor, singleTarget!.tokenId);
+  // TODO: PvP managed mode is disabled for now - it can't be tested/finished in the
+  // current environment. Re-enable by restoring `!!targetActor && shouldRunManaged(actor,
+  // singleTarget!.tokenId)` here once it's been verified end-to-end.
+  const canManage = false && !!targetActor && shouldRunManaged(actor, singleTarget!.tokenId);
 
   const mode = await requestNodeHackMode({
     attackerName: actor.name ?? "Hacker",
