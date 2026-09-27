@@ -25,8 +25,12 @@ import { stringToRank } from "../utils";
 import type { FaseripActor } from "../documents";
 import type { PowerData } from "../types/actor-system";
 import { FaseripRoll } from "../rolling/FaseripRoll";
+import { showKarmaSpendDialog } from "../applications/dialog-utils";
 import { getEffectiveAttributeData } from "./stat-debuffs";
-import { requestBlendInStateChange, requestBlendInReveal } from "../socket/faserip-socket";
+import {
+  requestBlendInStateChange,
+  requestBlendInReveal
+} from "../socket/faserip-socket";
 
 export interface BlendInFlag {
   active: boolean;
@@ -63,7 +67,10 @@ const RESULT_ORDER: RollResult[] = [
   RollResult.Red
 ];
 
-function resultMeetsOrExceeds(result: RollResult, required: RollResult): boolean {
+function resultMeetsOrExceeds(
+  result: RollResult,
+  required: RollResult
+): boolean {
   return RESULT_ORDER.indexOf(result) >= RESULT_ORDER.indexOf(required);
 }
 
@@ -72,7 +79,9 @@ function resultMeetsOrExceeds(result: RollResult, required: RollResult): boolean
  */
 export function getBlendBaseRange(rank: string | Rank): number {
   const rankEnum = typeof rank === "string" ? stringToRank(rank) : rank;
-  return BLEND_IN_RANGE_FEET[rankEnum as Rank] ?? BLEND_IN_RANGE_FEET[Rank.Typical];
+  return (
+    BLEND_IN_RANGE_FEET[rankEnum as Rank] ?? BLEND_IN_RANGE_FEET[Rank.Typical]
+  );
 }
 
 /**
@@ -94,7 +103,9 @@ export function getRequiredSpotResult(
  * Turn blend-in off for a token. GM-mediated so any client can trigger it
  * (e.g. from the power's item sheet) regardless of token ownership.
  */
-export async function deactivateBlendIn(tokenDoc: TokenDocument): Promise<void> {
+export async function deactivateBlendIn(
+  tokenDoc: TokenDocument
+): Promise<void> {
   await requestBlendInStateChange(tokenDoc, null);
 }
 
@@ -108,19 +119,48 @@ export async function deactivateBlendIn(tokenDoc: TokenDocument): Promise<void> 
 export async function activateBlendIn(
   tokenDoc: TokenDocument,
   actor: FaseripActor,
-  power: Pick<PowerData, "id" | "name" | "rank" | "value" | "blendInDurationFormula">
+  power: Pick<
+    PowerData,
+    "id" | "name" | "rank" | "value" | "blendInDurationFormula"
+  >
 ): Promise<boolean> {
   const rank = stringToRank(power.rank || Rank.Typical);
   const rankValue = power.value || 6;
 
-  const roll = await FaseripRoll.rollAttribute(power.name, rank, rankValue, 0, actor);
+  // rollAttribute normally prompts for karma twice (once before rolling,
+  // once after seeing the result) - fine for an attack where the second
+  // prompt reacts to a defender's response, but for a plain activation roll
+  // like this one that's just two dialogs in a row for one decision. Ask
+  // once up front instead and hand rollAttribute the answer as pre-specified
+  // shifts so it skips its own internal prompts entirely.
+  const availableKarma = (actor as any).system?.resources?.karma?.value || 0;
+  const karmaResult =
+    availableKarma > 0
+      ? await showKarmaSpendDialog(availableKarma, "pre-roll", undefined, rank)
+      : null;
+
+  const roll = await FaseripRoll.rollAttribute(
+    power.name,
+    rank,
+    rankValue,
+    0,
+    actor,
+    undefined,
+    undefined,
+    karmaResult?.columnShifts || 0,
+    0,
+    false,
+    karmaResult?.manualChartShift || 0
+  );
   if (!roll) return false;
 
   const rollTotal = roll.roll.total || 0;
   const multiplier = getBlendEffectivenessMultiplier(roll.result, rollTotal);
 
   if (multiplier <= 0) {
-    ui.notifications?.warn(`${power.name} fails to take hold - the blend doesn't activate.`);
+    ui.notifications?.warn(
+      `${power.name} fails to take hold - the blend doesn't activate.`
+    );
     return false;
   }
 
@@ -168,7 +208,10 @@ export async function tickBlendInDurations(): Promise<void> {
 
       const next = flag.roundsRemaining - 1;
       if (next > 0) {
-        await (tokenDoc as any).setFlag("faserip", "blendIn", { ...flag, roundsRemaining: next });
+        await (tokenDoc as any).setFlag("faserip", "blendIn", {
+          ...flag,
+          roundsRemaining: next
+        });
         continue;
       }
 
@@ -192,21 +235,18 @@ export function getBlendInFlag(tokenDoc: TokenDocument): BlendInFlag | null {
  * Distance in the scene's configured units between two tokens' centers.
  */
 function measureTokenDistance(observer: Token, target: Token): number {
-  // @ts-expect-error - Foundry canvas global
   const grid = canvas?.grid;
   if (!grid?.measurePath) {
     // Fallback: straight-line pixel distance converted via grid size/distance
     const dx = observer.center.x - target.center.x;
     const dy = observer.center.y - target.center.y;
     const pixelDistance = Math.sqrt(dx * dx + dy * dy);
-    // @ts-expect-error - Foundry grid config
     const gridSize = canvas?.grid?.size ?? 100;
-    // @ts-expect-error - Foundry scene grid distance
     const gridDistance = canvas?.scene?.grid?.distance ?? 5;
     return (pixelDistance / gridSize) * gridDistance;
   }
 
-  const result = grid.measurePath([observer.center, target.center]);
+  const result = grid.measurePath([observer.center, target.center], {});
   return result?.distance ?? 0;
 }
 
@@ -238,8 +278,13 @@ export async function attemptSpotBlendedToken(
   const required = getRequiredSpotResult(distance, flag.rangeFt);
 
   if (required === "auto") {
-    await requestBlendInReveal(targetToken.document as unknown as TokenDocument, userId);
-    ui.notifications?.info("They're obviously nearby - you spot them without even trying.");
+    await requestBlendInReveal(
+      targetToken.document as unknown as TokenDocument,
+      userId
+    );
+    ui.notifications?.info(
+      "They're obviously nearby - you spot them without even trying."
+    );
     return;
   }
 
@@ -265,32 +310,65 @@ export async function attemptSpotBlendedToken(
   );
 
   if (resultMeetsOrExceeds(roll.result, required)) {
-    await requestBlendInReveal(targetToken.document as unknown as TokenDocument, userId);
+    await requestBlendInReveal(
+      targetToken.document as unknown as TokenDocument,
+      userId
+    );
     ui.notifications?.info(`Spotted ${targetToken.name}!`);
   } else {
     ui.notifications?.info(`You don't see ${targetToken.name}.`);
   }
 }
 
+function isVisibleToCurrentUser(token: Token, flag: BlendInFlag): boolean {
+  // @ts-expect-error - Foundry game globals
+  const isGM = game.user?.isGM;
+  // @ts-expect-error - Foundry token owner check
+  const isOwner = token.isOwner;
+  // @ts-expect-error - Foundry game.user global
+  const spotted = flag.spottedBy.includes(game.user.id);
+  return Boolean(isGM || isOwner || spotted);
+}
+
+let warnedNoLibWrapper = false;
+
 /**
- * Client-side render hook: hides a blending token's mesh from any user who
- * hasn't spotted it yet (and isn't the GM or the token's owner).
+ * Makes a blending token actually invisible on this client. Core Foundry
+ * recomputes `Token#isVisible` (from vision/fog/sight, not from anything we
+ * control) on every perception refresh and writes the result straight to
+ * `token.visible` afterward - so setting `token.visible` ourselves from a
+ * `refreshToken`/`drawToken` hook only wins until the next perception tick,
+ * which silently reverts it back to visible a frame later. The reliable fix
+ * is to wrap the getter core itself reads, via libWrapper, so our check is
+ * baked into every visibility computation instead of racing it.
  */
 export function registerBlendInVisibilityHook(): void {
-  const applyVisibility = (token: Token): void => {
-    const flag = getBlendInFlag(token.document as unknown as TokenDocument);
-    if (!flag?.active) return;
+  if (typeof (globalThis as any).libWrapper === "undefined") {
+    if (!warnedNoLibWrapper) {
+      warnedNoLibWrapper = true;
+      console.warn(
+        "faserip | libWrapper is not active - Blend In will not reliably hide tokens. Install and enable the libWrapper module."
+      );
+    }
+    return;
+  }
 
-    // @ts-expect-error - Foundry game globals
-    const isGM = game.user?.isGM;
-    // @ts-expect-error - Foundry token owner check
-    const isOwner = token.isOwner;
-    // @ts-expect-error - Foundry game.user global
-    const spotted = flag.spottedBy.includes(game.user.id);
+  (globalThis as any).libWrapper.register(
+    "faserip",
+    "Token.prototype.isVisible",
+    function (
+      this: Token,
+      wrapped: (...args: any[]) => boolean,
+      ...args: any[]
+    ) {
+      const baseVisible = wrapped(...args);
+      if (!baseVisible) return baseVisible;
 
-    token.visible = Boolean(isGM || isOwner || spotted);
-  };
+      const flag = getBlendInFlag(this.document as unknown as TokenDocument);
+      if (!flag?.active) return baseVisible;
 
-  Hooks.on("refreshToken", applyVisibility);
-  Hooks.on("drawToken", applyVisibility);
+      return isVisibleToCurrentUser(this, flag);
+    },
+    "WRAPPER"
+  );
 }
