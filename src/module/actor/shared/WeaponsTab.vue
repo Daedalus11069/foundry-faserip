@@ -14,7 +14,8 @@ import type {
   ReactiveActorData,
   PowerStatDebuffData,
   PowerDamageDebuffData,
-  PowerDotData
+  PowerDotData,
+  WeaponAreaOfEffectData
 } from "../../types/actor-system";
 
 interface DisplayWeapon {
@@ -31,6 +32,7 @@ interface DisplayWeapon {
   statDebuffs?: PowerStatDebuffData[];
   damageBuffs?: PowerDamageDebuffData[];
   dots?: PowerDotData[];
+  areaOfEffect?: WeaponAreaOfEffectData;
   isItem: boolean; // True if this is a weapon Item (can edit), false if from system.weapons (read-only)
   itemRef?: WeaponItem; // Reference to the actual Item if isItem is true
   systemIndex?: number; // Array index in system.weapons for synced weapons
@@ -75,6 +77,7 @@ const weaponItems = computed((): DisplayWeapon[] => {
       statDebuffs: item.system.statDebuffs,
       damageBuffs: item.system.damageBuffs,
       dots: item.system.dots,
+      areaOfEffect: item.system.areaOfEffect,
       isItem: true,
       itemRef: item
     });
@@ -340,6 +343,26 @@ function ensureWeaponDots(weapon: DisplayWeapon) {
   }
 
   return weapon.itemRef.system.dots as PowerDotData[];
+}
+
+const defaultAreaOfEffect: WeaponAreaOfEffectData = {
+  enabled: false,
+  shape: "circle",
+  size: 10,
+  width: 5,
+  angle: 53,
+  color: "#ff0000",
+  durationRounds: ""
+};
+
+function ensureWeaponAreaOfEffect(weapon: DisplayWeapon) {
+  if (!weapon.itemRef) return null;
+
+  if (!weapon.itemRef.system.areaOfEffect) {
+    weapon.itemRef.system.areaOfEffect = { ...defaultAreaOfEffect };
+  }
+
+  return weapon.itemRef.system.areaOfEffect as WeaponAreaOfEffectData;
 }
 
 async function addWeaponStatDebuff(weaponId: string) {
@@ -686,6 +709,24 @@ async function updateWeaponDot(
   await item.update({ "system.dots": arr } as Record<string, unknown>);
 }
 
+async function updateWeaponAreaOfEffect(
+  weaponId: string,
+  field: keyof WeaponAreaOfEffectData,
+  value: boolean | number | string
+) {
+  const item = actor.items.get(weaponId) as WeaponItem | undefined;
+  if (!item) return;
+
+  const current = foundry.utils.deepClone(
+    item.system.areaOfEffect ?? defaultAreaOfEffect
+  );
+  (current as Record<string, unknown>)[field] = value;
+
+  await item.update({
+    "system.areaOfEffect": current
+  } as Record<string, unknown>);
+}
+
 async function updateWeaponDescription(
   weaponId: string,
   newDescription: string,
@@ -1014,6 +1055,166 @@ function toggleItem(id: string) {
                 ></i>
               </span>
             </label>
+          </div>
+
+          <!-- Area of Effect (Region on Hit) -->
+          <div
+            v-if="weapon.isItem && ensureWeaponAreaOfEffect(weapon)"
+            class="mt-3 p-3 bg-orange-950/30 border border-orange-800 rounded space-y-2"
+          >
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                :checked="ensureWeaponAreaOfEffect(weapon)!.enabled"
+                @change="
+                  e =>
+                    updateWeaponAreaOfEffect(
+                      weapon.id,
+                      'enabled',
+                      (e.target as HTMLInputElement).checked
+                    )
+                "
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-orange-500 focus:ring-2 focus:ring-orange-500"
+              />
+              <span class="text-sm font-medium text-orange-200">
+                Area of Effect (Region on Hit)
+                <i
+                  class="fas fa-explosion text-xs text-orange-400 ml-1"
+                  :title="'Places a region centered on the target when this weapon hits - it does not follow the target afterward. Applies this weapon\'s (de)buffs/DoT to anyone else standing inside.'"
+                ></i>
+              </span>
+            </label>
+
+            <div
+              v-if="ensureWeaponAreaOfEffect(weapon)!.enabled"
+              class="space-y-2"
+            >
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Shape</label>
+                  <select
+                    :value="ensureWeaponAreaOfEffect(weapon)!.shape"
+                    @change="
+                      e =>
+                        updateWeaponAreaOfEffect(
+                          weapon.id,
+                          'shape',
+                          (e.target as HTMLSelectElement).value
+                        )
+                    "
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="circle">Circle</option>
+                    <option value="cone">Cone</option>
+                    <option value="ray">Ray (Line)</option>
+                    <option value="rect">Rectangle</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">
+                    {{ ensureWeaponAreaOfEffect(weapon)!.shape === "circle" ? "Radius" : "Length" }}
+                    (scene units)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    :value="ensureWeaponAreaOfEffect(weapon)!.size"
+                    @blur="
+                      e =>
+                        updateWeaponAreaOfEffect(
+                          weapon.id,
+                          'size',
+                          Number((e.target as HTMLInputElement).value)
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div
+                v-if="['ray', 'rect'].includes(ensureWeaponAreaOfEffect(weapon)!.shape)"
+              >
+                <label class="text-xs text-gray-400 block mb-1">Width (scene units)</label>
+                <input
+                  type="number"
+                  min="0"
+                  :value="ensureWeaponAreaOfEffect(weapon)!.width"
+                  @blur="
+                    e =>
+                      updateWeaponAreaOfEffect(
+                        weapon.id,
+                        'width',
+                        Number((e.target as HTMLInputElement).value)
+                      )
+                  "
+                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div v-if="ensureWeaponAreaOfEffect(weapon)!.shape === 'cone'">
+                <label class="text-xs text-gray-400 block mb-1">Angle (degrees)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="360"
+                  :value="ensureWeaponAreaOfEffect(weapon)!.angle"
+                  @blur="
+                    e =>
+                      updateWeaponAreaOfEffect(
+                        weapon.id,
+                        'angle',
+                        Number((e.target as HTMLInputElement).value)
+                      )
+                  "
+                  @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Color</label>
+                  <input
+                    type="color"
+                    :value="ensureWeaponAreaOfEffect(weapon)!.color"
+                    @change="
+                      e =>
+                        updateWeaponAreaOfEffect(
+                          weapon.id,
+                          'color',
+                          (e.target as HTMLInputElement).value
+                        )
+                    "
+                    class="w-full h-8 bg-gray-800 border border-gray-600 rounded px-1 py-0.5"
+                  />
+                </div>
+                <div>
+                  <label class="text-xs text-gray-400 block mb-1">Auto-Remove After (rounds)</label>
+                  <input
+                    type="text"
+                    :value="ensureWeaponAreaOfEffect(weapon)!.durationRounds"
+                    @blur="
+                      e =>
+                        updateWeaponAreaOfEffect(
+                          weapon.id,
+                          'durationRounds',
+                          (e.target as HTMLInputElement).value
+                        )
+                    "
+                    @keyup.enter="e => (e.target as HTMLInputElement).blur()"
+                    class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="e.g. 3 or 1d3; blank = stays until removed manually"
+                  />
+                </div>
+              </div>
+
+              <div class="text-xs text-gray-400">
+                Anyone else standing inside picks up whichever of this weapon's Temporary Stat/Damage (De)buffs and Damage Over Time entries are enabled below, for as long as they remain inside (or, for DoT, each round until the region expires).
+              </div>
+            </div>
           </div>
 
           <div

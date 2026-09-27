@@ -3,6 +3,7 @@ import type { PowerStatDebuffData } from "../types/actor-system";
 import { stringToRank } from "../utils";
 import { getActiveStatModifierEffects } from "./temp-effects";
 import { getPowerAuraStatShift } from "./power-aura";
+import { getWeaponAreaEffectStatShift } from "./area-of-effect";
 
 export const ATTRIBUTE_KEYS = [
   "fighting",
@@ -65,7 +66,8 @@ export function getEffectiveAttributeData(
     : [];
 
   const auraShift = isActor
-    ? getPowerAuraStatShift(actorOrSystem, attributeKey)
+    ? getPowerAuraStatShift(actorOrSystem, attributeKey) +
+      getWeaponAreaEffectStatShift(actorOrSystem, attributeKey)
     : 0;
   const totalShift =
     modifiers.reduce((sum, modifier) => sum + Number(modifier.chartShift || 0), 0) +

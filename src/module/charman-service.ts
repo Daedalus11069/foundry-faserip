@@ -28,6 +28,7 @@ export interface CharmanCharacter {
   tokenWidth?: number; // Token width in grid squares (default: 1)
   tokenHeight?: number; // Token height in grid squares (default: 1)
   tokenScale?: number; // Token scale multiplier (default: 1)
+  visionSources?: CharmanVisionSource[]; // Vision methods (base form's, used when no per-form forms array)
   forms: CharmanForm[];
   fighting: any;
   agility: any;
@@ -49,6 +50,13 @@ export interface CharmanCharacter {
   weaponSlots?: number; // Number of weapon-bearing arms (default: 2)
 }
 
+export interface CharmanVisionSource {
+  type?: string; // "sight:<visionModeKey>" | "detect:<detectionModeKey>", default "sight:basic"
+  rangeSource?: "flat" | "intuition" | "power"; // default "flat"
+  flatRange?: number; // used when rangeSource is "flat"
+  powerName?: string; // name of the power to derive range from, used when rangeSource is "power"
+}
+
 export interface CharmanForm {
   name: string;
   description?: string;
@@ -56,6 +64,7 @@ export interface CharmanForm {
   tokenWidth?: number; // Token width in grid squares (default: 1)
   tokenHeight?: number; // Token height in grid squares (default: 1)
   tokenScale?: number; // Token scale multiplier (default: 1)
+  visionSources?: CharmanVisionSource[]; // Vision methods for this form (e.g. Basic Sight + Tremorsense)
   fighting: any;
   agility: any;
   strength: any;
@@ -155,6 +164,17 @@ export interface CharmanWeapon {
   statDebuffs?: CharmanPowerStatDebuff[]; // Temporary stat debuffs applied on hit
   damageBuffs?: CharmanPowerDamageBuff[]; // Temporary damage buffs/debuffs applied on hit
   dots?: CharmanPowerDot[]; // Damage-over-time effects applied on hit
+  areaOfEffect?: CharmanWeaponAreaOfEffect; // Region template placed centered on the target on hit
+}
+
+export interface CharmanWeaponAreaOfEffect {
+  enabled: boolean;
+  shape: "circle" | "cone" | "ray" | "rect";
+  size: number;
+  width: number;
+  angle: number;
+  color: string;
+  durationRounds: string;
 }
 
 export interface CharmanContact {
@@ -480,6 +500,13 @@ export class CharmanService {
                 tokenHeight: form.tokenHeight || 1,
                 tokenScale: form.tokenScale || 1,
                 weaponSlots: form.weaponSlots ?? undefined,
+                visionSources: (form.visionSources || []).map(vs => ({
+                  id: nanoid(),
+                  type: vs.type || "sight:basic",
+                  rangeSource: vs.rangeSource || "flat",
+                  flatRange: vs.flatRange || 0,
+                  powerName: vs.powerName || ""
+                })),
                 attributes: {
                   fighting: parseRankFromCharman(attrs.fighting),
                   agility: parseRankFromCharman(attrs.agility),
@@ -525,6 +552,13 @@ export class CharmanService {
                 tokenWidth: charmanChar.tokenWidth || 1,
                 tokenHeight: charmanChar.tokenHeight || 1,
                 tokenScale: charmanChar.tokenScale || 1,
+                visionSources: (charmanChar.visionSources || []).map(vs => ({
+                  id: nanoid(),
+                  type: vs.type || "sight:basic",
+                  rangeSource: vs.rangeSource || "flat",
+                  flatRange: vs.flatRange || 0,
+                  powerName: vs.powerName || ""
+                })),
                 attributes: {
                   fighting: parseRankFromCharman(charmanChar.fighting),
                   agility: parseRankFromCharman(charmanChar.agility),
@@ -622,6 +656,23 @@ export class CharmanService {
         maxValue: power.maxValue || getRankValue(rankName)
       };
     });
+
+    // Resolve each vision source's power reference (by name, since power IDs
+    // are regenerated on every import) to the newly-created power's ID.
+    for (const form of forms as any[]) {
+      for (const vs of form.visionSources || []) {
+        const powerName = vs.powerName as string;
+        if (powerName) {
+          const matchedPower = powers.find(
+            p => p.name.trim().toLowerCase() === powerName.trim().toLowerCase()
+          );
+          vs.powerId = matchedPower?.id || "";
+        } else {
+          vs.powerId = "";
+        }
+        delete vs.powerName;
+      }
+    }
 
     // Convert talents
     const talents = (charmanChar.talents || []).map(
@@ -785,7 +836,18 @@ export class CharmanService {
               rank: d.rank ?? "",
               armorPiercing: d.armorPiercing ?? "",
               durationFormula: d.durationFormula ?? ""
-            }))
+            })),
+            areaOfEffect: weapon.areaOfEffect
+              ? {
+                  enabled: weapon.areaOfEffect.enabled ?? false,
+                  shape: weapon.areaOfEffect.shape ?? "circle",
+                  size: weapon.areaOfEffect.size ?? 10,
+                  width: weapon.areaOfEffect.width ?? 5,
+                  angle: weapon.areaOfEffect.angle ?? 53,
+                  color: weapon.areaOfEffect.color ?? "#ff0000",
+                  durationRounds: weapon.areaOfEffect.durationRounds ?? ""
+                }
+              : undefined
           };
         }),
         charman: {
@@ -942,10 +1004,10 @@ export class CharmanService {
         const weaponData = {
           weaponType,
           damage: isRanged
-            ? 0
+            ? "0"
             : typeof charmanWeapon.damage === "number"
-              ? charmanWeapon.damage
-              : 0,
+              ? String(charmanWeapon.damage)
+              : "0",
           damageRank: isRanged
             ? typeof charmanWeapon.damage === "string"
               ? charmanWeapon.damage
@@ -953,10 +1015,12 @@ export class CharmanService {
             : Rank.Typical,
           equipped: charmanWeapon.equipped,
           description: charmanWeapon.description || "",
-          talents: charmanWeapon.applicableTalent
-            ? [charmanWeapon.applicableTalent]
-            : [],
-          multiHit: charmanWeapon.multiHit || false
+          talents: charmanWeapon.applicableTalents || [],
+          multiHit: charmanWeapon.multiHit || false,
+          statDebuffs: charmanWeapon.statDebuffs || [],
+          damageBuffs: charmanWeapon.damageBuffs || [],
+          dots: charmanWeapon.dots || [],
+          areaOfEffect: charmanWeapon.areaOfEffect
         };
 
         const existingItem = existingWeaponItems.find(
@@ -1081,10 +1145,10 @@ export class CharmanService {
             system: {
               weaponType,
               damage: isRanged
-                ? 0
+                ? "0"
                 : typeof weapon.damage === "number"
-                  ? weapon.damage
-                  : 0,
+                  ? String(weapon.damage)
+                  : "0",
               damageRank: isRanged
                 ? typeof weapon.damage === "string"
                   ? weapon.damage
@@ -1092,7 +1156,12 @@ export class CharmanService {
                 : Rank.Typical,
               equipped: weapon.equipped,
               description: weapon.description || "",
-              talents: weapon.applicableTalent ? [weapon.applicableTalent] : []
+              talents: weapon.applicableTalents || [],
+              multiHit: weapon.multiHit || false,
+              statDebuffs: weapon.statDebuffs || [],
+              damageBuffs: weapon.damageBuffs || [],
+              dots: weapon.dots || [],
+              areaOfEffect: weapon.areaOfEffect
             }
           };
         });

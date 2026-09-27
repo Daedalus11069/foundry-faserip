@@ -48,6 +48,14 @@ export interface FormAttributeSet {
   [key: string]: AttributeData; // Index signature for dynamic access
 }
 
+export interface VisionSourceData {
+  id: string;
+  type: string; // "sight:<visionModeKey>" | "detect:<detectionModeKey>"
+  rangeSource: "flat" | "intuition" | "power";
+  flatRange?: number;
+  powerId?: string;
+}
+
 export interface FormData {
   id: string;
   name: string;
@@ -59,6 +67,11 @@ export interface FormData {
   tokenWidth?: number;
   tokenHeight?: number;
   tokenScale?: number;
+
+  // Token vision - any number of simultaneous vision methods (e.g. Basic
+  // Sight + Tremorsense). "type" is "sight:<visionModeKey>" or
+  // "detect:<detectionModeKey>" (see FaseripActor#syncVisionToTokens).
+  visionSources?: VisionSourceData[];
 
   weaponSlots?: number; // Per-form override for weapon-bearing arms; falls back to system.weaponSlots
 
@@ -119,6 +132,16 @@ export interface PowerDotData {
   durationFormula: string;
 }
 
+export interface WeaponAreaOfEffectData {
+  enabled: boolean;
+  shape: "circle" | "cone" | "ray" | "rect";
+  size: number; // Radius (circle), length (cone/ray), or length (rect), in scene distance units
+  width: number; // Width, in scene distance units - only used for ray/rect shapes
+  angle: number; // Angle in degrees - only used for cone shape
+  color: string; // Template border/fill color
+  durationRounds: string; // Rounds before the template auto-deletes - a flat number or a dice formula (e.g. "1d3"); blank/"0" = stays until removed manually
+}
+
 export interface PowerData {
   id: string;
   name: string;
@@ -144,6 +167,7 @@ export interface PowerData {
   isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
+  autoHealEachRound?: boolean; // For heal-health/heal-armor powers: apply Rank value automatically at the start of every round
 }
 
 export interface TalentData {
@@ -175,6 +199,7 @@ export interface WeaponData {
   equipped?: boolean; // Whether weapon is equipped
   armorPiercing?: string | null; // Armor-piercing rank (for damage calculation)
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
+  areaOfEffect?: WeaponAreaOfEffectData; // Region template placed centered on the target on hit
 }
 
 /**

@@ -18,6 +18,9 @@ export interface HackTargetInfo {
   actorId: string;
   actorName: string;
   requiredColor: RollResult;
+  /** Node Hacker Node Designer graph name to use instead of a generated network, when this
+   * is the sole hacking target (see attemptFaseripNodeHack in node-hacker-hacking.ts). */
+  graphName?: string;
 }
 
 /** Shared per-hack context: the same check (attribute, rank, talents, chart

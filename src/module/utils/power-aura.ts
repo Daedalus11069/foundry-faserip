@@ -29,6 +29,7 @@ import {
   getDamageBuffShiftForResult,
   type AttributeKey
 } from "./stat-debuffs";
+import { createEffectRegion, getContainingRegionBehaviors } from "./region-effects";
 
 const AURA_FLAG_SCOPE = "faserip";
 const AURA_FLAG_KEY = "activeAuraRegions";
@@ -74,34 +75,27 @@ function getApplicableAuraBehaviors(actor: any): any[] {
   const tokens: any[] = actor?.getActiveTokens?.(true) ?? [];
   const results: any[] = [];
 
-  for (const token of tokens) {
-    const regions: Set<any> | null = token.document?.regions ?? null;
-    if (!regions) continue;
+  for (const behavior of getContainingRegionBehaviors(actor, ["powerAura"])) {
+    const system = behavior.system ?? {};
+    const ownerActorId = behavior.flags?.faserip?.ownerActorId;
+    const isOwner = ownerActorId === actor.id;
+    if (isOwner && !system.includeSelf) continue;
 
-    for (const region of regions) {
-      for (const behavior of region.behaviors ?? []) {
-        if (behavior.type !== "powerAura") continue;
-        if (behavior.disabled) continue;
-
-        const system = behavior.system ?? {};
-        const ownerActorId = behavior.flags?.faserip?.ownerActorId;
-        const isOwner = ownerActorId === actor.id;
-        if (isOwner && !system.includeSelf) continue;
-
-        if (!isOwner && system.disposition !== "any") {
-          const ownerToken = game.actors
-            ?.get(ownerActorId)
-            ?.getActiveTokens?.(true)?.[0];
-          const relation = resolveAuraRelation(
-            ownerToken?.document?.disposition ?? token.document?.disposition,
-            token.document?.disposition
-          );
-          if (relation !== system.disposition) continue;
-        }
-
-        results.push(behavior);
-      }
+    if (!isOwner && system.disposition !== "any") {
+      const ownerToken = game.actors
+        ?.get(ownerActorId)
+        ?.getActiveTokens?.(true)?.[0];
+      const token = tokens.find((t: any) =>
+        (t.document?.regions ?? new Set()).has(behavior.parent)
+      );
+      const relation = resolveAuraRelation(
+        ownerToken?.document?.disposition ?? token?.document?.disposition,
+        token?.document?.disposition
+      );
+      if (relation !== system.disposition) continue;
     }
+
+    results.push(behavior);
   }
 
   return results;
@@ -241,36 +235,35 @@ export async function activatePowerAura(actor: any, power: any): Promise<void> {
   const range = auraRangeDistance(power);
 
   // createTokenEmanation isn't in fvtt-types yet (a newer core Foundry API);
-  // cast to any to call it.
-  const RegionDocumentClass = CONFIG.Region.documentClass as any;
-  const region = await RegionDocumentClass.createTokenEmanation(
-    token.document,
-    range,
-    {
-      name: `${power.name} Aura`,
-      behaviors: [
-        {
-          name: power.name,
-          type: "powerAura",
-          system: {
-            disposition: power.auraDisposition ?? "any",
-            includeSelf: !!power.auraIncludeSelf,
-            resolvedStatShifts,
-            resolvedDamageShift
-          },
-          flags: {
-            faserip: {
-              ownerTokenId: token.id,
-              ownerActorId: actor.id,
-              sourcePowerId: power.id,
-              indefinite,
-              roundsRemaining
-            }
+  // createEffectRegion casts to any internally to call it.
+  const region = await createEffectRegion({
+    scene: token.document.parent,
+    name: `${power.name} Aura`,
+    follow: true,
+    token: token.document,
+    shape: { type: "circle", size: range },
+    behaviors: [
+      {
+        name: power.name,
+        type: "powerAura",
+        system: {
+          disposition: power.auraDisposition ?? "any",
+          includeSelf: !!power.auraIncludeSelf,
+          resolvedStatShifts,
+          resolvedDamageShift
+        },
+        flags: {
+          faserip: {
+            ownerTokenId: token.id,
+            ownerActorId: actor.id,
+            sourcePowerId: power.id,
+            indefinite,
+            roundsRemaining
           }
         }
-      ]
-    }
-  );
+      }
+    ]
+  });
 
   if (!region) {
     ui.notifications?.error(

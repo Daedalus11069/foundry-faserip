@@ -169,7 +169,8 @@ function addPower() {
     dots: [],
     isAura: false,
     auraDisposition: "any",
-    auraIncludeSelf: false
+    auraIncludeSelf: false,
+    autoHealEachRound: false
   };
   reactiveActor.system.powers.push(newPower);
 }
@@ -476,6 +477,20 @@ function toggleItem(id: string) {
                 <option value="strength">vs Strength</option>
               </select>
             </div>
+          </div>
+
+          <!-- Auto-heal each round -->
+          <div v-if="power.effectType === 'heal-health'" class="mb-2">
+            <label class="flex items-center gap-2 cursor-pointer mb-0">
+              <input
+                v-model="power.autoHealEachRound"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
+              />
+              <span class="fsr-label mb-0"
+                >Auto-heal each round <span class="fsr-help-text">(automatically heals the owner for this power's Rank value at the start of every combat round, with no roll needed)</span></span
+              >
+            </label>
           </div>
 
           <!-- Target Type -->

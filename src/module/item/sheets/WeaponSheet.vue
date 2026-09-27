@@ -151,6 +151,102 @@
         </div>
       </div>
 
+      <!-- Area of Effect on Hit -->
+      <div class="fsr-form-group border border-orange-800 rounded p-4 bg-orange-950/20 space-y-3">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input
+            v-model="reactiveItem.system.areaOfEffect.enabled"
+            type="checkbox"
+            class="w-4 h-4 rounded border-gray-600 text-orange-500 focus:ring-2 focus:ring-orange-500"
+          />
+          <span class="fsr-form-label mb-0">
+            Area of Effect (Region on Hit)
+            <i
+              class="fas fa-explosion text-xs text-orange-400 ml-1"
+              :title="'Places a region centered on the target when this weapon hits - it does not follow the target afterward. Applies this weapon\'s (de)buffs/DoT to anyone else standing inside.'"
+            ></i>
+          </span>
+        </label>
+        <div class="text-xs text-gray-400">
+          When this weapon hits a target, a region of the configured shape and
+          size is placed on the scene centered on the target's position at
+          that moment. The region stays put - it does not follow the target if
+          they move afterward. Anyone else standing inside picks up whichever
+          of this weapon's Temporary Stat/Damage (De)buffs and Damage Over
+          Time entries are enabled below, for as long as they remain inside
+          (or, for DoT, each round until the region expires).
+        </div>
+
+        <div v-if="reactiveItem.system.areaOfEffect.enabled" class="space-y-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="fsr-form-label">Shape</label>
+              <select v-model="reactiveItem.system.areaOfEffect.shape" class="fsr-select">
+                <option value="circle">Circle</option>
+                <option value="cone">Cone</option>
+                <option value="ray">Ray (Line)</option>
+                <option value="rect">Rectangle</option>
+              </select>
+            </div>
+            <div>
+              <label class="fsr-form-label">
+                {{ reactiveItem.system.areaOfEffect.shape === "circle" ? "Radius" : "Length" }}
+                (scene units)
+              </label>
+              <input
+                v-model.number="reactiveItem.system.areaOfEffect.size"
+                type="number"
+                min="0"
+                class="fsr-input"
+              />
+            </div>
+          </div>
+
+          <div
+            v-if="['ray', 'rect'].includes(reactiveItem.system.areaOfEffect.shape)"
+          >
+            <label class="fsr-form-label">Width (scene units)</label>
+            <input
+              v-model.number="reactiveItem.system.areaOfEffect.width"
+              type="number"
+              min="0"
+              class="fsr-input"
+            />
+          </div>
+
+          <div v-if="reactiveItem.system.areaOfEffect.shape === 'cone'">
+            <label class="fsr-form-label">Angle (degrees)</label>
+            <input
+              v-model.number="reactiveItem.system.areaOfEffect.angle"
+              type="number"
+              min="0"
+              max="360"
+              class="fsr-input"
+            />
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="fsr-form-label">Color</label>
+              <input
+                v-model="reactiveItem.system.areaOfEffect.color"
+                type="color"
+                class="fsr-input h-10 p-1"
+              />
+            </div>
+            <div>
+              <label class="fsr-form-label">Auto-Remove After (rounds)</label>
+              <input
+                v-model="reactiveItem.system.areaOfEffect.durationRounds"
+                type="text"
+                class="fsr-input"
+                placeholder="e.g. 3 or 1d3; blank = stays until removed manually"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="fsr-form-group border border-indigo-800 rounded p-4 bg-indigo-950/20 space-y-4">
         <div class="flex items-center justify-between">
           <span class="fsr-form-label mb-0">Temporary Stat (De)buffs</span>
@@ -536,6 +632,18 @@ if (!reactiveItem.system.damageBuffs) {
 
 if (!reactiveItem.system.dots) {
   reactiveItem.system.dots = [];
+}
+
+if (!reactiveItem.system.areaOfEffect) {
+  reactiveItem.system.areaOfEffect = {
+    enabled: false,
+    shape: "circle",
+    size: 10,
+    width: 5,
+    angle: 53,
+    color: "#ff0000",
+    durationRounds: ""
+  };
 }
 
 // Watch for damage rank changes and auto-update to reflect new value

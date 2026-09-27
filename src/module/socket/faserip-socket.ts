@@ -184,6 +184,7 @@ export function initializeSocket(): void {
   socket.register("setDoorLockState", handleSetDoorLockState);
   socket.register("closeHackSpectator", handleCloseHackSpectator);
   socket.register("promptManagedHackMode", handlePromptManagedHackMode);
+  socket.register("promptNodeHackMode", handlePromptNodeHackMode);
   socket.register("openPvpDefenderView", handleOpenPvpDefenderView);
   socket.register("pvpStateUpdate", handlePvpStateUpdate);
   socket.register("pvpDefenderAction", handlePvpDefenderAction);
@@ -385,6 +386,69 @@ export async function requestManagedHackMode(
   return result?.managed ?? forced;
 }
 
+export type NodeHackMode = "managed" | "auto-time" | "auto-points";
+
+interface NodeHackModePromptData {
+  attackerName: string;
+  targetName?: string;
+  /** Whether "Managed" is even an option - Node Hacker's managed mode needs a single real
+   * target already paired with the attacker in the active combat encounter (see
+   * shouldRunManaged in node-hacker-hacking.ts). Omitted entirely otherwise. */
+  canManage: boolean;
+}
+
+/**
+ * Shown on the GM's own client - unlike HoloSuite's requestManagedHackMode (which asked the
+ * DEFENDING actor's owner), Node Hacker's managed mode always has the GM play the trace side
+ * directly regardless of who owns the hacked actor, so the GM is who actually needs to
+ * choose. Picks between a live managed trace and the classic passive trace, and for the
+ * latter, which of the two "prior pvp code" trace flavors to use (see
+ * holosuite-node-intrusion-patch.ts's checkDetection): a timed countdown that only starts
+ * once a node attempt first fails, or a meter that only grows on failure, scaled by the
+ * failed node's difficulty.
+ */
+async function handlePromptNodeHackMode(data: NodeHackModePromptData): Promise<{ mode: NodeHackMode }> {
+  const options = [
+    `<option value="auto-time">Auto - Timed Countdown</option>`,
+    `<option value="auto-points" selected>Auto - Failure Meter</option>`
+  ];
+  if (data.canManage) {
+    options.unshift(`<option value="managed">Managed (I play the trace live)</option>`);
+  }
+
+  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
+  const mode = await globalThis.foundry.applications.api.DialogV2.prompt({
+    window: { title: "Incoming Hack" },
+    // Foundry's own `.form-group` lays out label+input as a horizontal row, which reads fine
+    // for a short label but wraps badly once the label is this much descriptive text - the
+    // description goes in its own paragraph instead, with a short, separate stacked label.
+    content: `<p><strong>${data.attackerName}</strong> is attempting to hack${data.targetName ? ` <strong>${data.targetName}</strong>` : ""}.</p><div class="form-group" style="display:flex;flex-direction:column;align-items:stretch;gap:4px;"><label>Run this trace as:</label><select name="mode">${options.join("")}</select></div>`,
+    ok: {
+      label: "Start",
+      callback: (_event: Event, button: any) => button.form.elements.mode.value
+    },
+    rejectClose: false
+  });
+  return { mode: (mode as NodeHackMode) ?? "auto-points" };
+}
+
+/** Requests the managed-vs-auto (and auto trace flavor) choice from the GM specifically. */
+export async function requestNodeHackMode(data: NodeHackModePromptData): Promise<NodeHackMode> {
+  // @ts-expect-error - Foundry game.user global
+  if (game.user?.isGM) {
+    const result = await handlePromptNodeHackMode(data);
+    return result.mode;
+  }
+  if (!socket) {
+    ui.notifications?.warn?.(
+      "socketlib is required to ask the GM how to run this hack - defaulting to a failure-meter trace."
+    );
+    return "auto-points";
+  }
+  const result = await socket.executeAsGM("promptNodeHackMode", data);
+  return result?.mode ?? "auto-points";
+}
+
 interface CloseHackSpectatorData {
   liveSessionId: string;
 }
@@ -495,6 +559,7 @@ interface SetDoorLockStateData {
   wallUuid: string;
   ds: number;
 }
+
 
 /** Runs on a GM client (or locally if the caller already is GM) - only a
  * GM typically holds update permission on Wall documents. */
@@ -1102,6 +1167,7 @@ interface ApplyDamageData {
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   armorRank?: string; // Target's armor rank (optional)
   hitCount?: number; // Number of hits for per-hit armor degradation
+  hitDamages?: number[]; // Per-hit damage amounts (armor soaks each hit separately)
   armorUpdates?: any[]; // Legacy: Deprecated - armor is now Item documents
   powerUpdates?: any[];
 }
@@ -1118,7 +1184,8 @@ export async function requestDamageApplication(
   targetTokenId?: string,
   armorPiercing?: string | null,
   armorRank?: string,
-  hitCount?: number
+  hitCount?: number,
+  hitDamages?: number[]
 ): Promise<{
   armorDamage: number;
   healthDamage: number;
@@ -1141,7 +1208,8 @@ export async function requestDamageApplication(
         powerName,
         armorPiercing,
         armorRank,
-        hitCount
+        hitCount,
+        hitDamages
       });
     }
     console.error("FASERIP Socket | Cannot apply damage locally");
@@ -1159,7 +1227,8 @@ export async function requestDamageApplication(
       powerName,
       armorPiercing,
       armorRank,
-      hitCount
+      hitCount,
+      hitDamages
     });
   }
 
@@ -1172,7 +1241,8 @@ export async function requestDamageApplication(
     powerName,
     armorPiercing,
     armorRank,
-    hitCount
+    hitCount,
+    hitDamages
   });
 
   return result;
@@ -1263,7 +1333,8 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     degradingArmorMode: degradingMode,
     armorPiercing: data.armorPiercing,
     armorRank: data.armorRank,
-    hitCount: data.hitCount
+    hitCount: data.hitCount,
+    hitDamages: data.hitDamages
   });
 
   // Show resistance chat messages if applicable

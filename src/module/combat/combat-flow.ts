@@ -35,8 +35,14 @@ import {
 import type {
   PowerStatDebuffData,
   PowerDamageDebuffData,
-  PowerDotData
+  PowerDotData,
+  WeaponAreaOfEffectData
 } from "../types/actor-system";
+import {
+  placeAreaOfEffectOnHit,
+  getWeaponAreaEffectDamageShift,
+  rollEntryDuration
+} from "../utils/area-of-effect";
 import {
   getActiveDamageModifierEffects,
   sumChartShift,
@@ -73,6 +79,7 @@ interface AttackData {
   statDebuffs?: PowerStatDebuffData[]; // Optional temporary stat debuffs to apply on hit
   damageBuffs?: PowerDamageDebuffData[]; // Optional temporary damage buffs/debuffs to apply on hit
   dots?: PowerDotData[]; // Optional damage-over-time effects to apply on hit
+  areaOfEffect?: WeaponAreaOfEffectData; // Optional region template placed centered on the target on hit
   deferDamageApplication?: boolean; // True to accumulate damage without applying (for cumulative combo damage)
   comboBotchCount?: number; // Optional: Number of botches so far in this combo (for cumulative penalty)
 }
@@ -227,33 +234,24 @@ export async function applyHitDamageBuff(
   targetTokenId: string,
   damageBuff: PowerDamageDebuffData | null | undefined,
   attackData: Partial<AttackData>,
-  attackRoll: FaseripRoll
+  resolved:
+    | { chartShift: number; indefinite: boolean; roundsRemaining: number; roll?: Roll }
+    | null
+    | undefined
 ): Promise<AppliedDamageBuffResult | null> {
-  const chartShift = getDamageBuffShiftForResult(
-    damageBuff,
-    attackRoll.result,
-    attackRoll.roll.total || 0
-  );
-
-  if (!damageBuff?.enabled || chartShift === 0) {
+  if (!damageBuff?.enabled || !resolved || resolved.chartShift === 0) {
     return null;
   }
 
+  const { chartShift, roundsRemaining, roll } = resolved;
   const durationFormula = damageBuff.durationFormula?.trim() || "1d3";
 
-  // Use simple Roll.create for duration (don't use createRoll - it triggers critical botch table on low rolls)
-  const durationRoll = Roll.create(durationFormula);
-  await durationRoll.evaluate();
-
-  await durationRoll.toMessage({
-    speaker: ChatMessage.getSpeaker({ actor: targetActor }),
-    flavor: `<strong>${attackData.powerName || "Damage Buff"}</strong> Duration Roll (${durationFormula})`
-  });
-
-  const roundsRemaining = Math.max(
-    1,
-    Math.floor(Number(durationRoll.total || 0))
-  );
+  if (roll) {
+    await roll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor: targetActor }),
+      flavor: `<strong>${attackData.powerName || "Damage Buff"}</strong> Duration Roll (${durationFormula})`
+    });
+  }
 
   const sourceName = attackData.powerName || "Unknown Source";
 
@@ -284,33 +282,25 @@ export async function applyHitStatDebuff(
   targetTokenId: string,
   statDebuff: PowerStatDebuffData | null | undefined,
   attackData: Partial<AttackData>,
-  attackRoll: FaseripRoll
+  resolved:
+    | { chartShift: number; indefinite: boolean; roundsRemaining: number; roll?: Roll }
+    | null
+    | undefined
 ): Promise<AppliedStatDebuffResult | null> {
-  const chartShift = getStatDebuffShiftForResult(
-    statDebuff,
-    attackRoll.result,
-    attackRoll.roll.total || 0
-  );
-
-  if (!statDebuff?.enabled || chartShift === 0) {
+  if (!statDebuff?.enabled || !resolved || resolved.chartShift === 0) {
     return null;
   }
 
+  const { chartShift, roundsRemaining, roll } = resolved;
   const durationFormula = statDebuff.durationFormula?.trim() || "1d3";
 
-  // Use simple Roll.create for duration (don't use createRoll - it triggers critical botch table on low rolls)
-  const durationRoll = Roll.create(durationFormula);
-  await durationRoll.evaluate();
+  if (roll) {
+    await roll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor: targetActor }),
+      flavor: `<strong>${attackData.powerName || "Stat Debuff"}</strong> Duration Roll (${durationFormula})`
+    });
+  }
 
-  await durationRoll.toMessage({
-    speaker: ChatMessage.getSpeaker({ actor: targetActor }),
-    flavor: `<strong>${attackData.powerName || "Stat Debuff"}</strong> Duration Roll (${durationFormula})`
-  });
-
-  const roundsRemaining = Math.max(
-    1,
-    Math.floor(Number(durationRoll.total || 0))
-  );
   const applied = await requestStatDebuffApplication(targetActor, {
     targetActorId: targetActor.id!,
     targetTokenId,
@@ -1546,16 +1536,80 @@ export async function executeCombatAttack(
     // Brief delay before next target
     await new Promise(resolve => setTimeout(resolve, 300));
 
+    // Resolve each enabled statDebuffs/damageBuffs entry's chart shift +
+    // duration ONCE here (keyed by the entry object itself), so both the
+    // area-of-effect region below AND the direct hit target's own debuff
+    // application further down reuse the exact same resolved result instead
+    // of each independently re-rolling a duration for what's conceptually
+    // the same debuff instance (which previously could - and did - produce
+    // two different "rounds remaining" for the same entry).
+    const resolvedStatDebuffs = new Map<
+      PowerStatDebuffData,
+      { chartShift: number; indefinite: boolean; roundsRemaining: number; roll?: Roll }
+    >();
+    for (const entry of attackData.statDebuffs ?? []) {
+      if (!entry.enabled) continue;
+      const shift = getStatDebuffShiftForResult(
+        entry,
+        attackRoll.result,
+        attackRoll.roll.total || 0
+      );
+      if (!shift) continue;
+      const duration = await rollEntryDuration(entry.durationFormula);
+      resolvedStatDebuffs.set(entry, { chartShift: shift, ...duration });
+    }
+
+    const resolvedDamageBuffs = new Map<
+      PowerDamageDebuffData,
+      { chartShift: number; indefinite: boolean; roundsRemaining: number; roll?: Roll }
+    >();
+    for (const entry of attackData.damageBuffs ?? []) {
+      if (!entry.enabled) continue;
+      const shift = getDamageBuffShiftForResult(
+        entry,
+        attackRoll.result,
+        attackRoll.roll.total || 0
+      );
+      if (!shift) continue;
+      const duration = await rollEntryDuration(entry.durationFormula);
+      resolvedDamageBuffs.set(entry, { chartShift: shift, ...duration });
+    }
+
+    // Place any configured area-of-effect region centered on the target's
+    // current position - a one-time placement that doesn't follow the
+    // target afterward, regardless of whether this attack deals damage.
+    if (attackHit && attackData.areaOfEffect?.enabled) {
+      await placeAreaOfEffectOnHit(
+        attackData.areaOfEffect,
+        Array.from(resolvedStatDebuffs.entries()).map(([entry, r]) => ({
+          attribute: entry.attribute,
+          chartShift: r.chartShift,
+          indefinite: r.indefinite,
+          roundsRemaining: r.roundsRemaining
+        })),
+        Array.from(resolvedDamageBuffs.values()).map(r => ({
+          chartShift: r.chartShift,
+          indefinite: r.indefinite,
+          roundsRemaining: r.roundsRemaining
+        })),
+        attackData.dots,
+        attackData.powerName || "Weapon",
+        target
+      );
+    }
+
     // Step 5: Calculate and apply damage using hybrid system (skip if power doesn't deal damage)
     if (attackHit && attackData.effectType === "damage") {
       // Get power rank (from attackData or default to attack attribute rank)
       let powerRank = attackData.powerRank || attackRank;
 
       // Apply temporary damage modifiers (buffs/debuffs on the attacker),
-      // plus any live aura chart shift affecting the attacker's own damage.
+      // plus any live aura/weapon-area-effect chart shift affecting the
+      // attacker's own damage.
       const totalDamageModifierCS =
         sumChartShift(getActiveDamageModifierEffects(attacker)) +
-        getPowerAuraDamageShift(attacker);
+        getPowerAuraDamageShift(attacker) +
+        getWeaponAreaEffectDamageShift(attacker);
 
       if (totalDamageModifierCS !== 0) {
         powerRank = applyChartShift(powerRank, totalDamageModifierCS);
@@ -1610,36 +1664,45 @@ export async function executeCombatAttack(
         damageResult.damage += perAttackDamageBonus;
       }
 
+      // A weapon with an enabled area-of-effect region applies its
+      // statDebuffs/damageBuffs/dots to whoever is standing inside the
+      // region instead (live-computed there, and DoT-ticked there) - the hit
+      // target is standing right at its center, so they're already covered
+      // by the region same as anyone else caught in the blast. Applying
+      // these directly to them here too would double them up (a stored
+      // ActiveEffect on top of the region's live shift).
       const appliedStatDebuffs: AppliedStatDebuffResult[] = [];
-      for (const sd of attackData.statDebuffs ?? []) {
-        const applied = await applyHitStatDebuff(
-          targetActor,
-          target.id,
-          sd,
-          attackData,
-          attackRoll
-        );
-        if (applied) appliedStatDebuffs.push(applied);
-      }
       const appliedDamageBuffs: AppliedDamageBuffResult[] = [];
-      for (const db of attackData.damageBuffs ?? []) {
-        const applied = await applyHitDamageBuff(
-          targetActor,
-          target.id,
-          db,
-          attackData,
-          attackRoll
-        );
-        if (applied) appliedDamageBuffs.push(applied);
-      }
-      for (const d of attackData.dots ?? []) {
-        await applyHitDamageOverTime(
-          targetActor,
-          target.id,
-          d,
-          attackData,
-          damageResult.damage
-        );
+      if (!attackData.areaOfEffect?.enabled) {
+        for (const sd of attackData.statDebuffs ?? []) {
+          const applied = await applyHitStatDebuff(
+            targetActor,
+            target.id,
+            sd,
+            attackData,
+            resolvedStatDebuffs.get(sd)
+          );
+          if (applied) appliedStatDebuffs.push(applied);
+        }
+        for (const db of attackData.damageBuffs ?? []) {
+          const applied = await applyHitDamageBuff(
+            targetActor,
+            target.id,
+            db,
+            attackData,
+            resolvedDamageBuffs.get(db)
+          );
+          if (applied) appliedDamageBuffs.push(applied);
+        }
+        for (const d of attackData.dots ?? []) {
+          await applyHitDamageOverTime(
+            targetActor,
+            target.id,
+            d,
+            attackData,
+            damageResult.damage
+          );
+        }
       }
 
       // Build damage modifier display text
@@ -2066,30 +2129,35 @@ export async function executeCombatAttack(
         }
       } // End of else block for immediate damage application
     } else if (attackHit && attackData.effectType !== "damage") {
+      // See the "damage" branch above for why these are skipped when the
+      // weapon has an area-of-effect region - the target is already covered
+      // by the region instead.
       const appliedStatDebuffs: AppliedStatDebuffResult[] = [];
-      for (const sd of attackData.statDebuffs ?? []) {
-        const applied = await applyHitStatDebuff(
-          targetActor,
-          target.id,
-          sd,
-          attackData,
-          attackRoll
-        );
-        if (applied) appliedStatDebuffs.push(applied);
-      }
       const appliedDamageBuffs: AppliedDamageBuffResult[] = [];
-      for (const db of attackData.damageBuffs ?? []) {
-        const applied = await applyHitDamageBuff(
-          targetActor,
-          target.id,
-          db,
-          attackData,
-          attackRoll
-        );
-        if (applied) appliedDamageBuffs.push(applied);
-      }
-      for (const d of attackData.dots ?? []) {
-        await applyHitDamageOverTime(targetActor, target.id, d, attackData);
+      if (!attackData.areaOfEffect?.enabled) {
+        for (const sd of attackData.statDebuffs ?? []) {
+          const applied = await applyHitStatDebuff(
+            targetActor,
+            target.id,
+            sd,
+            attackData,
+            resolvedStatDebuffs.get(sd)
+          );
+          if (applied) appliedStatDebuffs.push(applied);
+        }
+        for (const db of attackData.damageBuffs ?? []) {
+          const applied = await applyHitDamageBuff(
+            targetActor,
+            target.id,
+            db,
+            attackData,
+            resolvedDamageBuffs.get(db)
+          );
+          if (applied) appliedDamageBuffs.push(applied);
+        }
+        for (const d of attackData.dots ?? []) {
+          await applyHitDamageOverTime(targetActor, target.id, d, attackData);
+        }
       }
 
       // Non-damaging attack hit - show result message without damage
@@ -2236,7 +2304,8 @@ export async function applyPendingDamages(
       pending.targetTokenId, // Pass token ID for unlinked tokens
       pending.armorPiercing, // Pass armor piercing rank
       pending.armorRank, // Pass target's armor rank
-      pending.hits.length // Pass hit count for per-hit degradation
+      pending.hits.length, // Pass hit count for per-hit degradation
+      pending.hits.map(hit => hit.damage) // Per-hit damage so armor soaks each hit separately
     );
 
     // Build summary message showing all hits

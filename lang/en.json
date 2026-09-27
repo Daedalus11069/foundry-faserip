@@ -8,7 +8,8 @@
     "powerDampening": "Power Dampening",
     "powerEnhancement": "Power Enhancement",
     "forceNextRoll": "Force Next Roll",
-    "powerAura": "Power Aura"
+    "powerAura": "Power Aura",
+    "weaponAreaEffect": "Weapon Area Effect"
   },
   "FASERIP": {
     "ActorType": {
@@ -95,6 +96,16 @@
             "includeSelf": {
               "label": "Include Self",
               "hint": "Whether the owner is affected by their own aura."
+            }
+          }
+        },
+        "weaponAreaEffect": {
+          "label": "Weapon Area Effect",
+          "hint": "Auto-managed by a weapon's Area of Effect setting - created centered on the target at the moment of a hit and never repositioned. Each enabled stat/damage (de)buff and damage-over-time entry from the weapon is copied here as its own independently-expiring entry, all applied live to anyone standing inside.",
+          "FIELDS": {
+            "summary": {
+              "label": "Active Effects",
+              "hint": "Auto-generated summary of the (de)buffs and damage-over-time currently on this region. Editing this has no effect - it's regenerated automatically."
             }
           }
         }

@@ -2,9 +2,9 @@
 import { inject, computed, ref, onMounted, onUnmounted } from "vue";
 import type { Talent, Form } from "../../types";
 import {
-  isHoloSuiteActive,
+  isNodeHackerActive,
   presentHackToActor
-} from "../../integrations/holosuite-hacking";
+} from "../../integrations/node-hacker-hacking";
 
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
@@ -12,7 +12,7 @@ const actor = inject("actor") as Actor;
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
 const forms = computed<Form[]>(() => reactiveActor.system.forms || []);
 
-// "Hacking" talent (case-insensitive) unlocks a shortcut to the HoloSuite
+// "Hacking" talent (case-insensitive) unlocks a shortcut to the Node Hacker
 // hack-presentation flow directly from this actor's sheet, without needing
 // the Token Controls scene-control button.
 const hasHackingTalent = computed(() =>
@@ -110,7 +110,7 @@ function toggleItem(id: string) {
       <h2 class="text-2xl font-bold text-white">Talents</h2>
       <div class="flex gap-2">
         <button
-          v-if="hasHackingTalent && isHoloSuiteActive()"
+          v-if="hasHackingTalent && isNodeHackerActive()"
           @click="presentHack"
           class="fsr-btn fsr-btn-sm bg-cyan-700 hover:bg-cyan-600 text-white"
           title="Target a hackable actor (or none for an open attempt) and start a hacking check"

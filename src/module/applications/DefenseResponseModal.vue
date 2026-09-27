@@ -191,8 +191,9 @@ async function handleDefend() {
     return;
   }
 
-  // Calculate total chart shift (manual only - karma shifts handled by rollAttribute)
-  const totalChartShift = defenseOptions.manualChartShift;
+  // Calculate total chart shift (manual + applicable talent bonus - karma shifts handled by rollAttribute)
+  const totalChartShift =
+    defenseOptions.manualChartShift + (props.talentCS || 0);
 
   // Roll defense with applied chart shifts
   // Pass karma shifts to rollAttribute - it will handle deduction and application
@@ -200,9 +201,9 @@ async function handleDefend() {
     props.defenseAttribute,
     defenseRank,
     props.defenseValue,
-    totalChartShift, // Manual chart shift only
+    totalChartShift, // Manual chart shift + talent bonus
     rawActor, // Use unwrapped actor to avoid Vue proxy issues with Foundry API
-    undefined, // No talents
+    props.talentNames,
     {
       defenseRoll: true,
       attackerName: props.attackerName,
