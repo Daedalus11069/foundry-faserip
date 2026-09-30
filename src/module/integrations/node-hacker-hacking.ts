@@ -5,12 +5,14 @@ import {
   rollFaseripHackCheck,
   meetsRequiredColor,
   parseRequiredColor,
-  ROLL_COLOR_RANK,
   type FaseripHackContext,
   type HackTargetInfo
 } from "./holosuite-roll-adapter";
 import { showTalentSelectionDialog } from "../applications/dialog-utils";
-import { findTokenControllers, requestNodeHackMode } from "../socket/faserip-socket";
+import {
+  findTokenControllers,
+  requestNodeHackMode
+} from "../socket/faserip-socket";
 import { promptAndApplyHackDebuff } from "./holosuite-hacking";
 import type { Talent } from "../types";
 
@@ -19,10 +21,13 @@ declare const ui: any;
 declare const canvas: any;
 declare const globalThis: any;
 
+const FASERIP_MODULE_ID = "faserip";
+const PENDING_HACK_CONTEXTS_FLAG = "pendingHackContexts";
+
 export const NODE_HACKER_MODULE_ID = "foundryvtt-node-hacker";
 
 /**
- * Node Hacker replacement for the HoloSuite Hacking integration
+ * Node Hacker replacement for the Hacking integration
  * (see holosuite-hacking.ts, now unused). Unlike HoloSuite, Node Hacker exposes a real
  * `CheckResolver` extension point and resolves every node capture attempt through it
  * natively, so there's no need for HoloSuite's libWrapper patching of private minigame
@@ -44,7 +49,8 @@ export function findHackingTalent(actor: FaseripActor): Talent | null {
     talents.find(
       t =>
         t.name?.trim().toLowerCase() === "hacking" &&
-        (!t.formIds?.length || (activeFormId && t.formIds.includes(activeFormId)))
+        (!t.formIds?.length ||
+          (activeFormId && t.formIds.includes(activeFormId)))
     ) ?? null
   );
 }
@@ -72,17 +78,72 @@ export function isNodeHackerActive(): boolean {
 
 /** Per-actor FASERIP check context Node Hacker replays for every node capture attempt,
  * for the duration of one hack session. Keyed by actor UUID so simultaneous hacks by
- * different actors (e.g. two players hacking separate terminals) don't collide. */
+ * different actors (e.g. two players hacking separate terminals) don't collide.
+ *
+ * Only ever lives in memory by itself - wiped by a page refresh, unlike Node Hacker's own
+ * HackSession state (see SessionPersistence in that module), which DOES survive one via a
+ * user flag. Without also persisting this, a session restored after a refresh has no
+ * FaseripHackContext to look up, so the check resolver's `!hackContext` fallback kicks in:
+ * a generic Typical-rank check via FaseripRoll.rollAttribute's own separate pre-roll/
+ * post-roll dialogs, instead of the actor's real attribute/talents through
+ * rollFaseripHackCheck's single combined dialog - hence two dialogs (and the wrong stats)
+ * showing up after a refresh instead of the expected one. setHackContext below mirrors that
+ * persistence pattern for this data too, and restorePendingHackContexts() reloads it. */
 const pendingContexts = new Map<string, FaseripHackContext>();
 
+/** Keyed by the world actor's plain id, NOT its uuid - Node Hacker's own HackSession.restore
+ * reconstructs a restored session's actor via `game.actors.get(state.actorId)` (see
+ * HackSession.ts), a plain world-actor lookup. A token's synthetic actor (unlinked tokens
+ * especially) can have a `uuid` that differs from the underlying world actor's `Actor.<id>`
+ * uuid, so keying on uuid meant a context saved before refresh could never be found again by
+ * the actor Node Hacker hands back after restoring - keying on plain id instead matches
+ * exactly what HackSession itself does. */
 function contextKey(actor: FaseripActor): string {
-  return (actor as any).uuid ?? actor.id ?? "";
+  return (actor as any).id ?? "";
 }
 
-export function setHackContext(actor: FaseripActor, context: FaseripHackContext | null): void {
+/** Strips the live `actor` reference (not JSON-serializable as a flag value) down to its
+ * plain id - see contextKey's comment on why id, not uuid. */
+function serializeHackContext(context: FaseripHackContext): Record<string, unknown> {
+  const { actor, ...rest } = context;
+  return { ...rest, actorId: (actor as any)?.id ?? null };
+}
+
+async function persistPendingContexts(): Promise<void> {
+  const data: Record<string, unknown> = {};
+  for (const [key, context] of pendingContexts) {
+    data[key] = serializeHackContext(context);
+  }
+  await game.user?.setFlag(FASERIP_MODULE_ID, PENDING_HACK_CONTEXTS_FLAG, data);
+}
+
+/**
+ * Reloads pendingContexts from the current user's flag - called once, from FASERIP's
+ * "nodeHacker.ready" handshake listener (see faserip.ts), so it's populated well before the
+ * player can possibly act on whatever solo/managed session Node Hacker's own restoreSessions()
+ * is about to reopen from the exact same page load.
+ */
+export async function restorePendingHackContexts(): Promise<void> {
+  const data = game.user?.getFlag(FASERIP_MODULE_ID, PENDING_HACK_CONTEXTS_FLAG) as
+    | Record<string, any>
+    | undefined;
+  if (!data) return;
+  for (const [key, stored] of Object.entries(data)) {
+    if (!stored) continue;
+    const { actorId, ...rest } = stored;
+    const actor = actorId ? ((game as any).actors?.get(actorId) ?? undefined) : undefined;
+    pendingContexts.set(key, { ...rest, actor });
+  }
+}
+
+export function setHackContext(
+  actor: FaseripActor,
+  context: FaseripHackContext | null
+): void {
   const key = contextKey(actor);
   if (context) pendingContexts.set(key, context);
   else pendingContexts.delete(key);
+  void persistPendingContexts();
 }
 
 /**
@@ -92,17 +153,25 @@ export function setHackContext(actor: FaseripActor, context: FaseripHackContext 
  * defender context, this falls back to a flat 1d100 vs. a difficulty-scaled threshold,
  * just to keep trace rolls appearing in chat alongside the hacker's own FASERIP rolls.
  */
-async function resolveTraceCheck(context: any): Promise<{ success: boolean; total: number }> {
+async function resolveTraceCheck(
+  context: any
+): Promise<{ success: boolean; total: number }> {
   if (context.actor) {
     const hackContext = pendingContexts.get(contextKey(context.actor));
     if (hackContext) {
       const faseripRoll = await rollFaseripHackCheck(
-        { ...hackContext, chartShift: (hackContext.chartShift ?? 0) - (context.difficulty ?? 0) },
+        {
+          ...hackContext,
+          chartShift: (hackContext.chartShift ?? 0) - (context.difficulty ?? 0)
+        },
         context.label
       );
       return {
-        success: meetsRequiredColor(faseripRoll.result, hackContext.requiredColor),
-        total: faseripRoll.roll.total
+        success:
+          hackContext.requiredDC !== undefined
+            ? (faseripRoll.roll.total ?? 0) >= hackContext.requiredDC
+            : meetsRequiredColor(faseripRoll.result, hackContext.requiredColor),
+        total: faseripRoll.roll.total!
       };
     }
   }
@@ -110,13 +179,15 @@ async function resolveTraceCheck(context: any): Promise<{ success: boolean; tota
   const threshold = 30 + (context.difficulty ?? 0) * 12;
   const roll = await new Roll("1d100").evaluate();
   const total = roll.total ?? 0;
-  await roll.toMessage({ flavor: `${context.label ?? "Trace"} (DC ${threshold})` });
+  await roll.toMessage({
+    flavor: `${context.label ?? "Trace"} (DC ${threshold})`
+  });
   return { success: total >= threshold, total };
 }
 
 /**
  * Maps a node's difficulty rating to the minimum Universal Table color a node-capture roll
- * must reach - ported from the original libWrapper-based HoloSuite hacking modification:
+ * must reach - ported from the original libWrapper-based Hacking modification:
  * difficulty 1 needed Green or better, 2 needed Yellow or better, 3 needed Red. Difficulty 0
  * (a trivial node) needs no more than any success at all, same as difficulty 1. Anything
  * above 3 stays capped at Red - there's no color harder than that to demand.
@@ -130,7 +201,9 @@ let difficultyRequiredColor = (difficulty: number): RollResult => {
   return RollResult.Green;
 };
 
-export function setDifficultyRequiredColor(mapper: (difficulty: number) => RollResult): void {
+export function setDifficultyRequiredColor(
+  mapper: (difficulty: number) => RollResult
+): void {
   difficultyRequiredColor = mapper;
 }
 
@@ -138,10 +211,119 @@ export function getDifficultyRequiredColor(difficulty: number): RollResult {
   return difficultyRequiredColor(difficulty);
 }
 
-/** The stricter (harder to satisfy) of two required colors - a node's own difficulty tier
- * should never make a hack EASIER than whatever the overall target already demanded. */
-function stricterColor(a: RollResult, b: RollResult): RollResult {
-  return ROLL_COLOR_RANK[a] >= ROLL_COLOR_RANK[b] ? a : b;
+/** One selectable minimum-success tier for a "required roll type" input -
+ * `value` is whatever this system's own roll-result type actually is (here,
+ * FASERIP's RollResult), `label` is the display text. Deliberately named
+ * around "roll type", not "color" - "color" is Universal Table vocabulary
+ * specific to FASERIP; a different ruleset plugged into Node Hacker via
+ * setRequiredRollTypeChoices might key its tiers on margin-of-success
+ * numbers, degrees, or anything else its own dice mechanic produces. */
+export interface RequiredRollTypeChoice {
+  value: RollResult;
+  label: string;
+}
+
+/** Backing store for getRequiredRollTypeChoices() below. */
+let requiredRollTypeChoices: RequiredRollTypeChoice[] = [
+  { value: RollResult.Green, label: "Green (any success)" },
+  { value: RollResult.Yellow, label: "Yellow (Good success or better)" },
+  { value: RollResult.Red, label: "Red (Amazing success only)" }
+];
+
+/**
+ * Single source of truth for every "required roll type" input built for
+ * Node Hacker (a door's Wall Config field, an actor sheet field, ...) so
+ * none of them hardcode their own copy of the option list. Mirrors
+ * setDefaultHackAttribute/setDifficultyRequiredColor above - a caller
+ * building this kind of input should always read its choices from here via
+ * this function, never write its own literal array, so a homebrew ruleset
+ * can swap the whole tier set (values AND labels) via
+ * setRequiredRollTypeChoices() in one place instead of FASERIP's Universal
+ * Table tiers being baked into every UI that needs one.
+ */
+export function getRequiredRollTypeChoices(): RequiredRollTypeChoice[] {
+  return requiredRollTypeChoices;
+}
+
+export function setRequiredRollTypeChoices(
+  choices: RequiredRollTypeChoice[]
+): void {
+  requiredRollTypeChoices = choices;
+}
+
+/**
+ * Interprets a stored value (e.g. a Wall/Actor flag written by whatever
+ * input getRequiredRollTypeChoices() built) back into this system's
+ * RollResult - by looking it up against the CURRENT choice list from the
+ * API above, not a hardcoded literal comparison. A value that no longer
+ * matches any registered choice (stale data from before a
+ * setRequiredRollTypeChoices() customization, or simply unset) falls back
+ * to the first/lowest choice, mirroring parseRequiredColor's old default of
+ * "any success passes".
+ */
+export function parseRequiredRollType(value: unknown): RollResult {
+  const choices = getRequiredRollTypeChoices();
+  const match = choices.find(choice => choice.value === value);
+  return (match ?? choices[0])?.value ?? RollResult.Green;
+}
+
+/**
+ * A hack target's minimum-success requirement, as either a tier picked from
+ * getRequiredRollTypeChoices() or a flat numeric DC the roll's raw total
+ * must meet - the two ways any check in this integration can gate success
+ * (see FaseripHackContext.requiredColor/requiredDC). Any input building a
+ * "how hard is this to hack" control (door Wall Config, an actor sheet
+ * field, ...) should read/write this shape via the functions below rather
+ * than assuming a tier dropdown is the only possible input.
+ */
+export type RequiredSuccessConfig =
+  | { kind: "tier"; value: RollResult }
+  | { kind: "flatDC"; value: number };
+
+/** Converts a RequiredSuccessConfig into the requiredColor/requiredDC pair
+ * attemptFaseripNodeHack (and AttemptDoorHackParams) actually take. */
+export function requiredSuccessToHackParams(config: RequiredSuccessConfig): {
+  requiredColor?: RollResult;
+  requiredDC?: number;
+} {
+  return config.kind === "flatDC"
+    ? { requiredDC: config.value }
+    : { requiredColor: config.value };
+}
+
+/** Wire shape a RequiredSuccessConfig is stored as (a Wall/Actor flag) -
+ * both fields are always present so toggling `kind` in a UI (see
+ * door-hack-config.ts) doesn't lose whichever value isn't currently active. */
+export interface RequiredSuccessWireValue {
+  kind: "tier" | "flatDC";
+  tier: RollResult;
+  dc: number;
+}
+
+export function serializeRequiredSuccessConfig(
+  config: RequiredSuccessConfig
+): RequiredSuccessWireValue {
+  return config.kind === "flatDC"
+    ? { kind: "flatDC", tier: RollResult.Green, dc: config.value }
+    : { kind: "tier", tier: config.value, dc: 30 };
+}
+
+/** Interprets a stored RequiredSuccessWireValue-shaped flag back into a
+ * RequiredSuccessConfig. Anything not matching that shape (unset, or a
+ * legacy plain green/yellow/red string) parses as a tier via
+ * parseRequiredRollType, same fallback as before this wire format existed. */
+export function parseRequiredSuccessConfig(
+  raw: unknown
+): RequiredSuccessConfig {
+  const data =
+    raw && typeof raw === "object"
+      ? (raw as Partial<RequiredSuccessWireValue>)
+      : undefined;
+  if (data?.kind === "flatDC") {
+    const value = Number(data.dc);
+    return { kind: "flatDC", value: Number.isFinite(value) ? value : 30 };
+  }
+  return { kind: "tier", value: parseRequiredRollType(data?.tier ?? raw) };
 }
 
 let resolverRegistered = false;
@@ -178,15 +360,15 @@ export function registerNodeHackerCheckResolver(): void {
 
     const hackContext = pendingContexts.get(contextKey(context.actor));
 
-    // A node's own difficulty sets a minimum color it demands on top of whatever the
-    // overall target already required (see difficultyRequiredColor/stricterColor) - the
-    // chart shift below makes the roll itself harder to land well, and this is the separate,
-    // original HoloSuite-style gate on top of that: even a great roll doesn't pass a
-    // difficulty-3 node unless it actually came up Red.
-    const nodeRequiredColor = stricterColor(
-      getDifficultyRequiredColor(context.difficulty ?? 0),
-      hackContext?.requiredColor ?? RollResult.Green
-    );
+    // A node's own difficulty is the ONLY thing that gates capturing it - requiredColor/
+    // requiredDC (the overall target's "Required Hack Success") only ever gates the single
+    // opening roll that decides whether this whole attempt gets going at all (see
+    // attemptFaseripNodeHack's graphName branch, and the opening-roll sizing for a generated
+    // network) - it deliberately does NOT also raise the bar on every individual node beyond
+    // what that node's own difficulty already demands. A level-1 node needing only Green
+    // shouldn't quietly become a Yellow-or-better node just because the door/actor it's part
+    // of was configured with a stricter overall requirement.
+    const nodeRequiredColor = getDifficultyRequiredColor(context.difficulty ?? 0);
 
     if (!hackContext) {
       // No FASERIP context registered for this actor (e.g. a session started outside
@@ -205,7 +387,10 @@ export function registerNodeHackerCheckResolver(): void {
     }
 
     const faseripRoll = await rollFaseripHackCheck(
-      { ...hackContext, chartShift: (hackContext.chartShift ?? 0) - (context.difficulty ?? 0) },
+      {
+        ...hackContext,
+        chartShift: (hackContext.chartShift ?? 0) - (context.difficulty ?? 0)
+      },
       context.label
     );
     return {
@@ -226,6 +411,8 @@ export interface FaseripDefenderContext {
   chartShift?: number;
   talentNames?: string[];
   requiredColor?: RollResult;
+  /** Alternative to requiredColor - see AttemptFaseripNodeHackParams.requiredDC. */
+  requiredDC?: number;
 }
 
 export interface AttemptFaseripNodeHackParams {
@@ -236,8 +423,11 @@ export interface AttemptFaseripNodeHackParams {
   talentNames?: string[];
   label?: string;
   /** Minimum Universal Table color required on every node, sourced from a hackable
-   * target's hackRequiredColor. Defaults to Green. */
+   * target's hackRequiredColor. Defaults to Green. Ignored when requiredDC is set. */
   requiredColor?: RollResult;
+  /** Alternative to requiredColor: a flat numeric DC every node's roll total must meet
+   * or beat instead of reaching a color tier - see FaseripHackContext.requiredDC. */
+  requiredDC?: number;
   /** Difficulty rating for each node of a generated linear chain, one real target per
    * stage (see presentHackToActor's multi-target case). Ignored if `graphName` is set, and
    * only used when there's more than one stage - a single/no stage instead rolls an opening
@@ -262,12 +452,19 @@ export interface AttemptFaseripNodeHackParams {
  * `api.registerCombatTurnAdvance`). Mirrors resolvePvpCombatants' gating in the old
  * HoloSuite integration, minus the separate combatant-id bookkeeping Node Hacker doesn't need.
  */
-function shouldRunManaged(attacker: FaseripActor, targetTokenId: string | undefined): boolean {
+function shouldRunManaged(
+  attacker: FaseripActor,
+  targetTokenId: string | undefined
+): boolean {
   if (!targetTokenId) return false;
   const combatants = game.combat?.combatants;
   if (!combatants) return false;
-  const attackerCombatant = combatants.find((c: any) => c.actorId === attacker.id);
-  const defenderCombatant = combatants.find((c: any) => c.tokenId === targetTokenId);
+  const attackerCombatant = combatants.find(
+    (c: any) => c.actorId === attacker.id
+  );
+  const defenderCombatant = combatants.find(
+    (c: any) => c.tokenId === targetTokenId
+  );
   return !!(attackerCombatant && defenderCombatant);
 }
 
@@ -281,7 +478,10 @@ function shouldRunManaged(attacker: FaseripActor, targetTokenId: string | undefi
  * network size, meaningfully harder through sheer number of Yellow-gated nodes to fight
  * through rather than a bigger, mechanically-meaningless difficulty number.
  */
-function graphParamsForOpeningRoll(color: RollResult): { size: "small" | "medium" | "large" | "huge"; difficulty: number } {
+function graphParamsForOpeningRoll(color: RollResult): {
+  size: "small" | "medium" | "large" | "huge";
+  difficulty: number;
+} {
   switch (color) {
     case RollResult.Red:
       return { size: "small", difficulty: 1 };
@@ -301,7 +501,9 @@ function graphParamsForOpeningRoll(color: RollResult): { size: "small" | "medium
  * per-target stages, or (the common case) a procedurally generated network sized off this
  * same opening roll's result.
  */
-export async function attemptFaseripNodeHack(params: AttemptFaseripNodeHackParams) {
+export async function attemptFaseripNodeHack(
+  params: AttemptFaseripNodeHackParams
+) {
   const api = getNodeHackerApi();
   if (!api) {
     ui.notifications?.warn?.("Node Hacker is not active in this world.");
@@ -318,6 +520,31 @@ export async function attemptFaseripNodeHack(params: AttemptFaseripNodeHackParam
   const label = params.label ?? "Hack Attempt";
   let graphConfig: any;
   if (params.graphName) {
+    // A named graph is a fixed, hand-designed puzzle - there's no "size/difficulty" left to
+    // vary the way a failed roll makes a generated network bigger (see the White case below),
+    // so requiredColor/requiredDC's only meaningful role here is a hard pass/fail gate on
+    // whether the attempt gets in at all. Every node inside, once in, is judged purely on its
+    // own difficulty (see registerNodeHackerCheckResolver) - this roll never also raises that
+    // bar, it only decides whether the door's minigame opens in the first place.
+    const openingRoll = await rollFaseripHackCheck(
+      {
+        actor: params.actor,
+        attributeName: params.attributeName,
+        attributeRank: params.attributeRank,
+        chartShift: params.chartShift,
+        talentNames: params.talentNames,
+        requiredColor: params.requiredColor
+      },
+      label
+    );
+    const openingPassed =
+      params.requiredDC !== undefined
+        ? (openingRoll.roll.total ?? 0) >= params.requiredDC
+        : meetsRequiredColor(openingRoll.result, params.requiredColor);
+    if (!openingPassed) {
+      ui.notifications?.info?.(`${label}: the opening check failed - no way in.`);
+      return null;
+    }
     graphConfig = await api.graphs.get(params.graphName);
   } else if (params.stageDifficulties && params.stageDifficulties.length > 1) {
     graphConfig = api.generateQuickGraph(label, params.stageDifficulties);
@@ -342,7 +569,9 @@ export async function attemptFaseripNodeHack(params: AttemptFaseripNodeHackParam
   }
 
   if (!graphConfig) {
-    ui.notifications?.warn?.(`No saved Node Hacker graph named "${params.graphName}" was found.`);
+    ui.notifications?.warn?.(
+      `No saved Node Hacker graph named "${params.graphName}" was found.`
+    );
     return null;
   }
 
@@ -352,7 +581,8 @@ export async function attemptFaseripNodeHack(params: AttemptFaseripNodeHackParam
     attributeRank: params.attributeRank,
     chartShift: params.chartShift,
     talentNames: params.talentNames,
-    requiredColor: params.requiredColor
+    requiredColor: params.requiredColor,
+    requiredDC: params.requiredDC
   });
 
   const cleanup = () => {
@@ -361,7 +591,12 @@ export async function attemptFaseripNodeHack(params: AttemptFaseripNodeHackParam
   };
 
   if (params.managed) {
-    const managedSession = api.startManaged(graphConfig, params.actor, 6, params.managed.actor);
+    const managedSession = api.startManaged(
+      graphConfig,
+      params.actor,
+      6,
+      params.managed.actor
+    );
     if (!managedSession) return null; // Already notified - see NodeHackerApi.startManaged.
     const { sessionId, gmApp } = managedSession;
 
@@ -371,7 +606,8 @@ export async function attemptFaseripNodeHack(params: AttemptFaseripNodeHackParam
       attributeRank: params.managed.attributeRank,
       chartShift: params.managed.chartShift,
       talentNames: params.managed.talentNames,
-      requiredColor: params.managed.requiredColor
+      requiredColor: params.managed.requiredColor,
+      requiredDC: params.managed.requiredDC
     });
 
     api.registerCombatTurnAdvance(sessionId);
@@ -381,8 +617,13 @@ export async function attemptFaseripNodeHack(params: AttemptFaseripNodeHackParam
       api.notifyPlayer(sessionId, attackerOwner.id);
     }
 
-    const onComplete = (completedId: string, _session: any, result: "won" | "lost" | "aborted") => {
+    const onComplete = (
+      completedId: string,
+      _session: any,
+      result: "won" | "lost" | "aborted"
+    ) => {
       if (completedId !== sessionId) return;
+      // @ts-expect-error - Foundry Hooks typing doesn't know about our custom event
       Hooks.off("nodeHacker.managedSessionComplete", onComplete);
       cleanup();
       // An aborted hack is neither a success nor a failure - no debuff, no consequence, the
@@ -390,26 +631,37 @@ export async function attemptFaseripNodeHack(params: AttemptFaseripNodeHackParam
       if (result === "won") params.onSuccess?.();
       else if (result === "lost") params.onFailure?.();
     };
+    // @ts-expect-error - Foundry Hooks typing doesn't know about our custom event
     Hooks.on("nodeHacker.managedSessionComplete", onComplete);
 
     return gmApp;
   }
 
-  const traceMode = params.traceUnit ?? game.settings?.get?.("faserip", "hackTraceMode") ?? "time";
+  const traceMode =
+    params.traceUnit ??
+    game.settings?.get?.("faserip", "hackTraceMode") ??
+    "time";
   // Points mode is always a 0-100% failure meter now (Trace's constructor forces max=100 for
   // it regardless of what's passed here) - this only actually matters for time mode's literal
   // countdown length.
   const traceMax = traceMode === "time" ? 20 : 100;
 
-  const app = await api.startSolo(graphConfig, params.actor, traceMax, traceMode);
+  const app = await api.startSolo(
+    graphConfig,
+    params.actor,
+    traceMax,
+    traceMode
+  );
 
   const onComplete = (session: any, result: "won" | "lost" | "aborted") => {
     if (session !== app?.session) return;
+    // @ts-expect-error - Foundry Hooks typing doesn't know about our custom event
     Hooks.off("nodeHacker.sessionComplete", onComplete);
     cleanup();
     if (result === "won") params.onSuccess?.();
     else if (result === "lost") params.onFailure?.();
   };
+  // @ts-expect-error - Foundry Hooks typing doesn't know about our custom event
   Hooks.on("nodeHacker.sessionComplete", onComplete);
 
   return app;
@@ -443,7 +695,9 @@ let defaultHackAttribute = "reasoning";
 /** Lets a macro/other module change which attribute the "Present Hack" prompt preselects,
  * instead of it being fixed to "reasoning" in source - e.g. a homebrew ruleset that runs
  * hacking off Intuition instead. */
-export function setDefaultHackAttribute(attribute: keyof typeof ATTRIBUTE_LABELS): void {
+export function setDefaultHackAttribute(
+  attribute: keyof typeof ATTRIBUTE_LABELS
+): void {
   defaultHackAttribute = attribute;
 }
 
@@ -459,13 +713,13 @@ async function promptForAttribute(): Promise<string | null> {
     )
     .join("");
 
-  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
   return globalThis.foundry.applications.api.DialogV2.prompt({
     window: { title: "Present Hacking Challenge" },
     content: `<div class="form-group"><label>Check Attribute</label><select name="attribute">${options}</select></div>`,
     ok: {
       label: "Present",
-      callback: (_event: Event, button: any) => button.form.elements.attribute.value
+      callback: (_event: Event, button: any) =>
+        button.form.elements.attribute.value
     },
     rejectClose: false
   });
@@ -488,7 +742,8 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
   if (!attribute) return;
 
   const attributeRank: Rank =
-    (actor as any).getCurrentForm?.()?.attributes?.[attribute]?.rank ?? Rank.Typical;
+    (actor as any).getCurrentForm?.()?.attributes?.[attribute]?.rank ??
+    Rank.Typical;
 
   const hackingTalent = findHackingTalent(actor);
   const talents: Talent[] = ((actor as any).system?.talents ?? []).filter(
@@ -504,7 +759,10 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
 
   if (talents.length > 0) {
     const attributeLabel = ATTRIBUTE_LABELS[attribute] ?? "Hacking";
-    const selectedTalents = await showTalentSelectionDialog(talents, attributeLabel);
+    const selectedTalents = await showTalentSelectionDialog(
+      talents,
+      attributeLabel
+    );
     if (selectedTalents === null) return; // Cancelled
     for (const t of selectedTalents) {
       talentNameSet.add(t.name);
@@ -521,12 +779,20 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
       tokenId: token.id,
       actorId: token.actor.id,
       actorName: token.actor.name ?? "Target",
-      requiredColor: parseRequiredColor(token.actor.system.hackRequiredColor),
+      // A player-owned actor's own system is always at least a tough crack, regardless of
+      // whatever the GM left hackRequiredColor configured to (it defaults to Green, meant for
+      // NPC-owned gear like a robot) - a PC shouldn't be trivially hackable just because no one
+      // remembered to tighten that field.
+      requiredColor: token.actor.hasPlayerOwner
+        ? RollResult.Yellow
+        : parseRequiredColor(token.actor.system.hackRequiredColor),
       graphName: token.actor.system.hackGraphName || undefined
     }));
 
   const stageDifficulties =
-    targets.length > 0 ? targets.map(t => difficultyFromColor(t.requiredColor)) : [1];
+    targets.length > 0
+      ? targets.map(t => difficultyFromColor(t.requiredColor))
+      : [1];
 
   // A saved graph only makes sense for a single target - it's one fixed network, not
   // something that chains meaningfully across multiple targeted actors.
@@ -545,12 +811,15 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
   // automatic decision - see requestNodeHackMode.
   const singleTarget = targets.length === 1 ? targets[0] : undefined;
   const targetActor = singleTarget
-    ? ((canvas as any)?.tokens?.get?.(singleTarget.tokenId)?.actor as FaseripActor | undefined)
+    ? ((canvas as any)?.tokens?.get?.(singleTarget.tokenId)?.actor as
+        | FaseripActor
+        | undefined)
     : undefined;
   // TODO: PvP managed mode is disabled for now - it can't be tested/finished in the
   // current environment. Re-enable by restoring `!!targetActor && shouldRunManaged(actor,
   // singleTarget!.tokenId)` here once it's been verified end-to-end.
-  const canManage = false && !!targetActor && shouldRunManaged(actor, singleTarget!.tokenId);
+  const canManage =
+    false && !!targetActor && shouldRunManaged(actor, singleTarget!.tokenId);
 
   const mode = await requestNodeHackMode({
     attackerName: actor.name ?? "Hacker",
@@ -562,7 +831,8 @@ export async function presentHackToActor(actor: FaseripActor): Promise<void> {
   let traceUnit: "time" | "points" | undefined;
   if (mode === "managed" && targetActor) {
     const defenderRank: Rank =
-      (targetActor as any).getCurrentForm?.()?.attributes?.[attribute]?.rank ?? Rank.Typical;
+      (targetActor as any).getCurrentForm?.()?.attributes?.[attribute]?.rank ??
+      Rank.Typical;
     managed = {
       actor: targetActor,
       attributeName: `${targetActor.name} Defense`,

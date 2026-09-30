@@ -95,16 +95,13 @@ function localizeLabel(label: string | undefined, fallback: string): string {
 // modes (basic, darkvision, etc.) prefixed "sight:", and its detection modes
 // (tremorsense, blindsight, see invisibility, etc.) prefixed "detect:".
 const visionTypeChoices = computed(() => {
-  // @ts-expect-error - CONFIG.Canvas type not fully recognized
   const sightModes = Object.entries(CONFIG.Canvas?.visionModes ?? {}).map(
     ([key, mode]: any) => ({
       value: `sight:${key}`,
       label: `Sight: ${localizeLabel(mode.label, key)}`
     })
   );
-  // @ts-expect-error - CONFIG.Canvas type not fully recognized
   const detectionModes = Object.entries(
-    // @ts-expect-error - CONFIG.Canvas type not fully recognized
     CONFIG.Canvas?.detectionModes ?? {}
   ).map(([key, mode]: any) => ({
     value: `detect:${key}`,
@@ -466,7 +463,7 @@ async function browseTokenImage() {
       </div>
     </div>
 
-    <!-- HoloSuite Hacking: Hackable Target -->
+    <!-- Hackable Target -->
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
       <h3 class="text-sm font-bold text-cyan-400 mb-2">
         <i class="fas fa-terminal mr-1"></i>Hackable Target

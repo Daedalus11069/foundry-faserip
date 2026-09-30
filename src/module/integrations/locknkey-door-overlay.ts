@@ -1,6 +1,11 @@
 import { Rank } from "../enums";
-import { isHoloSuiteActive, resolveHackLiveAudience, findHackingTalent } from "./holosuite-hacking";
-import { isDoorHackProof, isDoorUnbreakable } from "./door-hack-config";
+import { isNodeHackerActive, findHackingTalent, requiredSuccessToHackParams } from "./node-hacker-hacking";
+import {
+  isDoorHackProof,
+  isDoorUnbreakable,
+  getDoorRequiredSuccess,
+  getDoorHackGraphName
+} from "./door-hack-config";
 import {
   getLocknKeyApi,
   isLocknKeyModuleActive,
@@ -104,11 +109,11 @@ function toggleOverlay(control: any): void {
   };
 
   // Picking and hacking are the same action from the player's side now: one
-  // "Pick Lock" button. When HoloSuite is active and the door isn't
+  // "Pick Lock" button. When Node Hacker is active and the door isn't
   // hack-proof, picking means rolling Reasoning and running the hack
-  // minigame (attemptDoorHack already unlocks via LocknKey on success).
+  // session (attemptDoorHack already unlocks via LocknKey on success).
   // Otherwise it falls back to LocknKey's plain, un-rolled PickHoveredLock().
-  const hackAvailable = isHoloSuiteActive() && !isDoorHackProof(wall);
+  const hackAvailable = isNodeHackerActive() && !isDoorHackProof(wall);
   if (hackAvailable || typeof api?.PickHoveredLock === "function") {
     addButton("Pick Lock", () => {
       if (!hackAvailable) {
@@ -130,7 +135,6 @@ function toggleOverlay(control: any): void {
         Rank.Typical;
 
       void (async () => {
-        const liveAudience = await resolveHackLiveAudience();
         const hackingTalent = findHackingTalent(controlledActor);
 
         void attemptDoorHack({
@@ -140,7 +144,8 @@ function toggleOverlay(control: any): void {
           attributeRank,
           chartShift: hackingTalent?.bonus ?? 0,
           talentNames: hackingTalent ? [hackingTalent.name] : undefined,
-          liveAudience
+          graphName: getDoorHackGraphName(wall) || undefined,
+          ...requiredSuccessToHackParams(getDoorRequiredSuccess(wall))
         });
       })();
     });
@@ -202,7 +207,7 @@ function toggleOverlay(control: any): void {
  * carry meaning, so this uses the middle mouse button instead, added as a
  * brand new listener on each DoorControl instance rather than intercepting
  * either of core's existing handlers. Only registers if LocknKey is active;
- * degrades to no Hack button if HoloSuite Hacking isn't active.
+ * degrades to no Hack button if Hacking isn't active.
  */
 export function initLocknKeyDoorOverlay(): void {
   if (registered) return;

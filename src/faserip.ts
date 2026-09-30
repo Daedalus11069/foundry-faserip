@@ -27,8 +27,19 @@ import {
   parseRankExpression
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
-import { presentHackToActor, isNodeHackerActive } from "./module/integrations/node-hacker-hacking";
-import { initHackProofDoorConfig } from "./module/integrations/door-hack-config";
+import {
+  presentHackToActor,
+  isNodeHackerActive,
+  registerNodeHackerCheckResolver,
+  restorePendingHackContexts
+} from "./module/integrations/node-hacker-hacking";
+import {
+  initHackProofDoorConfig,
+  getDoorRequiredSuccess,
+  setDoorRequiredSuccess,
+  getDoorHackGraphName,
+  setDoorHackGraphName
+} from "./module/integrations/door-hack-config";
 import { initLocknKeyDoorOverlay } from "./module/integrations/locknkey-door-overlay";
 import {
   tickTemporaryModifiers,
@@ -1319,6 +1330,31 @@ Hooks.on(
   }
 );
 
+// Node Hacker fires this itself, synchronously, the instant its own "ready" hook creates
+// `game.modules.get("foundryvtt-node-hacker").api` - strictly before it defers its
+// restoreSessions() call (which reopens any hack session left open from before a refresh) via
+// setTimeout. Listening for this explicit event - registered here, at "init", so it's already
+// wired up no matter what - avoids racing an unspecified relative order between this system's
+// own "ready" hook and Node Hacker's: registering lazily from THIS system's "ready" hook
+// instead would silently no-op whenever Node Hacker's hook happens to fire second (its api
+// doesn't exist yet), leaving a session restored after a refresh stuck on Node Hacker's own
+// generic d20-vs-DC fallback (see CheckResolver.fallback) instead of a real FASERIP chart
+// roll, until the player happened to start an unrelated brand-new hack in the same session
+// (which would retroactively also fix the restored one, since both share the same singleton
+// CheckResolver instance) - attemptFaseripNodeHack's own lazy call remains for that case, this
+// is only about beating a session Node Hacker restores before FASERIP ever starts one itself.
+// @ts-expect-error - custom Node Hacker hook not in Foundry's typed HookConfig
+Hooks.once("nodeHacker.ready", () => {
+  registerNodeHackerCheckResolver();
+  // Repopulates pendingContexts (attribute/talents/required-color per actor, see
+  // node-hacker-hacking.ts) from this user's flag - that map only ever lives in memory
+  // otherwise, so a session Node Hacker is about to reopen from before a refresh (via its own
+  // restoreSessions(), deferred past this same synchronous handshake) would otherwise find no
+  // context for its actor and fall back to a generic Typical-rank check with two separate
+  // dialogs instead of the actor's real stats through one combined dialog.
+  void restorePendingHackContexts();
+});
+
 // Ready hook
 Hooks.once("ready", async () => {
   console.log("FASERIP | System ready");
@@ -1378,6 +1414,12 @@ Hooks.once("ready", async () => {
     forceMigratePowerArrayFields,
     blendIn: {
       attemptSpotAll: attemptSpotNearbyBlendedTokens
+    },
+    door: {
+      getRequiredSuccess: getDoorRequiredSuccess,
+      setRequiredSuccess: setDoorRequiredSuccess,
+      getGraphName: getDoorHackGraphName,
+      setGraphName: setDoorHackGraphName
     }
   };
 });

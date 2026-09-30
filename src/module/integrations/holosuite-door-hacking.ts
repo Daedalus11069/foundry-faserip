@@ -1,8 +1,7 @@
 import { Rank, RollResult } from "../enums";
 import type { FaseripActor } from "../documents";
 import { rollFaseripHackCheck, meetsRequiredColor } from "./holosuite-roll-adapter";
-import { runFaseripHack } from "./holosuite-hacking";
-import { ensureNodeIntrusionPerNodeRollPatched } from "./holosuite-node-intrusion-patch";
+import { attemptFaseripNodeHack } from "./node-hacker-hacking";
 import { isDoorHackProof, isDoorUnbreakable } from "./door-hack-config";
 import { requestSetDoorLockState } from "../socket/faserip-socket";
 
@@ -81,12 +80,9 @@ export function refreshLocknKeyHover(wall: any): void {
  * Routed through requestSetDoorLockState so it works from a non-GM client
  * too (Wall documents are normally GM-only to update).
  */
-async function unlockHackedDoor(wall: any): Promise<void> {
-  const document = wall?.document ?? wall;
-  if (!document?.uuid) return;
-
+async function unlockHackedDoor(wallUuid: string): Promise<void> {
   const ok = await requestSetDoorLockState(
-    document.uuid,
+    wallUuid,
     CONST.WALL_DOOR_STATES.CLOSED
   );
   if (!ok) {
@@ -103,19 +99,23 @@ export interface AttemptDoorHackParams {
   attributeRank: Rank;
   chartShift?: number;
   talentNames?: string[];
-  minigameType?: string;
   label?: string;
-  liveAudience?: "everyone" | "gm" | "none";
   requiredColor?: RollResult;
+  /** Alternative to requiredColor - see AttemptFaseripNodeHackParams.requiredDC
+   * in node-hacker-hacking.ts. */
+  requiredDC?: number;
+  /** Use a GM-designed Node Designer graph for this door instead of one
+   * generated fresh off the opening roll - see AttemptFaseripNodeHackParams.graphName. */
+  graphName?: string;
 }
 
 /**
- * Rolls the given FASERIP attribute/talent check and launches a HoloSuite
- * minigame against a door instead of an actor, mirroring
- * attemptFaseripHack in holosuite-hacking.ts. This is the single "Pick
+ * Rolls the given FASERIP attribute/talent check and launches a Node Hacker
+ * session against a door instead of an actor, mirroring
+ * attemptFaseripNodeHack in node-hacker-hacking.ts. This is the single "Pick
  * Lock" action for a door - picking and hacking aren't offered as separate
  * choices, so a plain, non-electronic LocknKey pick only happens as a
- * fallback (see locknkey-door-overlay.ts) when HoloSuite isn't active or
+ * fallback (see locknkey-door-overlay.ts) when Node Hacker isn't active or
  * the door is hack-proof. On success here, the door is unlocked via
  * LocknKey.
  */
@@ -125,45 +125,33 @@ export async function attemptDoorHack(params: AttemptDoorHackParams): Promise<vo
     return;
   }
 
-  const faseripRoll = await rollFaseripHackCheck({
+  // Captured now, not read from params.wall inside onSuccess below - a hack session can run
+  // for several turns before it resolves, and by then the canvas may have redrawn (scene
+  // navigation, a token update, anything that re-renders WallsLayer), destroying and
+  // recreating the Wall's PlaceableObject and leaving this closure holding a stale
+  // `wall.document` reference (undefined uuid). A wallUuid string has no such lifecycle -
+  // requestSetDoorLockState re-resolves the live document from it via fromUuid() regardless
+  // of how long has passed or how many times the canvas has redrawn since.
+  const document = params.wall?.document ?? params.wall;
+  const wallUuid: string | undefined = document?.uuid;
+  if (!wallUuid) {
+    ui.notifications?.warn?.("Could not identify this door - it may need to be re-selected.");
+    return;
+  }
+
+  await attemptFaseripNodeHack({
     actor: params.actor,
     attributeName: params.attributeName,
     attributeRank: params.attributeRank,
     chartShift: params.chartShift,
     talentNames: params.talentNames,
-    requiredColor: params.requiredColor
-  });
-
-  const app = runFaseripHack(faseripRoll, {
-    minigameType: params.minigameType,
-    actor: params.actor,
-    label: params.label ?? `${params.actor.name} Picking Lock`,
-    liveAudience: params.liveAudience ?? "everyone",
     requiredColor: params.requiredColor,
-    onSuccess: () => unlockHackedDoor(params.wall),
+    requiredDC: params.requiredDC,
+    graphName: params.graphName,
+    label: params.label ?? `${params.actor.name} Picking Lock`,
+    onSuccess: () => unlockHackedDoor(wallUuid),
     onFailure: () => {}
   });
-
-  // Tags the minigame app with the same check used for the initial roll so
-  // the Node Intrusion per-node-roll patch re-rolls it for every node
-  // attempt instead of just once up front - mirrors attemptFaseripHack in
-  // holosuite-hacking.ts. Without this, the patch's context guard falls
-  // through to HoloSuite's default node-claiming with no FASERIP roll at
-  // all (see holosuite-node-intrusion-patch.ts's handleNodeClick wrapper).
-  if (app) {
-    app.__faseripHackContext = {
-      actor: params.actor,
-      attributeName: params.attributeName,
-      attributeRank: params.attributeRank,
-      chartShift: params.chartShift,
-      talentNames: params.talentNames,
-      requiredColor: params.requiredColor
-    };
-
-    if ((params.minigameType ?? "node-intrusion") === "node-intrusion") {
-      ensureNodeIntrusionPerNodeRollPatched(app);
-    }
-  }
 }
 
 export interface AttemptBreakDoorLockParams {
@@ -192,6 +180,13 @@ export async function attemptBreakDoorLock(
   const api = getLocknKeyApi();
   if (!api) return;
 
+  // Captured now, not after the roll below - the roll can pause on a karma-spend dialog for
+  // as long as the player deliberates, and by then the canvas may have redrawn (see
+  // attemptDoorHack's identical comment on this same failure mode).
+  const document = params.wall?.document ?? params.wall;
+  const wallUuid: string | undefined = document?.uuid;
+  if (!wallUuid) return;
+
   const faseripRoll = await rollFaseripHackCheck({
     actor: params.actor,
     attributeName: `${params.actor.name} Breaking Lock`,
@@ -209,11 +204,8 @@ export async function attemptBreakDoorLock(
   // Bypasses LocknKey's own BreakHoveredLock() entirely - see
   // unlockHackedDoor's doc comment for why (it runs its own incompatible
   // internal roll and ignores the check just resolved above).
-  const document = params.wall?.document ?? params.wall;
-  if (!document?.uuid) return;
-
   const ok = await requestSetDoorLockState(
-    document.uuid,
+    wallUuid,
     CONST.WALL_DOOR_STATES.CLOSED
   );
   if (!ok) {

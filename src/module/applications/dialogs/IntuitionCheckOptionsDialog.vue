@@ -23,8 +23,6 @@
         <input
           type="number"
           v-model.number="manualChartShift"
-          :min="-10"
-          :max="10"
           class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded"
           placeholder="0"
         />

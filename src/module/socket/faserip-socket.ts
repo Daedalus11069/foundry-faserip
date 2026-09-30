@@ -234,6 +234,8 @@ export function initializeSocket(): void {
   socket.register("applyDot", handleApplyDot);
   socket.register("removeDot", handleRemoveDot);
   socket.register("setDoorLockState", handleSetDoorLockState);
+  socket.register("setDoorHackRequiredColor", handleSetDoorHackRequiredColor);
+  socket.register("setDoorHackGraphName", handleSetDoorHackGraphName);
   socket.register("closeHackSpectator", handleCloseHackSpectator);
   socket.register("promptManagedHackMode", handlePromptManagedHackMode);
   socket.register("promptNodeHackMode", handlePromptNodeHackMode);
@@ -835,6 +837,91 @@ export async function requestSetDoorLockState(
     return false;
   }
   return await socket.executeAsGM("setDoorLockState", { wallUuid, ds });
+}
+
+interface SetDoorHackRequiredColorData {
+  wallUuid: string;
+  /** A RequiredSuccessWireValue (see node-hacker-hacking.ts) - kept as
+   * `unknown` here since this socket layer shouldn't need to import that
+   * integration's types to move data across the wire. */
+  value: unknown;
+}
+
+/** Runs on a GM client (or locally if the caller already is GM) - only a
+ * GM typically holds update permission on Wall documents. */
+async function handleSetDoorHackRequiredColor(
+  data: SetDoorHackRequiredColorData
+): Promise<boolean> {
+  // @ts-expect-error - Foundry global fromUuid
+  const wall = await fromUuid(data.wallUuid);
+  if (!wall) return false;
+  // @ts-expect-error - Wall document flags aren't typed for this module's scope
+  await wall.setFlag("faserip", "hackRequiredColor", data.value);
+  return true;
+}
+
+/**
+ * Sets a door Wall document's minimum required hack success value (see
+ * door-hack-config.ts's getDoorRequiredSuccess/RequiredSuccessWireValue),
+ * routed through a GM client via socketlib when the caller isn't GM -
+ * mirrors requestSetDoorLockState above for the same reason (Wall documents
+ * are normally GM-only to update).
+ */
+export async function requestSetDoorHackRequiredColor(
+  wallUuid: string,
+  value: unknown
+): Promise<boolean> {
+  // @ts-expect-error - Foundry game.user global
+  if (game.user?.isGM) {
+    return handleSetDoorHackRequiredColor({ wallUuid, value });
+  }
+  if (!socket) {
+    console.warn(
+      "FASERIP Socket | Socket not initialized - cannot update door hack required color remotely"
+    );
+    return false;
+  }
+  return await socket.executeAsGM("setDoorHackRequiredColor", { wallUuid, value });
+}
+
+interface SetDoorHackGraphNameData {
+  wallUuid: string;
+  graphName: string;
+}
+
+/** Runs on a GM client (or locally if the caller already is GM) - only a
+ * GM typically holds update permission on Wall documents. */
+async function handleSetDoorHackGraphName(data: SetDoorHackGraphNameData): Promise<boolean> {
+  // @ts-expect-error - Foundry global fromUuid
+  const wall = await fromUuid(data.wallUuid);
+  if (!wall) return false;
+  // @ts-expect-error - Wall document flags aren't typed for this module's scope
+  await wall.setFlag("faserip", "hackGraphName", data.graphName);
+  return true;
+}
+
+/**
+ * Sets a door Wall document's Node Designer graph name (see
+ * door-hack-config.ts's getDoorHackGraphName), routed through a GM client
+ * via socketlib when the caller isn't GM - mirrors
+ * requestSetDoorHackRequiredColor above for the same reason (Wall documents
+ * are normally GM-only to update).
+ */
+export async function requestSetDoorHackGraphName(
+  wallUuid: string,
+  graphName: string
+): Promise<boolean> {
+  // @ts-expect-error - Foundry game.user global
+  if (game.user?.isGM) {
+    return handleSetDoorHackGraphName({ wallUuid, graphName });
+  }
+  if (!socket) {
+    console.warn(
+      "FASERIP Socket | Socket not initialized - cannot update door hack graph name remotely"
+    );
+    return false;
+  }
+  return await socket.executeAsGM("setDoorHackGraphName", { wallUuid, graphName });
 }
 
 /**

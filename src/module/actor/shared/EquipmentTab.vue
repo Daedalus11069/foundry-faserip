@@ -99,7 +99,7 @@ async function deleteEquipment(itemId: string) {
     <div class="flex flex-col gap-3">
       <div
         v-for="item in equipmentItems"
-        :key="item.id"
+        :key="item.id!"
         class="fsr-card p-3 flex items-center gap-2 cursor-pointer select-none"
         @click="openEquipment(item.id!)"
       >
@@ -114,16 +114,14 @@ async function deleteEquipment(itemId: string) {
         <span
           v-if="item.system.hack?.enabled"
           class="text-xs px-2 py-0.5 rounded shrink-0"
-          :class="
-            item.system.locked
-              ? 'bg-cyan-900/60 text-cyan-300'
-              : 'bg-green-900/60 text-green-300'
-          "
-          :title="
-            item.system.locked
-              ? 'HoloSuite hack lock: locked'
-              : 'HoloSuite hack lock: unlocked'
-          "
+          :class="item.system.locked
+            ? 'bg-cyan-900/60 text-cyan-300'
+            : 'bg-green-900/60 text-green-300'
+            "
+          :title="item.system.locked
+            ? 'Hack lock: locked'
+            : 'Hack lock: unlocked'
+            "
         >
           <i class="fas fa-terminal"></i>
           {{ item.system.locked ? "Locked" : "Unlocked" }}

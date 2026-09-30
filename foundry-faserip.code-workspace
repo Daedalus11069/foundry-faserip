@@ -20,6 +20,9 @@
 		},
 		{
 			"path": "../../../foundry-vtt-server"
+		},
+		{
+			"path": "../../modules/foundryvtt-node-hacker"
 		}
 	],
 	"settings": {}

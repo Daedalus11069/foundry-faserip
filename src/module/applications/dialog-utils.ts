@@ -137,7 +137,7 @@ export async function showIntuitionCheckOptionsDialog(
 }
 
 /**
- * Show combined chart shift + result shift dialog for a HoloSuite Hacking
+ * Show combined chart shift + result shift dialog for a Hacking
  * check (the initial roll or an individual node attempt) - one dialog
  * instead of separate pre-roll/post-roll karma prompts, same pattern as
  * showIntuitionCheckOptionsDialog.

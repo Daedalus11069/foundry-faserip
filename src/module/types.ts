@@ -2,6 +2,8 @@
  * Shared TypeScript interfaces for the FASERIP system
  */
 
+import type { VisionSourceData } from "./types/actor-system";
+
 /**
  * Represents a character talent with bonuses and descriptions
  */
@@ -58,6 +60,10 @@ export interface Form {
   tokenScale?: number;
 
   weaponSlots?: number; // Per-form override; undefined = use actor default
+
+  // Token vision - any number of simultaneous vision methods (e.g. Basic
+  // Sight + Tremorsense). See VisionSourceData / FaseripActor#syncVisionToTokens.
+  visionSources?: VisionSourceData[];
 
   attributes: {
     fighting: AttributeData;

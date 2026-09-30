@@ -35,8 +35,16 @@ export interface FaseripHackContext {
   talentNames?: string[];
   /** Minimum Universal Table color the roll must reach to succeed - sourced
    * from a hackable target actor's hackRequiredColor. Defaults to Green
-   * (any non-White success passes), matching prior behavior. */
+   * (any non-White success passes), matching prior behavior. Ignored when
+   * requiredDC is set (see below) - a hack target is configured as either a
+   * color tier OR a flat DC, never both. */
   requiredColor?: RollResult;
+  /** Alternative to requiredColor: a flat numeric threshold the roll's raw
+   * total must meet or beat, for a target configured with a plain DC
+   * instead of a Universal Table tier (see door-hack-config.ts's
+   * RequiredSuccessConfig). When set, this takes priority over
+   * requiredColor everywhere this context is resolved. */
+  requiredDC?: number;
   /** All hackable actors targeted for this attempt. With 2+ entries, Node
    * Intrusion turns extra targets into additional finish nodes instead of
    * ending the run on the first one reached. */
@@ -72,7 +80,7 @@ export function parseRequiredColor(value: unknown): RollResult {
 }
 
 /**
- * Rolls one FASERIP check for a HoloSuite hacking attempt, gathering karma
+ * Rolls one FASERIP check for a Hacking attempt, gathering karma
  * spend through a single combined dialog (chart shift + result shift
  * together) instead of FaseripRoll.rollAttribute's own separate pre-roll/
  * post-roll prompts - used for both the initial roll and each per-node

@@ -24,7 +24,10 @@ import {
   NODE_OWNER_ATTACKER,
   type FaseripPvpConfig
 } from "./holosuite-pvp-intrusion";
-import { broadcastPvpState, openPvpDefenderView } from "../socket/faserip-socket";
+import {
+  broadcastPvpState,
+  openPvpDefenderView
+} from "../socket/faserip-socket";
 
 // Registered once at module load - lets a remote defender action (arriving
 // via faserip-socket.ts, on the attacker's client) reach this file's own
@@ -59,7 +62,7 @@ const NODE_APP_GLOBAL_KEY = "__fsrHoloSuiteNodeIntrusionAppCtor";
 export type { FaseripHackContext };
 
 /**
- * Mirrors HoloSuite Hacking's own edgeKey() helper
+ * Mirrors Hacking's own edgeKey() helper
  * (src/minigames/node-intrusion/node-intrusion-generator.ts):
  * `[leftId, rightId].sort().join("--")`. That function isn't exported
  * through their public API, so this is a local, order-independent
@@ -271,7 +274,10 @@ function ensurePvpInitialized(app: any): void {
   // stages (raw nodes first, start/target roles assigned after) even though
   // that hasn't been directly confirmed; retries on the next render either
   // way since this only sets the one-time init flag once both exist.
-  if (!nodes.some(n => n.type === "start") || !nodes.some(n => n.type === "target")) {
+  if (
+    !nodes.some(n => n.type === "start") ||
+    !nodes.some(n => n.type === "target")
+  ) {
     return;
   }
   app.__faseripPvpInitialized = true;
@@ -426,7 +432,8 @@ function setupMapPanZoom(app: any, html: any): void {
   let lastY = 0;
 
   map.addEventListener("pointerdown", (event: PointerEvent) => {
-    if ((event.target as HTMLElement)?.closest?.(".node-intrusion-node")) return;
+    if ((event.target as HTMLElement)?.closest?.(".node-intrusion-node"))
+      return;
     dragging = true;
     lastX = event.clientX;
     lastY = event.clientY;
@@ -546,7 +553,8 @@ function checkDetection(app: any, node: any, rollResult: RollResult): void {
   const wasAlreadyTraced = !!app.__faseripTraceDetected;
   const penalty = wasAlreadyTraced
     ? Number(
-        app.profile.decoyPenaltySeconds ?? app.profile.nodeIntrusion?.decoyPenaltySeconds
+        app.profile.decoyPenaltySeconds ??
+          app.profile.nodeIntrusion?.decoyPenaltySeconds
       ) || 4
     : 0;
 
@@ -578,7 +586,8 @@ function applyRadarFromRoll(app: any, result: RollResult) {
 
   if (rank >= ROLL_COLOR_RANK[RollResult.Yellow]) {
     app.profile.radarEnabled = true;
-    if (app.profile.nodeIntrusion) app.profile.nodeIntrusion.radarEnabled = true;
+    if (app.profile.nodeIntrusion)
+      app.profile.nodeIntrusion.radarEnabled = true;
   }
   if (rank >= ROLL_COLOR_RANK[RollResult.Red]) {
     app.profile.hintsEnabled = true;
@@ -637,7 +646,9 @@ function pvpSameUserControlsBothSides(pvp: FaseripPvpConfig): boolean {
  */
 async function rollPvpActionCheck(actor: any, label: string) {
   if (!actor) {
-    ui.notifications?.warn?.("Could not resolve an actor for that side - check both Combatants are still in the encounter.");
+    ui.notifications?.warn?.(
+      "Could not resolve an actor for that side - check both Combatants are still in the encounter."
+    );
     return null;
   }
   const rank: Rank =
@@ -727,11 +738,16 @@ async function handlePvpScan(
   }
 
   const nodes: any[] = app.graph?.nodes ?? [];
-  const scannerNodeId = side === "attacker" ? app.state.currentNodeId : getDefenderPosition(app);
-  const opponentNodeId = side === "attacker" ? getDefenderPosition(app) : app.state.currentNodeId;
+  const scannerNodeId =
+    side === "attacker" ? app.state.currentNodeId : getDefenderPosition(app);
+  const opponentNodeId =
+    side === "attacker" ? getDefenderPosition(app) : app.state.currentNodeId;
   if (!scannerNodeId || !opponentNodeId) return;
 
-  const roll = await rollPvpActionCheck(resolvePvpActor(pvp, side), "Scan Attempt");
+  const roll = await rollPvpActionCheck(
+    resolvePvpActor(pvp, side),
+    "Scan Attempt"
+  );
   if (!roll) return;
 
   const { inRange, success } = attemptScan(
@@ -743,7 +759,9 @@ async function handlePvpScan(
   );
 
   if (!inRange) {
-    ui.notifications?.warn?.("Too far from the opponent to scan (must be within 2 nodes).");
+    ui.notifications?.warn?.(
+      "Too far from the opponent to scan (must be within 2 nodes)."
+    );
     return;
   }
 
@@ -751,7 +769,9 @@ async function handlePvpScan(
     app.__faseripPvpRevealNodeId = opponentNodeId;
     ui.notifications?.info?.("Scan successful - opponent's position revealed.");
   } else {
-    ui.notifications?.warn?.("Scan failed to pin down the opponent's position.");
+    ui.notifications?.warn?.(
+      "Scan failed to pin down the opponent's position."
+    );
   }
   app.render(false);
   syncPvp(app, pvp);
@@ -871,7 +891,7 @@ let registered = false;
 let warnedNoLibWrapper = false;
 
 /**
- * Patches HoloSuite Hacking's Node Intrusion minigame, via libWrapper, so
+ * Patches Hacking's Node Intrusion minigame, via libWrapper, so
  * every node-claim attempt rolls a FASERIP attribute check instead of
  * always succeeding into its claim timer. A failed check (White result)
  * blocks the claim and applies a trace penalty, the same way the minigame
@@ -991,7 +1011,8 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
       if (this.__faseripHackContext) {
         renderDifficultyBadges(this, html);
         setupMapPanZoom(this, html);
-        const root: any = html?.[0] ?? html ?? this.element?.[0] ?? this.element;
+        const root: any =
+          html?.[0] ?? html ?? this.element?.[0] ?? this.element;
         makeSidebarScrollable(root);
       }
       return result;
@@ -1013,10 +1034,7 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
     ) {
       const result =
         this.__faseripHackContext && getTraceMode() === "points"
-          ? callWithPointsModeHazardWording(this, wrapped, [
-              fromNodeId,
-              nodeId
-            ])
+          ? callWithPointsModeHazardWording(this, wrapped, [fromNodeId, nodeId])
           : wrapped(fromNodeId, nodeId);
       if (this.__faseripHackContext) {
         const node = this.graph?.nodes?.find((n: any) => n.id === nodeId);
@@ -1038,128 +1056,124 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
       wrapped: (...args: any[]) => any,
       nodeId: string
     ) {
-        const context: FaseripHackContext | undefined =
-          this.__faseripHackContext;
+      const context: FaseripHackContext | undefined = this.__faseripHackContext;
 
-        // Not a FASERIP-launched hack (Quick Hack, HoloSuite's own launcher,
-        // a system-skill/custom/sheet roll) - leave normal behavior alone.
-        if (!context) return wrapped(nodeId);
+      // Not a FASERIP-launched hack (Quick Hack, HoloSuite's own launcher,
+      // a system-skill/custom/sheet roll) - leave normal behavior alone.
+      if (!context) return wrapped(nodeId);
 
-        // Mirror handleNodeClick's own early-exit guards so invalid clicks
-        // (not running, mid-claim, unconnected, already blocked) fall
-        // through to its normal handling without spending a roll.
-        if (!this.state.hasStarted || !this.state.isRunning) {
-          return wrapped(nodeId);
-        }
-        if (this.state.claimingNodeId || this.__faseripRollPending) return;
+      // Mirror handleNodeClick's own early-exit guards so invalid clicks
+      // (not running, mid-claim, unconnected, already blocked) fall
+      // through to its normal handling without spending a roll.
+      if (!this.state.hasStarted || !this.state.isRunning) {
+        return wrapped(nodeId);
+      }
+      if (this.state.claimingNodeId || this.__faseripRollPending) return;
 
-        // PvP managed intrusion: this window is always the attacker's own.
-        // It only doubles as the defender's controls too when nobody else
-        // is actually connected to play the defender (see
-        // pvpSameUserControlsBothSides) - otherwise the real defender has
-        // their own separate cross-client view, and a click here during
-        // their turn must be refused rather than silently acting for them.
-        if (context.pvp) {
-          if (isPvpTurn(context.pvp, "defender")) {
-            if (pvpSameUserControlsBothSides(context.pvp)) {
-              await handlePvpDefenderNodeClick(this, context.pvp, nodeId);
-            } else {
-              ui.notifications?.warn?.(
-                "It's the defender's turn - they act from their own window."
-              );
-            }
-            return;
-          }
-          if (!isPvpTurn(context.pvp, "attacker")) {
-            ui.notifications?.warn?.("Not your turn.");
-            return;
-          }
-        }
-
-        const current = this.getCurrentNode();
-        const node = this.graph.nodes.find(
-          (candidate: any) => candidate.id === nodeId
-        );
-        if (!node || !current.connected.includes(nodeId)) {
-          return wrapped(nodeId);
-        }
-
-        const routeKey = edgeKey(current.id, nodeId);
-        if (
-          this.state.blockedEdgeIds.has(routeKey) ||
-          this.state.deadNodeIds.has(nodeId)
-        ) {
-          return wrapped(nodeId);
-        }
-
-        // Already-claimed nodes (visited earlier this run) don't cost
-        // another roll to re-traverse - only the first claim of a node is
-        // gated by a FASERIP check.
-        if (node.visited) return wrapped(nodeId);
-
-        this.__faseripRollPending = true;
-        pauseTrace(this);
-        try {
-          const faseripRoll = await rollFaseripHackCheck(
-            context,
-            "Node Attempt"
-          );
-
-          resumeTrace(this);
-          applyRadarFromRoll(this, faseripRoll.result);
-
-          // A multi-target finish node uses that specific target's own
-          // required color instead of the attempt's general one - resolved
-          // via the token id stashed directly on the node.
-          const requiredColor =
-            (node.faseripTargetTokenId &&
-              this.__faseripTargetTokenMap?.get(node.faseripTargetTokenId)
-                ?.requiredColor) ??
-            context.requiredColor;
-
-          // Detection is its own, entirely independent check from the
-          // move's own success/failure - a node's difficulty badge is the
-          // color needed to evade detection there, full stop, regardless of
-          // whether that same roll happened to be good enough to also clear
-          // the attempt's own (possibly lower) required color. A Green
-          // roll against a level-3 (Red-to-evade) node still trips
-          // detection even though it successfully claims the node.
-          checkDetection(this, node, faseripRoll.result);
-
-          const moveSucceeded = meetsRequiredColor(
-            faseripRoll.result,
-            requiredColor
-          );
-
-          if (!moveSucceeded) {
-            if (context.pvp) syncPvp(this, context.pvp);
-
-            // Reuse the minigame's own invalid-pulse feedback.
-            const shell = this.element?.find?.(".node-intrusion-shell");
-            shell?.addClass("invalid-pulse");
-            globalThis.window?.setTimeout(
-              () => shell?.removeClass("invalid-pulse"),
-              280
+      // PvP managed intrusion: this window is always the attacker's own.
+      // It only doubles as the defender's controls too when nobody else
+      // is actually connected to play the defender (see
+      // pvpSameUserControlsBothSides) - otherwise the real defender has
+      // their own separate cross-client view, and a click here during
+      // their turn must be refused rather than silently acting for them.
+      if (context.pvp) {
+        if (isPvpTurn(context.pvp, "defender")) {
+          if (pvpSameUserControlsBothSides(context.pvp)) {
+            await handlePvpDefenderNodeClick(this, context.pvp, nodeId);
+          } else {
+            ui.notifications?.warn?.(
+              "It's the defender's turn - they act from their own window."
             );
-            return;
           }
-
-          if (context.pvp) {
-            // Stamps the color actually rolled, not just requiredColor - a
-            // recapture later must match/beat this, not the node's static
-            // difficulty threshold.
-            recordAttackerCapture(node, faseripRoll.result);
-            syncPvp(this, context.pvp);
-          }
-
-          return wrapped(nodeId);
-        } finally {
-          // Idempotent (no-op if already resumed above) - also covers the
-          // roll throwing (e.g. a cancelled manual roll entry), so the
-          // trace never gets stuck paused.
-          resumeTrace(this);
-          this.__faseripRollPending = false;
+          return;
         }
+        if (!isPvpTurn(context.pvp, "attacker")) {
+          ui.notifications?.warn?.("Not your turn.");
+          return;
+        }
+      }
+
+      const current = this.getCurrentNode();
+      const node = this.graph.nodes.find(
+        (candidate: any) => candidate.id === nodeId
+      );
+      if (!node || !current.connected.includes(nodeId)) {
+        return wrapped(nodeId);
+      }
+
+      const routeKey = edgeKey(current.id, nodeId);
+      if (
+        this.state.blockedEdgeIds.has(routeKey) ||
+        this.state.deadNodeIds.has(nodeId)
+      ) {
+        return wrapped(nodeId);
+      }
+
+      // Already-claimed nodes (visited earlier this run) don't cost
+      // another roll to re-traverse - only the first claim of a node is
+      // gated by a FASERIP check.
+      if (node.visited) return wrapped(nodeId);
+
+      this.__faseripRollPending = true;
+      pauseTrace(this);
+      try {
+        const faseripRoll = await rollFaseripHackCheck(context, "Node Attempt");
+
+        resumeTrace(this);
+        applyRadarFromRoll(this, faseripRoll.result);
+
+        // A multi-target finish node uses that specific target's own
+        // required color instead of the attempt's general one - resolved
+        // via the token id stashed directly on the node.
+        const requiredColor =
+          (node.faseripTargetTokenId &&
+            this.__faseripTargetTokenMap?.get(node.faseripTargetTokenId)
+              ?.requiredColor) ??
+          context.requiredColor;
+
+        // Detection is its own, entirely independent check from the
+        // move's own success/failure - a node's difficulty badge is the
+        // color needed to evade detection there, full stop, regardless of
+        // whether that same roll happened to be good enough to also clear
+        // the attempt's own (possibly lower) required color. A Green
+        // roll against a level-3 (Red-to-evade) node still trips
+        // detection even though it successfully claims the node.
+        checkDetection(this, node, faseripRoll.result);
+
+        const moveSucceeded = meetsRequiredColor(
+          faseripRoll.result,
+          requiredColor
+        );
+
+        if (!moveSucceeded) {
+          if (context.pvp) syncPvp(this, context.pvp);
+
+          // Reuse the minigame's own invalid-pulse feedback.
+          const shell = this.element?.find?.(".node-intrusion-shell");
+          shell?.addClass("invalid-pulse");
+          globalThis.window?.setTimeout(
+            () => shell?.removeClass("invalid-pulse"),
+            280
+          );
+          return;
+        }
+
+        if (context.pvp) {
+          // Stamps the color actually rolled, not just requiredColor - a
+          // recapture later must match/beat this, not the node's static
+          // difficulty threshold.
+          recordAttackerCapture(node, faseripRoll.result);
+          syncPvp(this, context.pvp);
+        }
+
+        return wrapped(nodeId);
+      } finally {
+        // Idempotent (no-op if already resumed above) - also covers the
+        // roll throwing (e.g. a cancelled manual roll entry), so the
+        // trace never gets stuck paused.
+        resumeTrace(this);
+        this.__faseripRollPending = false;
+      }
     },
     "MIXED"
   );
@@ -1182,7 +1196,8 @@ export function ensureNodeIntrusionPerNodeRollPatched(app: any) {
     ) {
       const pvp: FaseripPvpConfig | undefined = this.__faseripHackContext?.pvp;
       if (pvp && !this.__faseripPvpResult) {
-        this.__faseripPvpResult = result === "success" ? "attacker" : "defender";
+        this.__faseripPvpResult =
+          result === "success" ? "attacker" : "defender";
       }
       const returnValue = wrapped(result, message, options);
       if (pvp) {
@@ -1397,7 +1412,11 @@ function ensureMultiTargetNodeIntrusionPatched() {
       // "failure" outcome.)
       let finalResult = result;
       let finalMessage = message;
-      if (this.__faseripMultiTargetMode && result === "failure" && hackedCount > 0) {
+      if (
+        this.__faseripMultiTargetMode &&
+        result === "failure" &&
+        hackedCount > 0
+      ) {
         finalResult = "success";
         finalMessage = `${message} - ${hackedCount}/${total} targets hacked`;
       }

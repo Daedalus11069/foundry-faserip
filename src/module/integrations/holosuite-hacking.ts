@@ -46,13 +46,14 @@ export function findHackingTalent(actor: FaseripActor): Talent | null {
     talents.find(
       t =>
         t.name?.trim().toLowerCase() === "hacking" &&
-        (!t.formIds?.length || (activeFormId && t.formIds.includes(activeFormId)))
+        (!t.formIds?.length ||
+          (activeFormId && t.formIds.includes(activeFormId)))
     ) ?? null
   );
 }
 
 /**
- * HoloSuite Hacking's own "System skill roll" adapters are a hardcoded list
+ * Hacking's own "System skill roll" adapters are a hardcoded list
  * (dnd5e, pf2e, sf2e, CoC7, cyberpunk-red-core) baked into that module -
  * there is no registration hook for third-party systems, and FASERIP's
  * percentile/column-shift resolution doesn't map onto their additive
@@ -127,13 +128,16 @@ const HOLOSUITE_LIVE_STATE_THROTTLE_MS = 200;
  * other clients open their existing read-only spectator view exactly as if
  * HoloSuite's own launcher had started the hack.
  */
-function createHoloSuiteLiveSession(
-  audience: "everyone" | "gm" | "none"
-): { publish: (state: any, opts?: { immediate?: boolean }) => void; start: (data: any) => void; end: (state?: any) => void } | null {
+function createHoloSuiteLiveSession(audience: "everyone" | "gm" | "none"): {
+  publish: (state: any, opts?: { immediate?: boolean }) => void;
+  start: (data: any) => void;
+  end: (state?: any) => void;
+} | null {
   if (audience === "none") return null;
 
   const socketEvent = `module.${HOLOSUITE_MODULE_ID}`;
-  const sessionId = globalThis.foundry?.utils?.randomID?.() ?? `${Date.now()}-${Math.random()}`;
+  const sessionId =
+    globalThis.foundry?.utils?.randomID?.() ?? `${Date.now()}-${Math.random()}`;
   const hackerUserId = game.user?.id ?? "";
   const gmUserId = game.users?.find?.((u: any) => u.isGM && u.active)?.id ?? "";
 
@@ -152,7 +156,10 @@ function createHoloSuiteLiveSession(
     });
   };
 
-  const publish = (state: any, { immediate = false }: { immediate?: boolean } = {}) => {
+  const publish = (
+    state: any,
+    { immediate = false }: { immediate?: boolean } = {}
+  ) => {
     if (!state) return;
     latestState = state;
     if (!started) return;
@@ -220,10 +227,13 @@ function createHoloSuiteLiveSession(
 }
 
 /** Launches a HoloSuite minigame at the difficulty implied by a resolved FaseripRoll. */
-export function runFaseripHack(faseripRoll: FaseripRoll, options: RunFaseripHackOptions = {}) {
+export function runFaseripHack(
+  faseripRoll: FaseripRoll,
+  options: RunFaseripHackOptions = {}
+) {
   const hacking = getHoloSuiteApi();
   if (!hacking) {
-    ui.notifications?.warn?.("HoloSuite Hacking is not active in this world.");
+    ui.notifications?.warn?.("Hacking is not active in this world.");
     return null;
   }
 
@@ -234,7 +244,10 @@ export function runFaseripHack(faseripRoll: FaseripRoll, options: RunFaseripHack
 
   const app = hacking.startHack({
     type: options.minigameType ?? "node-intrusion",
-    quickOutcome: faseripResultToQuickOutcome(faseripRoll, options.requiredColor),
+    quickOutcome: faseripResultToQuickOutcome(
+      faseripRoll,
+      options.requiredColor
+    ),
     liveAudience,
     actorId: actor?.id ?? "",
     actorName: actor?.name ?? game.user?.name ?? "Hacker",
@@ -267,13 +280,13 @@ export async function resolveHackLiveAudience(): Promise<"everyone" | "gm"> {
   if (setting === "yes") return "everyone";
   if (setting === "no") return "gm";
 
-  // @ts-expect-error - Foundry DialogV2 is not typed in the current version
-  const showToOthers = await globalThis.foundry.applications.api.DialogV2.confirm({
-    window: { title: "Hacking Interface" },
-    content: "<p>Show the hacking interface to other players?</p>",
-    rejectClose: false,
-    modal: true
-  });
+  const showToOthers =
+    await globalThis.foundry.applications.api.DialogV2.confirm({
+      window: { title: "Hacking Interface" },
+      content: "<p>Show the hacking interface to other players?</p>",
+      rejectClose: false,
+      modal: true
+    });
   return showToOthers ? "everyone" : "gm";
 }
 
@@ -366,7 +379,9 @@ function resolvePvpCombatants(
   return {
     attackerCombatantId: attackerCombatant.id,
     defenderCombatantId: defenderCombatant.id,
-    sessionId: globalThis.foundry?.utils?.randomID?.() ?? `${Date.now()}-${Math.random()}`,
+    sessionId:
+      globalThis.foundry?.utils?.randomID?.() ??
+      `${Date.now()}-${Math.random()}`,
     attackerUserId: game.user?.id ?? "",
     defenderUserId: findTokenControllers(defenderActor)[0]?.id ?? null
   };
@@ -519,7 +534,7 @@ const ATTRIBUTE_LABELS: Record<string, string> = {
  */
 export async function presentHackToActor(actor: FaseripActor): Promise<void> {
   if (!isHoloSuiteActive()) {
-    ui.notifications?.warn?.("HoloSuite Hacking is not active in this world.");
+    ui.notifications?.warn?.("Hacking is not active in this world.");
     return;
   }
 

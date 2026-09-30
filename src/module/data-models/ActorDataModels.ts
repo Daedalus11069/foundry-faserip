@@ -522,7 +522,8 @@ export function definePowerRefSchema() {
     blendIn: new BooleanField({
       required: false,
       initial: false,
-      label: "Blend In: lets the owner hide their token from other players' clients"
+      label:
+        "Blend In: lets the owner hide their token from other players' clients"
     }),
     // Blank/"indefinite" means the blend stays active until manually toggled
     // off; any other formula (e.g. "1d3") is rolled once on activation and
@@ -805,7 +806,7 @@ export class ActorDataModel extends TypeDataModel<
         initial: 0
       }),
 
-      // HoloSuite Hacking integration: whether this actor (e.g. a robot or
+      // Hacking integration: whether this actor (e.g. a robot or
       // computer system) can be targeted with a hacking challenge, and the
       // minimum Universal Table color a hacker's roll must reach to
       // succeed - a robot might require at least a Yellow result.
@@ -817,7 +818,11 @@ export class ActorDataModel extends TypeDataModel<
       }),
       // Optional: the name of a graph built in Node Hacker's Node Designer, used instead of
       // a generated single-node/chain attempt when this actor is the only hacking target.
-      hackGraphName: new StringField({ required: false, blank: true, initial: "" })
+      hackGraphName: new StringField({
+        required: false,
+        blank: true,
+        initial: ""
+      })
     };
   }
 
