@@ -12,7 +12,7 @@ import {
   attemptDoorHack,
   attemptBreakDoorLock,
   refreshLocknKeyHover
-} from "./holosuite-door-hacking";
+} from "./node-hacker-door-hacking";
 
 declare const globalThis: any;
 declare const canvas: any;

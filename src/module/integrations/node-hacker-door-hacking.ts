@@ -1,7 +1,7 @@
 import { Rank, RollResult } from "../enums";
 import type { FaseripActor } from "../documents";
 import { rollFaseripHackCheck, meetsRequiredColor } from "./holosuite-roll-adapter";
-import { attemptFaseripNodeHack } from "./node-hacker-hacking";
+import { attemptFaseripNodeHack, registerCompletionAction } from "./node-hacker-hacking";
 import { isDoorHackProof, isDoorUnbreakable } from "./door-hack-config";
 import { requestSetDoorLockState } from "../socket/faserip-socket";
 
@@ -85,12 +85,22 @@ async function unlockHackedDoor(wallUuid: string): Promise<void> {
     wallUuid,
     CONST.WALL_DOOR_STATES.CLOSED
   );
+  // Temporary diagnostic - remove once the refresh-completion-action path is confirmed
+  // working. Pins down whether this even ran and, if so, what the GM-relay call reported.
+  console.log(`faserip | unlockHackedDoor(${wallUuid}) -> requestSetDoorLockState ok=${ok}`);
   if (!ok) {
     ui.notifications?.warn?.(
       "Hack succeeded, but the door couldn't be unlocked automatically - unlock it manually."
     );
   }
 }
+
+// Registered once, unconditionally, at module load - so the handler is already in place
+// before FASERIP's "nodeHacker.ready" listener re-dispatches any door-unlock action that
+// survived a refresh (see registerCompletionAction's own doc comment in node-hacker-hacking.ts).
+registerCompletionAction("unlockDoor", async (payload: { wallUuid: string }) => {
+  await unlockHackedDoor(payload.wallUuid);
+});
 
 export interface AttemptDoorHackParams {
   actor: FaseripActor;
@@ -149,8 +159,7 @@ export async function attemptDoorHack(params: AttemptDoorHackParams): Promise<vo
     requiredDC: params.requiredDC,
     graphName: params.graphName,
     label: params.label ?? `${params.actor.name} Picking Lock`,
-    onSuccess: () => unlockHackedDoor(wallUuid),
-    onFailure: () => {}
+    completionAction: { kind: "unlockDoor", payload: { wallUuid } }
   });
 }
 

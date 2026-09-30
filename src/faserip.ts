@@ -31,7 +31,8 @@ import {
   presentHackToActor,
   isNodeHackerActive,
   registerNodeHackerCheckResolver,
-  restorePendingHackContexts
+  restorePendingHackContexts,
+  restorePendingCompletionActions
 } from "./module/integrations/node-hacker-hacking";
 import {
   initHackProofDoorConfig,
@@ -1353,6 +1354,10 @@ Hooks.once("nodeHacker.ready", () => {
   // context for its actor and fall back to a generic Typical-rank check with two separate
   // dialogs instead of the actor's real stats through one combined dialog.
   void restorePendingHackContexts();
+  // Same idea for "what to do when this actor's session completes" (e.g. unlock a door) -
+  // registerNodeHackerCheckResolver() above also wires up the dispatcher that replays these,
+  // but the pending actions themselves still need reloading from this user's flag.
+  void restorePendingCompletionActions();
 });
 
 // Ready hook

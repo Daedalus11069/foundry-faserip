@@ -136,6 +136,111 @@ export async function restorePendingHackContexts(): Promise<void> {
   }
 }
 
+const PENDING_COMPLETION_ACTIONS_FLAG = "pendingHackCompletionActions";
+
+/** A serializable "what to do when this actor's hack session finishes" descriptor - unlike
+ * attemptFaseripNodeHack's onSuccess/onFailure callbacks (real closures, e.g. over a door's
+ * wallUuid), this survives a page refresh: `kind` looks up a handler pre-registered via
+ * registerCompletionAction, `payload` is plain data replayed into it. */
+export interface PendingCompletionAction {
+  kind: string;
+  payload: unknown;
+}
+
+export type CompletionActionHandler = (payload: any) => void | Promise<void>;
+
+/** Handlers registered here are NOT themselves persisted (only `kind`+`payload` are) - every
+ * integration that wants a completion action must call this once, unconditionally, at module
+ * load (see node-hacker-door-hacking.ts), so the handler is back in place before this system's
+ * "nodeHacker.ready" listener re-dispatches whatever actions survived a refresh. */
+const completionActionHandlers = new Map<string, CompletionActionHandler>();
+
+export function registerCompletionAction(kind: string, handler: CompletionActionHandler): void {
+  completionActionHandlers.set(kind, handler);
+}
+
+/** Only ever lives in memory by itself until persisted - same shape/reasoning as
+ * pendingContexts above. Without persisting this too, a session Node Hacker restores after a
+ * refresh has nothing telling it what to actually DO on completion (e.g. unlock a door): the
+ * `Hooks.on("nodeHacker.sessionComplete", ...)` listener that would normally run
+ * onSuccess/onFailure is a per-attempt closure registered inside attemptFaseripNodeHack below,
+ * wiped by the same refresh along with everything else in memory. */
+const pendingCompletionActions = new Map<string, PendingCompletionAction>();
+
+async function persistPendingCompletionActions(): Promise<void> {
+  const data: Record<string, PendingCompletionAction> = {};
+  for (const [key, action] of pendingCompletionActions) data[key] = action;
+  await game.user?.setFlag(FASERIP_MODULE_ID, PENDING_COMPLETION_ACTIONS_FLAG, data);
+}
+
+export async function restorePendingCompletionActions(): Promise<void> {
+  const data = game.user?.getFlag(FASERIP_MODULE_ID, PENDING_COMPLETION_ACTIONS_FLAG) as
+    | Record<string, PendingCompletionAction>
+    | undefined;
+  if (!data) return;
+  for (const [key, action] of Object.entries(data)) {
+    if (action) pendingCompletionActions.set(key, action);
+  }
+}
+
+function setCompletionAction(actor: FaseripActor, action: PendingCompletionAction | null): void {
+  const key = contextKey(actor);
+  if (action) pendingCompletionActions.set(key, action);
+  else pendingCompletionActions.delete(key);
+  void persistPendingCompletionActions();
+}
+
+let completionDispatcherRegistered = false;
+
+/**
+ * Registered once, at "nodeHacker.ready" time alongside the check resolver - unlike the
+ * per-attempt `Hooks.on("nodeHacker.sessionComplete", ...)` inside attemptFaseripNodeHack
+ * (only ever wired up for the JS session that actually called it), this listener exists from
+ * the moment the page loads, so it's still around to dispatch a pending completion action even
+ * for a session Node Hacker itself restored from a refresh rather than one this system just
+ * started.
+ */
+function registerSessionCompletionDispatcher(): void {
+  if (completionDispatcherRegistered) return;
+  completionDispatcherRegistered = true;
+
+  const dispatch = async (actor: FaseripActor | null | undefined, result: "won" | "lost" | "aborted") => {
+    if (!actor) return;
+    const key = contextKey(actor);
+    const action = pendingCompletionActions.get(key);
+    if (!action) return;
+    pendingCompletionActions.delete(key);
+    void persistPendingCompletionActions();
+    if (result !== "won") return;
+
+    const handler = completionActionHandlers.get(action.kind);
+    if (!handler) {
+      // Not silent: a missing handler here means whatever registers it (e.g.
+      // node-hacker-door-hacking.ts's registerCompletionAction("unlockDoor", ...) call) never
+      // ran on this page load - surface that loudly instead of just dropping the action.
+      console.error(`faserip | No completion action registered for kind "${action.kind}" - the hack's reward (e.g. unlocking a door) was not applied.`);
+      ui.notifications?.error?.("Hack succeeded, but its reward couldn't be applied - see console.");
+      return;
+    }
+
+    try {
+      await handler(action.payload);
+    } catch (err) {
+      console.error(`faserip | Completion action "${action.kind}" failed`, err);
+      ui.notifications?.error?.("Hack succeeded, but applying its reward failed - see console.");
+    }
+  };
+
+  // @ts-expect-error - custom Node Hacker hook not in Foundry's typed HookConfig
+  Hooks.on("nodeHacker.sessionComplete", (session: any, result: "won" | "lost" | "aborted") =>
+    dispatch(session?.actor, result)
+  );
+  const onManagedComplete = (_sessionId: string, session: any, result: "won" | "lost" | "aborted") =>
+    dispatch(session?.actor, result);
+  // @ts-expect-error - custom Node Hacker hook not in Foundry's typed HookConfig
+  Hooks.on("nodeHacker.managedSessionComplete", onManagedComplete);
+}
+
 export function setHackContext(
   actor: FaseripActor,
   context: FaseripHackContext | null
@@ -341,6 +446,8 @@ export function registerNodeHackerCheckResolver(): void {
   if (!api || resolverRegistered) return;
   resolverRegistered = true;
 
+  registerSessionCompletionDispatcher();
+
   // Node Hacker's default reward-item type ("consumable") isn't a valid FASERIP Item type -
   // this system only allows power/talent/equipment/contact/armor/weapon (see system.json).
   // Without this, granting a database's Nuke/Stop Virus reward throws a
@@ -443,6 +550,12 @@ export interface AttemptFaseripNodeHackParams {
   traceUnit?: "time" | "points";
   onSuccess?: () => void;
   onFailure?: () => void;
+  /** A completion action that must survive a page refresh (e.g. unlocking a door) - see
+   * registerCompletionAction/PendingCompletionAction above. Unlike onSuccess/onFailure (plain
+   * in-memory closures, fine for anything only relevant to a session that never outlives the
+   * current page load), this is persisted and re-dispatched by the session-completion
+   * dispatcher even for a session Node Hacker itself restores after a refresh. */
+  completionAction?: PendingCompletionAction;
 }
 
 /**
@@ -584,6 +697,10 @@ export async function attemptFaseripNodeHack(
     requiredColor: params.requiredColor,
     requiredDC: params.requiredDC
   });
+
+  if (params.completionAction) {
+    setCompletionAction(params.actor, params.completionAction);
+  }
 
   const cleanup = () => {
     setHackContext(params.actor, null);
