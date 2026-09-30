@@ -23,8 +23,6 @@
         <input
           type="number"
           v-model.number="manualChartShift"
-          :min="-10"
-          :max="10"
           class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded"
           placeholder="0"
         />
@@ -227,8 +225,11 @@ function getShiftedRankName(shifts: number): string {
   return formatRankDisplay(newRank);
 }
 
-// Check if can confirm
+// Check if can confirm - a manual chart shift costs no karma and isn't capped by
+// availableKarma at all, so it enables Roll/Spend Karma on its own, same as a real
+// column/die-modifier shift does.
 const canConfirm = computed(() => {
+  if (manualChartShift.value !== 0) return true;
   if (props.phase === "pre-roll") {
     return (
       columnShifts.value > 0 && preRollKarmaCost.value <= props.availableKarma
@@ -249,22 +250,19 @@ const canConfirm = computed(() => {
 });
 
 function handleConfirm() {
-  if (props.phase === "pre-roll" && columnShifts.value > 0) {
+  if (props.phase === "pre-roll") {
     props.dialog.submit({
       karmaSpent: preRollKarmaCost.value,
       columnShifts: columnShifts.value,
       manualChartShift: manualChartShift.value
     });
-  } else if (props.phase === "post-roll" && dieModifier.value > 0) {
+  } else if (props.phase === "post-roll") {
     props.dialog.submit({
       karmaSpent: postRollKarmaCost.value,
       dieModifier: dieModifier.value,
       manualChartShift: manualChartShift.value
     });
-  } else if (
-    props.phase === "combined" &&
-    (columnShifts.value > 0 || dieModifier.value > 0)
-  ) {
+  } else if (props.phase === "combined") {
     props.dialog.submit({
       karmaSpent: preRollKarmaCost.value + postRollKarmaCost.value,
       columnShifts: columnShifts.value,

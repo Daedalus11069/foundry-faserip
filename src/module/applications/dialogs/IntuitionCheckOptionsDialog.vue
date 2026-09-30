@@ -178,6 +178,10 @@ function getShiftedRankName(shifts: number): string {
 }
 
 const canConfirm = computed(() => {
+  // A manual chart shift costs no karma and isn't limited by availableKarma at all (see
+  // IntuitionCheckOptionsDialog's own manual-shift input) - it should enable Roll on its own,
+  // same as a real column/result shift does.
+  if (manualChartShift.value !== 0) return true;
   return (
     (columnShifts.value > 0 || resultShift.value > 0) &&
     totalKarmaCost.value <= props.availableKarma
