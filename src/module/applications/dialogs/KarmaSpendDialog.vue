@@ -273,15 +273,9 @@ function handleConfirm() {
 }
 
 function handleSkip() {
-  // Return manualChartShift even if skipping karma
-  if (manualChartShift.value !== 0) {
-    props.dialog.submit({
-      karmaSpent: 0,
-      manualChartShift: manualChartShift.value
-    });
-  } else {
-    props.dialog.submit(null);
-  }
+  // Skip means skip - none of the entered values apply, including a manual chart shift
+  // typed in but not confirmed via Spend Karma/Roll.
+  props.dialog.submit(null);
 }
 </script>
 

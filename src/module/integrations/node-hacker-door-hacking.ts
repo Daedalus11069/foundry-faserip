@@ -169,14 +169,21 @@ export interface AttemptBreakDoorLockParams {
   attributeRank: Rank;
   chartShift?: number;
   talentNames?: string[];
+  /** Display label for the attribute being rolled, e.g. "Strength" or "Psyche" - this is a
+   * brute-force check either way (raw physical force, or forcing the lock open with
+   * magic/psionics instead), not a hacking attempt, so it never touches isDoorHackProof or
+   * launches a minigame regardless of which attribute backs it. Defaults to "Strength" to
+   * match this function's original, physical-only behavior. */
+  attributeLabel?: string;
 }
 
 /**
- * Rolls the acting actor's Strength and only calls LocknKey's
- * BreakHoveredLock() on a Green-or-better result - breaking a lock is a
- * brute-force physical action, unrelated to hack-proof/HoloSuite at all, so
- * this doesn't check isDoorHackProof and doesn't launch any minigame. A
- * White result fails outright with no side effect on the lock.
+ * Rolls the acting actor's chosen attribute (Strength for a physical break, Psyche for
+ * forcing the lock via magic/psionics - see attributeLabel) and only calls LocknKey's
+ * BreakHoveredLock() on a Green-or-better result - breaking a lock is a brute-force action
+ * either way, unrelated to hack-proof/HoloSuite at all, so this doesn't check
+ * isDoorHackProof and doesn't launch any minigame. A White result fails outright with no
+ * side effect on the lock.
  */
 export async function attemptBreakDoorLock(
   params: AttemptBreakDoorLockParams
@@ -196,9 +203,10 @@ export async function attemptBreakDoorLock(
   const wallUuid: string | undefined = document?.uuid;
   if (!wallUuid) return;
 
+  const attributeLabel = params.attributeLabel ?? "Strength";
   const faseripRoll = await rollFaseripHackCheck({
     actor: params.actor,
-    attributeName: `${params.actor.name} Breaking Lock`,
+    attributeName: `${params.actor.name} Breaking Lock (${attributeLabel})`,
     attributeRank: params.attributeRank,
     chartShift: params.chartShift,
     talentNames: params.talentNames,

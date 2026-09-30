@@ -74,15 +74,15 @@ function toggleOverlay(control: any): void {
   Object.assign(el.style, {
     position: "fixed",
     zIndex: "100",
-    background: "rgba(0, 0, 0, 0.85)",
+    background: "rgba(0, 0, 0, 0.9)",
     color: "#fff",
-    padding: "4px 8px",
-    borderRadius: "4px",
-    fontSize: "12px",
+    padding: "10px 14px",
+    borderRadius: "6px",
+    fontSize: "18px",
     pointerEvents: "auto",
     display: "flex",
     flexDirection: "column",
-    gap: "2px"
+    gap: "8px"
   } as CSSStyleDeclaration);
 
   const status = document.createElement("div");
@@ -91,7 +91,7 @@ function toggleOverlay(control: any): void {
 
   const buttonRow = document.createElement("div");
   buttonRow.style.display = "flex";
-  buttonRow.style.gap = "4px";
+  buttonRow.style.gap = "8px";
   el.appendChild(buttonRow);
 
   const api = getLocknKeyApi();
@@ -100,7 +100,11 @@ function toggleOverlay(control: any): void {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = label;
-    btn.style.fontSize = "11px";
+    Object.assign(btn.style, {
+      fontSize: "16px",
+      padding: "6px 14px",
+      cursor: "pointer"
+    } as CSSStyleDeclaration);
     btn.addEventListener("click", () => {
       onClick();
       removeOverlay();
@@ -151,25 +155,34 @@ function toggleOverlay(control: any): void {
     });
   }
   if (typeof api?.BreakHoveredLock === "function" && !isDoorUnbreakable(wall)) {
-    addButton("Break", () => {
-      const controlledActor = (canvas as any)?.tokens?.controlled?.[0]?.actor;
-      if (!controlledActor) {
-        globalThis.ui?.notifications?.warn?.(
-          "Select a token first, then click Break."
-        );
-        return;
-      }
+    // Two attributes can back the same brute-force break: Strength for physically forcing
+    // it, Psyche for magic/psionics doing the same job instead (see attemptBreakDoorLock's
+    // attributeLabel) - same Green-or-better threshold and lock-state effect either way,
+    // this only changes which attribute/rank gets rolled.
+    const addBreakButton = (label: string, attributeKey: "strength" | "psyche") => {
+      addButton(label, () => {
+        const controlledActor = (canvas as any)?.tokens?.controlled?.[0]?.actor;
+        if (!controlledActor) {
+          globalThis.ui?.notifications?.warn?.(
+            `Select a token first, then click ${label}.`
+          );
+          return;
+        }
 
-      const attributeRank: Rank =
-        controlledActor.getCurrentForm?.()?.attributes?.strength?.rank ??
-        Rank.Typical;
+        const attributeRank: Rank =
+          controlledActor.getCurrentForm?.()?.attributes?.[attributeKey]?.rank ??
+          Rank.Typical;
 
-      void attemptBreakDoorLock({
-        actor: controlledActor,
-        wall,
-        attributeRank
+        void attemptBreakDoorLock({
+          actor: controlledActor,
+          wall,
+          attributeRank,
+          attributeLabel: attributeKey === "psyche" ? "Psyche" : "Strength"
+        });
       });
-    });
+    };
+    addBreakButton("Break (STR)", "strength");
+    addBreakButton("Break (Psyche)", "psyche");
   }
 
   const screenPoint = control.getGlobalPosition
