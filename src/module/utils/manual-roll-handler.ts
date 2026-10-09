@@ -1,7 +1,6 @@
 import { VueDialog } from "../applications/vue-dialog";
 import ManualRollEntryModal from "../applications/ManualRollEntryModal.vue";
 import type { Rank } from "../enums";
-import { rollTableWithDice } from "./temp-effects";
 
 /**
  * Interface for manual roll options
@@ -126,7 +125,7 @@ export async function createRoll(
             // @ts-expect-error - game.tables?.getName is a valid method to get a RollTable by name
             const table = game.tables?.getName(tableName);
             if (table) {
-              const rollResult = await rollTableWithDice(table);
+              const rollResult = await table.roll();
               // Display the critical failure result in the chat message flavor text
               await ChatMessage.create({
                 content: rollResult.results[0].text,
