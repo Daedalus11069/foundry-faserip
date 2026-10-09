@@ -591,6 +591,26 @@ export function sumChartShift(effects: any[]): number {
 }
 
 /**
+ * Roll a RollTable and, if Dice So Nice is active, animate its dice and wait
+ * for the animation to finish. table.roll() alone never posts a chat message,
+ * so Dice So Nice has nothing to hook into unless we show the roll ourselves.
+ */
+export async function rollTableWithDice(table: any): Promise<any> {
+  const tableRoll = await table.roll();
+  if (!tableRoll) return tableRoll;
+
+  const dice3d = (game as any).dice3d;
+  if (dice3d && tableRoll.roll) {
+    try {
+      await dice3d.showForRoll(tableRoll.roll, game.user, true);
+    } catch (err) {
+      console.warn("FASERIP | Dice So Nice failed to animate table roll", err);
+    }
+  }
+  return tableRoll;
+}
+
+/**
  * Draw from a configured RollTable setting (e.g. "criticalBotchTable" /
  * "criticalSuccessTable"), post the result to chat, and — if the drawn
  * TableResult has flags.faserip configured via the Table Effects editor —
@@ -609,7 +629,7 @@ export async function drawCriticalTableEffect(
   const table = game.tables?.getName(tableName);
   if (!table) return;
 
-  const rollResult = await table.roll();
+  const rollResult = await rollTableWithDice(table);
   if (!rollResult) return;
 
   const drawnResults = rollResult.results ?? [];
