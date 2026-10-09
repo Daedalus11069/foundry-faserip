@@ -17,6 +17,7 @@
 import type { AttributeKey } from "./stat-debuffs";
 import { Rank, RANK_VALUES } from "../enums";
 import { requestDamageApplication } from "../socket/faserip-socket";
+import { rollTable } from "./manual-roll-handler";
 
 /**
  * "nextAttack"/"nextDodge"/"nextAction" effects are consumed the first time a
@@ -609,7 +610,7 @@ export async function drawCriticalTableEffect(
   const table = game.tables?.getName(tableName);
   if (!table) return;
 
-  const rollResult = await table.roll();
+  const rollResult = await rollTable(table);
   if (!rollResult) return;
 
   const drawnResults = rollResult.results ?? [];

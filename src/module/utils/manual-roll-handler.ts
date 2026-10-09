@@ -146,6 +146,106 @@ export async function createRoll(
 }
 
 /**
+ * Roll a RollTable. Manual roll entry (when enabled) is applied by the
+ * RollTable#roll wrapper installed by installManualTableRolls, so this is just
+ * table.roll() that reports a cancelled entry as null instead of throwing.
+ *
+ * @returns The TableResult draw ({ roll, results }), or null if manual entry
+ * was cancelled
+ */
+export async function rollTable(table: any): Promise<any | null> {
+  try {
+    return await table.roll();
+  } catch (error) {
+    if ((error as Error)?.message === MANUAL_TABLE_ROLL_CANCELLED) return null;
+    throw error;
+  }
+}
+
+const MANUAL_TABLE_ROLL_CANCELLED = "Roll cancelled";
+const MAX_TABLE_RECURSION_DEPTH = 5;
+
+let manualTableRollsInstalled = false;
+
+/**
+ * Route EVERY RollTable roll/draw (sidebar, table sheet, macros, nested
+ * tables, plus this system's own critical draws) through manual roll entry
+ * when it's enabled, by wrapping RollTable#roll - RollTable#draw calls it
+ * internally, so one wrapper covers both.
+ *
+ * Core's roll() can't be handed the entered roll: it always calls
+ * `roll.reroll()` at least once before reading the total (roll-table.mjs), so
+ * a supplied Roll's value is discarded. Instead, when manual entry is on, this
+ * replaces roll() with the same flow minus the reroll: prompt, look up the
+ * results for the entered total, and recurse into nested tables. Cancelling the
+ * dialog throws, since draw() can't proceed without a roll.
+ */
+export function installManualTableRolls(): void {
+  if (manualTableRollsInstalled) return;
+  const proto = (CONFIG as any).RollTable?.documentClass?.prototype;
+  if (!proto?.roll) return;
+  manualTableRollsInstalled = true;
+
+  const original = proto.roll;
+  proto.roll = async function (
+    this: any,
+    options: { roll?: unknown; recursive?: boolean; _depth?: number } = {}
+  ) {
+    if (!isManualRollEnabled()) return original.call(this, options);
+
+    const { recursive = true, _depth = 0 } = options;
+    if (_depth > MAX_TABLE_RECURSION_DEPTH) {
+      throw new Error(
+        `Maximum recursion depth exceeded when attempting to draw from RollTable ${this.id}`
+      );
+    }
+
+    // Core fills in an even distribution when there's no formula.
+    if (!this.formula) await this.normalize();
+
+    if (!this.results.some((r: any) => !r.drawn)) {
+      ui.notifications?.warn((game as any).i18n.localize("TABLE.NoAvailableResults"));
+      return { roll: Roll.create(this.formula), results: [] };
+    }
+
+    const diceType = /d(\d+)/i.exec(this.formula)?.[0]?.toLowerCase();
+    const roll = await createRoll(
+      this.formula,
+      `Roll on ${this.name}`,
+      diceType ?? "d100"
+    );
+    if (!roll) throw new Error(MANUAL_TABLE_ROLL_CANCELLED);
+
+    let results: any[] = this.getResultsForRoll(roll.total);
+    if (!results.length) {
+      ui.notifications?.warn(
+        `${this.name}: no available result for a roll of ${roll.total}.`
+      );
+      return { roll, results };
+    }
+
+    if (recursive) {
+      const inner: any[] = [];
+      for (const result of results) {
+        const documentName = foundry.utils.parseUuid(
+          result.documentUuid
+        )?.type;
+        if (result.type === "document" && documentName === "RollTable") {
+          const innerTable: any = await fromUuid(result.documentUuid);
+          if (innerTable) {
+            const innerRoll = await innerTable.roll({ _depth: _depth + 1 });
+            inner.push(...innerRoll.results);
+          }
+        } else inner.push(result);
+      }
+      results = inner;
+    }
+
+    return { roll, results };
+  };
+}
+
+/**
  * Create a Roll object from a manual entry expression
  *
  * @param originalFormula - The original roll formula

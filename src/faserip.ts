@@ -27,6 +27,7 @@ import {
   parseRankExpression
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
+import { installManualTableRolls } from "./module/utils/manual-roll-handler";
 import {
   presentHackToActor,
   isNodeHackerActive,
@@ -1363,6 +1364,9 @@ Hooks.once("nodeHacker.ready", () => {
 // Ready hook
 Hooks.once("ready", async () => {
   console.log("FASERIP | System ready");
+
+  // Any RollTable roll/draw honors manual roll entry when it's enabled.
+  installManualTableRolls();
 
   // Suppress Foundry's core "you do not have permission to update/delete
   // this document" warnings for non-GM clients. These fire on every
