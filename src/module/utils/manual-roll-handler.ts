@@ -243,6 +243,27 @@ export function installManualTableRolls(): void {
 
     return { roll, results };
   };
+
+  // RollTable#draw (the sidebar/table-sheet "Draw" button, and anything else that calls
+  // draw() instead of roll() directly) calls this.roll() internally with no try/catch of its
+  // own - core's draw() just lets whatever roll() throws propagate. Since cancelling manual
+  // entry above throws on purpose (see this function's own doc comment), that rejection was
+  // reaching the browser completely unhandled ("Uncaught (in promise) Error: Roll cancelled"
+  // in the console) every time a player clicked Draw and then cancelled the prompt - annoying
+  // but harmless, since nothing was actually left in a bad state. Wrapping draw() too just
+  // catches that one specific, expected rejection and resolves quietly instead; any other
+  // error from draw() still propagates normally.
+  const originalDraw = proto.draw;
+  if (typeof originalDraw === "function") {
+    proto.draw = async function (this: any, ...args: any[]) {
+      try {
+        return await originalDraw.apply(this, args);
+      } catch (error) {
+        if ((error as Error)?.message === MANUAL_TABLE_ROLL_CANCELLED) return undefined;
+        throw error;
+      }
+    };
+  }
 }
 
 /**
