@@ -294,12 +294,19 @@ export class FaseripActor<
       return update;
     };
 
+    // A synthetic (unlinked-token) actor can't persist prototypeToken changes:
+    // its update is routed to the ActorDelta, which has no prototypeToken
+    // field, so the write is a no-op and the equality check below would stay
+    // false forever. Since this runs from _onUpdate, that re-triggers itself
+    // in an endless update loop. The base actor's own _onUpdate owns the
+    // prototype token.
     const prototypeToken = (this as any).prototypeToken;
     if (
-      prototypeToken?.sight?.range !== range ||
-      prototypeToken?.sight?.visionMode !== mode ||
-      prototypeToken?.sight?.enabled !== sight.enabled ||
-      !detectionModesEqual(prototypeToken?.detectionModes, detectionModes)
+      !(this as any).isToken &&
+      (prototypeToken?.sight?.range !== range ||
+        prototypeToken?.sight?.visionMode !== mode ||
+        prototypeToken?.sight?.enabled !== sight.enabled ||
+        !detectionModesEqual(prototypeToken?.detectionModes, detectionModes))
     ) {
       this.update(
         {

@@ -373,6 +373,59 @@ POST {baseUrl}/charman/api/foundry/character/mentalpoints
 
 ---
 
+### Sync Full Character (Foundry → Charman)
+
+Triggered manually by the **Push to Charman** button in the sheet's Edit tab (linked characters only). The sheet first fetches the Charman character and diffs it against the actor; a review dialog then lets the GM pick, per entry, whether to add it, overwrite Charman's version, or delete a Charman-only entry. Only the picked changes are sent. Requires the same optional `Authorization: Bearer {apiKey}` header as the other endpoints.
+
+```
+POST {baseUrl}/charman/api/foundry/character/sync
+```
+
+Applies the sent changes to the Foundry-modelled parts of the Charman character. Entries in `forms`, `powers`, `talents`, `armors` and `weapons` are **upserted** by `key` (lowercase name, `#2`, `#3`… for repeats); anything not sent is left alone, and entries are only deleted when their key is listed under `remove`.
+
+**Request body (JSON):**
+
+| Field          | Type       | Notes                                                                                                                          |
+| -------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `username`     | `string`   | Charman account username                                                                                                       |
+| `callname`     | `string`   | Character call name (lookup key; never changed by the sync)                                                                    |
+| `karma`        | `number`   | New absolute karma                                                                                                             |
+| `mentalpoints` | `number`   | Only sent when the actor has Mental Points                                                                                     |
+| `weaponSlots`  | `number`   | Actor-level default weapon slots                                                                                               |
+| `remove`       | `object`   | `{ forms?, powers?, talents?, armors?, weapons? }` — arrays of keys to delete from that collection                              |
+| `forms`        | `object[]` | `name`, `isPrimary`, `tokenWidth/Height/Scale`, `weaponSlots`, `visionSources` (by `powerName`), `attributes.{stat}.{rank,value}` |
+| `powers`       | `object[]` | Same fields as [CharmanPower](#charmanpower) plus `formNames` (forms the power applies to; empty = all forms)                   |
+| `talents`      | `object[]` | `name`, `bonus`, `description`, `grantsDualWield`                                                                              |
+| `armors`       | `object[]` | `name`, `rank`, `value`, `maxValue`, `equipped`, `description`, `formNames`                                                    |
+| `weapons`      | `object[]` | `name`, `type`, `damage` (CS for melee/thrown, rank for ranged), `stat`, `applicableTalent`, buffs/dots/status effects, `areaOfEffect` |
+
+Ranks are sent as Foundry `Rank` enum values (e.g. `shift_x`, `class_1000`) and converted to Charman rank shorts server-side. Stats are stored as the rank short when the value is exactly a rank score, otherwise as the numeric score.
+
+**Not synced** (left untouched in Charman): name/callname, character and token images, description/history, equipment, contacts, popularity/resources. Foundry-only data (power categories, notes, biography) is not sent.
+
+**Merge behavior:**
+
+- Each entry besides forms carries a `key`. Powers are layered over the stored power with the same key, so fields Foundry doesn't send survive; talents, armor and weapons are replaced whole.
+- Forms keep their stored stats and token config unless they are in the payload. Removing a form never leaves the character with zero forms (`422`).
+- Foundry holds a single rank per power. If Charman has per-form ranks for the same set of forms and the highest one equals the pushed rank, the per-form ranks are kept; otherwise the pushed rank is applied to every listed form.
+- Form names must be unique. A removed form drops out of Charman along with its token config (uploaded image files are not deleted).
+- The change bypasses the approval queue (like the other Foundry write endpoints); Charman's versioning still records the previous state.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "synced": { "forms": 2, "powers": 5, "talents": 3, "armors": 1, "weapons": 2 },
+  "updated_at": "2026-10-09T12:00:00.000000Z",
+  "message": "Character synced successfully"
+}
+```
+
+Validation failures return `422` with a Laravel `errors` object (the sheet shows the first few). Unknown character: `404`.
+
+---
+
 ## Chat Command Reference
 
 ### `/r` — Quick rank roll

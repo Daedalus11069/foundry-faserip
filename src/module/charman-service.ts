@@ -5,6 +5,12 @@ import {
   getRankValue
 } from "./utils";
 import { Rank } from "./enums";
+import {
+  buildSelectivePayload,
+  buildSyncDiff,
+  type SyncDecisions,
+  type SyncDiff
+} from "./charman-sync-diff";
 
 /**
  * Configuration for Charman API
@@ -1409,6 +1415,230 @@ export class CharmanService {
       // Don't show error notification to user - this is a background sync
       return false;
     }
+  }
+
+  /**
+   * Build the full-character payload for the Charman sync endpoint (the
+   * reverse of convertToActorData). Ranks are sent as Foundry Rank enum
+   * values; Charman normalizes them. Foundry-only data (images, categories,
+   * equipment, contacts, notes) is intentionally not sent.
+   */
+  buildSyncPayload(actor: Actor): Record<string, any> {
+    const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null));
+    const system = (actor as any).system;
+    const forms: any[] = system.forms ?? [];
+    const powers: any[] = system.powers ?? [];
+    const charman = system.charman;
+
+    const formNameById = new Map<string, string>(
+      forms.map(f => [f.id, f.name])
+    );
+    const powerNameById = new Map<string, string>(
+      powers.map(p => [p.id, p.name])
+    );
+
+    const buffFields = (entry: any) => ({
+      statDebuffs: clone(entry.statDebuffs ?? []),
+      damageBuffs: clone(entry.damageBuffs ?? []),
+      dots: clone(entry.dots ?? []),
+      statusEffects: clone(entry.statusEffects ?? [])
+    });
+
+    const items = (actor as any).items as any;
+
+    return {
+      username: charman.username,
+      callname: charman.characterName,
+      karma: system.resources?.karma?.value ?? 0,
+      ...(system.resources?.mentalPoints && {
+        mentalpoints: system.resources.mentalPoints.value
+      }),
+      weaponSlots: system.weaponSlots,
+      forms: forms.map(form => ({
+        name: form.name,
+        isPrimary: !!form.isPrimary,
+        tokenWidth: form.tokenWidth || 1,
+        tokenHeight: form.tokenHeight || 1,
+        tokenScale: form.tokenScale || 1,
+        weaponSlots: form.weaponSlots ?? null,
+        visionSources: (form.visionSources ?? []).map((vs: any) => ({
+          type: vs.type || "sight:basic",
+          rangeSource: vs.rangeSource || "flat",
+          flatRange: vs.flatRange || 0,
+          powerName: powerNameById.get(vs.powerId) ?? ""
+        })),
+        attributes: Object.fromEntries(
+          [
+            "fighting",
+            "agility",
+            "strength",
+            "endurance",
+            "reasoning",
+            "intuition",
+            "psyche"
+          ].map(stat => [
+            stat,
+            {
+              rank: form.attributes?.[stat]?.rank,
+              value: form.attributes?.[stat]?.value
+            }
+          ])
+        )
+      })),
+      powers: powers.map(power => ({
+        name: power.name,
+        rank: power.rank,
+        formNames: (power.formIds ?? [])
+          .map((id: string) => formNameById.get(id))
+          .filter((name: string | undefined) => !!name),
+        description: power.description ?? "",
+        mpCost: Number(power.mpCost) || 0,
+        effectType: power.effectType || "none",
+        attackType: power.attackType || "none",
+        damageType: power.damageTypes?.[0] ?? power.damageType ?? "none",
+        resistanceType: power.resistanceType || null,
+        vulnerabilityType: power.vulnerabilityType || null,
+        multiHit: !!power.multiHit,
+        armorPiercing: power.armorPiercing || null,
+        leechPercent: Number(power.leechPercent) || 0,
+        targetType: power.targetType || "any",
+        ...buffFields(power),
+        isAura: !!power.isAura,
+        auraDisposition: power.auraDisposition || "any",
+        auraIncludeSelf: !!power.auraIncludeSelf,
+        auraRange: Math.round(Number(power.auraRange)) || 0,
+        blendIn: !!power.blendIn,
+        blendInDurationFormula: power.blendInDurationFormula || "",
+        isLifeLink: !!power.isLifeLink,
+        lifeLinkPercent: Number(power.lifeLinkPercent) || 0,
+        lifeLinkDirection: power.lifeLinkDirection || "protect",
+        autoHealEachRound: !!power.autoHealEachRound
+      })),
+      talents: (system.talents ?? []).map((talent: any) => ({
+        name: talent.name,
+        bonus: Number(talent.bonus) || 0,
+        description: talent.description ?? "",
+        grantsDualWield: !!talent.grantsDualWield
+      })),
+      armors: items
+        .filter((item: any) => item.type === "armor")
+        .map((item: any) => ({
+          name: item.name,
+          rank: item.system.rank,
+          value: item.system.value,
+          maxValue: item.system.maxValue,
+          equipped: !!item.system.equipped,
+          description: item.system.description ?? "",
+          formNames: (item.system.formIds ?? [])
+            .map((id: string) => formNameById.get(id))
+            .filter((name: string | undefined) => !!name)
+        })),
+      weapons: items
+        .filter((item: any) => item.type === "weapon")
+        .map((item: any) => {
+          const weaponType = item.system.weaponType;
+          const isMelee = weaponType === "melee" || weaponType === "thrown";
+          return {
+            name: item.name,
+            type: weaponType,
+            // Melee/thrown store a Column Shift, ranged a damage rank
+            damage: isMelee
+              ? parseInt(String(item.system.damage), 10) || 0
+              : item.system.damageRank,
+            stat: weaponType === "melee" ? "fighting" : "agility",
+            applicableTalent: item.system.talents?.[0] ?? null,
+            armorPiercing: item.system.armorPiercing || null,
+            description: item.system.description ?? "",
+            multiHit: !!item.system.multiHit,
+            ...buffFields(item.system),
+            ...(item.system.areaOfEffect && {
+              areaOfEffect: clone(item.system.areaOfEffect)
+            })
+          };
+        })
+    };
+  }
+
+  /**
+   * Compare the actor against its linked Charman character so the GM can
+   * review what a push would change. Returns the full Foundry payload too,
+   * which pushSyncSelection() slices according to the GM's decisions.
+   */
+  async fetchSyncDiff(
+    actor: Actor
+  ): Promise<{ diff: SyncDiff; foundryPayload: Record<string, any> }> {
+    const foundryPayload = this.buildSyncPayload(actor);
+    if (!foundryPayload.username || !foundryPayload.callname) {
+      throw new Error("Actor is not linked to a Charman character");
+    }
+
+    const charmanChar = await this.fetchCharacter(
+      foundryPayload.username,
+      foundryPayload.callname
+    );
+    if (!charmanChar) {
+      throw new Error("Could not load the linked Charman character");
+    }
+
+    return {
+      diff: buildSyncDiff(foundryPayload, charmanChar as any),
+      foundryPayload
+    };
+  }
+
+  /**
+   * Push only the changes the GM chose in the review dialog (Foundry ->
+   * Charman). Throws with a readable message on failure so the caller can
+   * notify.
+   */
+  async pushSyncSelection(
+    actor: Actor,
+    foundryPayload: Record<string, any>,
+    diff: SyncDiff,
+    decisions: SyncDecisions
+  ): Promise<{ success: boolean; synced: Record<string, number> }> {
+    const payload = buildSelectivePayload(foundryPayload, diff, decisions);
+
+    const apiPath = this.config.apiPath || "/charman/api/foundry";
+    const url = `${this.config.baseUrl}${apiPath}/character/sync`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(this.config.apiKey && {
+          Authorization: `Bearer ${this.config.apiKey}`
+        })
+      },
+      body: JSON.stringify(payload)
+    });
+
+    let data: any = null;
+    try {
+      data = await response.json();
+    } catch {
+      // Non-JSON error body - fall through to the status-based message
+    }
+
+    if (!response.ok || !data?.success) {
+      let message = data?.message || `Request failed (${response.status})`;
+      if (response.status === 401 || response.status === 403) {
+        message = "Authentication failed - check API key";
+      } else if (response.status === 404) {
+        message = `Character "${payload.callname}" not found for user "${payload.username}"`;
+      } else if (response.status === 422 && data?.errors) {
+        const details = Object.entries(data.errors)
+          .slice(0, 5)
+          .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(" ")}`)
+          .join("<br>");
+        message = `Charman rejected the character data<br>${details}`;
+      }
+      throw new Error(message);
+    }
+
+    await (actor as any).update({ "system.charman.lastSync": Date.now() });
+    return { success: true, synced: data.synced ?? {} };
   }
 }
 

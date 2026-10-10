@@ -2,6 +2,8 @@
 import { inject, computed, onMounted, ref, watch, watchEffect } from "vue";
 import { getCharmanService } from "../../charman-service";
 import { getRankValue } from "../../utils";
+import { showCharmanSyncDiffDialog } from "../../applications/dialog-utils";
+import { hasChosenChanges } from "../../charman-sync-diff";
 import { listNodeHackerGraphNames } from "../../integrations/node-hacker-hacking";
 import type { Form } from "../../types";
 
@@ -350,6 +352,55 @@ async function resyncFromCharman() {
   }
 }
 
+const pushing = ref(false);
+
+async function pushToCharman() {
+  if (!isLinked.value) {
+    ui.notifications?.error("No linked character to push to");
+    return;
+  }
+
+  pushing.value = true;
+
+  try {
+    const charmanService = getCharmanService();
+
+    // Compare first, then let the GM choose what actually gets pushed
+    const { diff, foundryPayload } = await charmanService.fetchSyncDiff(actor);
+
+    if (diff.entries.length === 0 && diff.scalars.length === 0) {
+      ui.notifications?.info("Charman is already up to date with Foundry");
+      return;
+    }
+
+    const decisions = await showCharmanSyncDiffDialog(
+      diff,
+      `${reactiveActor.system.charman.username} / ${reactiveActor.system.charman.characterName}`
+    );
+    if (!decisions || !hasChosenChanges(diff, decisions)) return;
+
+    const result = await charmanService.pushSyncSelection(
+      actor,
+      foundryPayload,
+      diff,
+      decisions
+    );
+    const parts = Object.entries(result.synced).map(
+      ([key, count]) => `${count} ${key}`
+    );
+    ui.notifications?.success(
+      `Pushed to Charman${parts.length ? ` (${parts.join(", ")})` : ""}`
+    );
+  } catch (error) {
+    console.error("Push to Charman failed:", error);
+    ui.notifications?.error(
+      error instanceof Error ? error.message : "Failed to push to Charman"
+    );
+  } finally {
+    pushing.value = false;
+  }
+}
+
 async function unlinkCharacter() {
   if (
     confirm(
@@ -533,6 +584,13 @@ async function browseTokenImage() {
             :disabled="importing"
           >
             🔄 {{ importing ? "Re-syncing..." : "Re-sync from Charman" }}
+          </button>
+          <button
+            @click="pushToCharman"
+            class="fsr-btn bg-green-900 hover:bg-green-950 text-white text-sm"
+            :disabled="importing || pushing"
+          >
+            📤 {{ pushing ? "Pushing..." : "Push to Charman" }}
           </button>
           <button
             @click="startEditingLink"

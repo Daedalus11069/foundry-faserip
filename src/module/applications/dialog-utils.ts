@@ -9,6 +9,8 @@ import ActionOptionsDialog from "./dialogs/ActionOptionsDialog.vue";
 import DefenseOptionsDialog from "./dialogs/DefenseOptionsDialog.vue";
 import MovementSettingsDialog from "./dialogs/MovementSettingsDialog.vue";
 import TableEffectsEditor from "./dialogs/TableEffectsEditor.vue";
+import CharmanSyncDiffDialog from "./dialogs/CharmanSyncDiffDialog.vue";
+import type { SyncDecisions, SyncDiff } from "../charman-sync-diff";
 import { Rank } from "../enums";
 import type { Talent, SelectedTalent } from "../types";
 import type { TemporaryModifierSnapshot } from "../utils/temp-effects";
@@ -47,6 +49,33 @@ export async function showTalentSelectionDialog(
   );
 
   return result as SelectedTalent[] | null;
+}
+
+/**
+ * Show the Foundry -> Charman push review dialog. Resolves with the GM's
+ * per-entry decisions, or null if they cancelled.
+ */
+export async function showCharmanSyncDiffDialog(
+  diff: SyncDiff,
+  characterLabel: string
+): Promise<SyncDecisions | null> {
+  const result = await VueDialog.show(
+    CharmanSyncDiffDialog,
+    { diff, characterLabel },
+    {
+      window: {
+        title: "Push to Charman",
+        icon: "fas fa-upload",
+        minimizable: false,
+        resizable: true
+      },
+      position: {
+        width: 600
+      }
+    }
+  );
+
+  return result as SyncDecisions | null;
 }
 
 /**
