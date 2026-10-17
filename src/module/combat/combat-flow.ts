@@ -29,6 +29,7 @@ import {
   applyHealingToActor,
   isActorDead,
   isActorUnconscious,
+  isArmorPowerActive,
   isPhysicalDefenseAttribute,
   type DamageComponent
 } from "../utils/damage-application";
@@ -887,6 +888,17 @@ export async function executeCombatAttack(
     comboIndex,
     comboTotal
   } = attackData;
+
+  // An active armor-granting power can forbid its owner from attacking
+  const blockingPower = (
+    ((attacker.system as any)?.powers ?? []) as any[]
+  ).find(p => p.armorBlocksAttacks && isArmorPowerActive(p));
+  if (blockingPower) {
+    ui.notifications?.warn(
+      `${attacker.name} cannot attack while ${blockingPower.name} is active.`
+    );
+    return null;
+  }
 
   // Initialize array for accumulating damage when deferDamageApplication is true
   const pendingDamages: PendingDamage[] = [];

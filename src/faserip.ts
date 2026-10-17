@@ -656,6 +656,19 @@ const initHandler = () => {
     img: "icons/svg/regen.svg"
   });
 
+  // Mind-affecting power conditions (Hypnotic-Control/Voice, Pheromones,
+  // Emotion-Control), applied through a power's Status Effects
+  CONFIG.statusEffects.push({
+    id: "faseripHypnotized",
+    name: "Hypnotized",
+    img: "icons/svg/daze.svg"
+  });
+  CONFIG.statusEffects.push({
+    id: "faseripEmotionControlled",
+    name: "Emotion-Controlled",
+    img: "icons/svg/aura.svg"
+  });
+
   // Register "Force Next Roll: Critical/Failure" statuses - toggling them via
   // the token HUD applies the same flags.faserip.kind "forcedResult" temp
   // effect data as the Effects tab buttons (see EffectsTab.vue), so

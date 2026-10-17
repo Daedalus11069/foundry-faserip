@@ -519,6 +519,59 @@ export function definePowerRefSchema() {
       min: 0,
       initial: 0
     }),
+    // Mass Effect: using the power affects everyone in range (or all targeted
+    // tokens) instead of rolling against one defender - see power-mass-effect.ts
+    massEffect: new SchemaField({
+      enabled: new BooleanField({ required: false, initial: false }),
+      scope: new StringField({
+        required: false,
+        initial: "area",
+        choices: ["area", "targets"]
+      }),
+      baseRangeFeet: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: 20
+      }),
+      falloffFeet: new NumberField({
+        required: false,
+        integer: true,
+        min: 0,
+        initial: 20
+      }),
+      includeSelf: new BooleanField({ required: false, initial: false }),
+      resistAttribute: new StringField({
+        required: false,
+        blank: true,
+        initial: ""
+      }),
+      resistResult: new StringField({
+        required: false,
+        initial: "green",
+        choices: ["green", "yellow", "red"]
+      })
+    }),
+    // Armor layer granted by this power (e.g. Light-Shield). Soaks damage of
+    // armorTypes at the power's value, in layer armorLayer alongside worn armor.
+    grantsArmor: new BooleanField({
+      required: false,
+      initial: false,
+      label: "Grants an armor layer against the chosen damage types"
+    }),
+    armorTypes: new ArrayField(new StringField(), {
+      required: false,
+      initial: []
+    }),
+    armorLayer: new NumberField({
+      required: false,
+      integer: true,
+      min: 0,
+      initial: 1
+    }),
+    armorToggle: new BooleanField({ required: false, initial: false }),
+    armorActive: new BooleanField({ required: false, initial: false }),
+    armorBlocksAttacks: new BooleanField({ required: false, initial: false }),
     blendIn: new BooleanField({
       required: false,
       initial: false,

@@ -7,8 +7,14 @@ import type {
   WeaponAreaOfEffectData
 } from "../types/actor-system";
 
-const { ArrayField, BooleanField, NumberField, SchemaField, StringField } =
-  foundry.data.fields;
+const {
+  ArrayField,
+  BooleanField,
+  NumberField,
+  ObjectField,
+  SchemaField,
+  StringField
+} = foundry.data.fields;
 
 /**
  * Shared schema for a single stat-debuff entry, reused by PowerDataModel and
@@ -304,6 +310,8 @@ export class ArmorDataModel extends ItemDataModel {
   declare magicMaxValue: number;
   declare mentalValue: number;
   declare mentalMaxValue: number;
+  declare layer: number;
+  declare typeValues: Record<string, { value: number; max: number }>;
   declare equipped: boolean;
   declare formIds: string[];
 
@@ -370,6 +378,20 @@ export class ArmorDataModel extends ItemDataModel {
         min: 0,
         initial: 0
       }),
+      // Layer slot, 1 = outermost. Damage passes through layers outer to
+      // inner; pieces sharing a layer add together. Default 1 keeps legacy
+      // armor behaving exactly as before (everything stacks in one layer).
+      layer: new NumberField({
+        required: false,
+        integer: true,
+        min: 1,
+        initial: 1
+      }),
+      // Soak for the remaining damage types (energy, fire, cold, ...), keyed
+      // by DamageType: { energy: { value, max } }. Empty = legacy piece, which
+      // soaks those types at its flat `value`. Once any type is configured,
+      // unlisted types soak 0 on this piece.
+      typeValues: new ObjectField({ required: false, initial: {} }),
       equipped: new BooleanField({ required: true, initial: false }),
       formIds: new ArrayField(new StringField(), {
         required: false,

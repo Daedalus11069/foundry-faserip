@@ -35,7 +35,6 @@ function toggleDamageType(power: any, type: string, checked: boolean) {
 }
 import { getRankValue, stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
-import { applyHitStatDebuff, applyHitDamageBuff } from "../../combat/combat-flow";
 import { isPowerAuraActive } from "../../utils/power-aura";
 import { activateBlendIn, deactivateBlendIn, getBlendInFlag, getBlendBaseRange } from "../../utils/blend-in";
 import type { ReactiveActorData, PowerData } from "../../types/actor-system";
@@ -117,7 +116,6 @@ function newStatusEffect() {
 // etc.) instead of a hand-maintained list, so any core/module-added status
 // shows up here automatically.
 const statusEffectChoices = computed(() => {
-  // @ts-expect-error - CONFIG.statusEffects is a Foundry global
   return ((CONFIG.statusEffects as any[]) || [])
     .map(s => ({
       value: s.id,
@@ -246,6 +244,21 @@ function addPower() {
     auraDisposition: "any",
     auraIncludeSelf: false,
     auraRange: 0,
+    massEffect: {
+      enabled: false,
+      scope: "area",
+      baseRangeFeet: 20,
+      falloffFeet: 20,
+      includeSelf: false,
+      resistAttribute: "",
+      resistResult: "green"
+    },
+    grantsArmor: false,
+    armorTypes: [],
+    armorLayer: 1,
+    armorToggle: false,
+    armorActive: false,
+    armorBlocksAttacks: false,
     blendIn: false,
     blendInDurationFormula: "",
     autoHealEachRound: false,
@@ -265,6 +278,43 @@ async function removePower(index: number) {
 
   if (!confirmed) return;
   reactiveActor.system.powers.splice(index, 1);
+}
+
+const ARMOR_DAMAGE_TYPES = [
+  { key: "physical", label: "Physical / Ballistic" },
+  { key: "energy", label: "Energy" },
+  { key: "fire", label: "Fire" },
+  { key: "cold", label: "Cold" },
+  { key: "electricity", label: "Electricity" },
+  { key: "radiation", label: "Radiation" },
+  { key: "sonic", label: "Sonic" },
+  { key: "acid", label: "Acid" },
+  { key: "poison", label: "Poison" },
+  { key: "force", label: "Force" },
+  { key: "magic", label: "Magic" },
+  { key: "mental", label: "Mental" }
+];
+
+function setMassEffect(power: PowerData, patch: Record<string, unknown>) {
+  power.massEffect = {
+    enabled: false,
+    scope: "area",
+    baseRangeFeet: 20,
+    falloffFeet: 20,
+    includeSelf: false,
+    resistAttribute: "",
+    resistResult: "green",
+    ...(power.massEffect ?? {}),
+    ...patch
+  } as PowerData["massEffect"];
+}
+
+function toggleArmorType(power: PowerData, type: string) {
+  const current = [...(power.armorTypes ?? [])];
+  const idx = current.indexOf(type);
+  if (idx === -1) current.push(type);
+  else current.splice(idx, 1);
+  power.armorTypes = current;
 }
 
 function getOwnerToken(): TokenDocument | null {
@@ -448,6 +498,19 @@ function toggleItem(id: string) {
           <span v-if="power.isAura" class="text-xs px-2 py-0.5 rounded shrink-0" :class="isPowerAuraActive(actor, power) ? 'bg-purple-600 text-white' : 'bg-purple-900/60 text-purple-300'">
             {{ isPowerAuraActive(actor, power) ? 'Aura Active' : 'Aura' }}
           </span>
+          <button
+            v-if="power.grantsArmor && power.armorToggle"
+            @click.stop="power.armorActive = !power.armorActive"
+            class="text-xs px-2 py-0.5 rounded shrink-0"
+            :class="power.armorActive ? 'bg-yellow-500 text-black' : 'bg-yellow-900/60 text-yellow-300'"
+            :title="power.armorActive ? 'Armor layer on - click to turn it off' : 'Click to turn this armor layer on'"
+          >
+            {{ power.armorActive ? 'Armor On' : 'Armor Off' }}
+          </button>
+          <span
+            v-else-if="power.grantsArmor"
+            class="text-xs px-2 py-0.5 rounded bg-yellow-900/60 text-yellow-300 shrink-0"
+          >Armor Layer {{ power.armorLayer ?? 1 }}</span>
           <button
             v-if="power.blendIn"
             @click.stop="toggleBlendIn(power)"
@@ -711,6 +774,162 @@ function toggleItem(id: string) {
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- Mass Effect (area / multi-target, resisted) -->
+          <div
+            class="mb-2 p-2 bg-fuchsia-950/30 border border-fuchsia-800 rounded space-y-2"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-0">
+              <input
+                type="checkbox"
+                :checked="power.massEffect?.enabled"
+                @change="setMassEffect(power, { enabled: ($event.target as HTMLInputElement).checked })"
+                class="w-4 h-4 rounded border-gray-600 text-fuchsia-500"
+              />
+              <span class="fsr-label mb-0"
+                >Mass Effect <span class="fsr-help-text">(using the power affects everyone in range, or all targeted tokens, instead of one attack roll. Each affected actor rolls to resist; those who fail get this power's Status Effects)</span></span
+              >
+            </label>
+            <div v-if="power.massEffect?.enabled" class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="fsr-label">Affects</label>
+                <select
+                  :value="power.massEffect.scope"
+                  @change="setMassEffect(power, { scope: ($event.target as HTMLSelectElement).value })"
+                  class="fsr-select text-sm"
+                >
+                  <option value="area">Everyone in range</option>
+                  <option value="targets">Targeted tokens</option>
+                </select>
+              </div>
+              <div>
+                <label class="fsr-label">Resist with</label>
+                <select
+                  :value="power.massEffect.resistAttribute"
+                  @change="setMassEffect(power, { resistAttribute: ($event.target as HTMLSelectElement).value })"
+                  class="fsr-select text-sm"
+                >
+                  <option value="">No resist roll</option>
+                  <option value="fighting">Fighting</option>
+                  <option value="agility">Agility</option>
+                  <option value="strength">Strength</option>
+                  <option value="endurance">Endurance</option>
+                  <option value="reasoning">Reasoning</option>
+                  <option value="intuition">Intuition</option>
+                  <option value="psyche">Psyche</option>
+                </select>
+              </div>
+              <div v-if="power.massEffect.resistAttribute">
+                <label class="fsr-label">Result needed to resist</label>
+                <select
+                  :value="power.massEffect.resistResult"
+                  @change="setMassEffect(power, { resistResult: ($event.target as HTMLSelectElement).value })"
+                  class="fsr-select text-sm"
+                >
+                  <option value="green">Green</option>
+                  <option value="yellow">Yellow</option>
+                  <option value="red">Red</option>
+                </select>
+              </div>
+              <label class="flex items-center gap-2 cursor-pointer self-end">
+                <input
+                  type="checkbox"
+                  :checked="power.massEffect.includeSelf"
+                  @change="setMassEffect(power, { includeSelf: ($event.target as HTMLInputElement).checked })"
+                  class="w-4 h-4 rounded border-gray-600"
+                />
+                <span class="fsr-label mb-0">Affects the user too</span>
+              </label>
+              <template v-if="power.massEffect.scope === 'area'">
+                <div>
+                  <label class="fsr-label">Full strength within (ft)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    :value="power.massEffect.baseRangeFeet"
+                    @input="setMassEffect(power, { baseRangeFeet: Number(($event.target as HTMLInputElement).value) })"
+                    class="fsr-input text-sm"
+                  />
+                </div>
+                <div>
+                  <label class="fsr-label">Weakens one step per (ft)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    :value="power.massEffect.falloffFeet"
+                    @input="setMassEffect(power, { falloffFeet: Number(($event.target as HTMLInputElement).value) })"
+                    class="fsr-input text-sm"
+                  />
+                </div>
+                <div class="col-span-2 fsr-help-text">
+                  Each step lowers the result a target needs to resist by one tier, so distant targets resist more easily. 0 = nothing beyond the full-strength range.
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Armor layer (e.g. Light-Shield) -->
+          <div
+            class="mb-2 p-2 bg-yellow-950/30 border border-yellow-800 rounded space-y-2"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-0">
+              <input
+                v-model="power.grantsArmor"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-yellow-500 focus:ring-2 focus:ring-yellow-500"
+              />
+              <span class="fsr-label mb-0"
+                >Grants Armor Layer <span class="fsr-help-text">(soaks the chosen damage types up to this power's Rank value, in the chosen layer alongside worn armor)</span></span
+              >
+            </label>
+            <template v-if="power.grantsArmor">
+              <div class="flex flex-wrap gap-3">
+                <label
+                  v-for="t in ARMOR_DAMAGE_TYPES"
+                  :key="t.key"
+                  class="flex items-center gap-1 text-xs cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="power.armorTypes?.includes(t.key)"
+                    @change="toggleArmorType(power, t.key)"
+                    class="accent-yellow-500"
+                  />
+                  {{ t.label }}
+                </label>
+              </div>
+              <div class="flex items-center gap-2">
+                <label class="fsr-label mb-0">Layer</label>
+                <input
+                  v-model.number="power.armorLayer"
+                  type="number"
+                  min="0"
+                  class="fsr-input text-sm w-20"
+                />
+                <span class="fsr-help-text">(0-1 = outermost; same numbering as armor items)</span>
+              </div>
+              <label class="flex items-center gap-2 cursor-pointer mb-0">
+                <input
+                  v-model="power.armorToggle"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-gray-600 text-yellow-500"
+                />
+                <span class="fsr-label mb-0"
+                  >Must be turned on <span class="fsr-help-text">(otherwise always active; toggle with the badge above)</span></span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer mb-0">
+                <input
+                  v-model="power.armorBlocksAttacks"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-gray-600 text-yellow-500"
+                />
+                <span class="fsr-label mb-0"
+                  >Owner cannot attack while active</span
+                >
+              </label>
+            </template>
           </div>
 
           <!-- Blend In (stealth) -->

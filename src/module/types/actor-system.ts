@@ -148,6 +148,16 @@ export interface WeaponAreaOfEffectData {
   durationRounds: string; // Rounds before the template auto-deletes - a flat number or a dice formula (e.g. "1d3"); blank/"0" = stays until removed manually
 }
 
+export interface PowerMassEffectData {
+  enabled: boolean;
+  scope: "area" | "targets"; // area = everyone in range of the owner; targets = the selected target tokens
+  baseRangeFeet: number; // Full strength inside this distance (area scope)
+  falloffFeet: number; // Each further this-many feet weakens the power one step; 0 = hard cutoff at baseRangeFeet
+  includeSelf: boolean;
+  resistAttribute: string; // Attribute the affected roll to resist ("intuition", "psyche", ...); blank = no resist roll
+  resistResult: "green" | "yellow" | "red"; // Result needed to resist at full strength
+}
+
 export interface PowerData {
   id: string;
   name: string;
@@ -160,7 +170,7 @@ export interface PowerData {
   resistanceType?: string; // For resistance powers
   vulnerabilityType?: string; // For vulnerability/weakness powers
   effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // For damage/healing powers
-  attackType?: "none" | "melee" | "ranged" | "psyche"; // Attack type for defense attribute selection
+  attackType?: "none" | "melee" | "ranged" | "psyche" | "strength"; // Attack type for defense attribute selection
   /** @deprecated use damageTypes */
   damageType?: string; // Damage type (fire, cold, energy, etc.)
   damageTypes?: string[]; // Damage type(s) dealt - each receives the power's full damage amount
@@ -183,6 +193,13 @@ export interface PowerData {
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
   auraRange?: number; // Radius in scene distance units (e.g. feet); 0/unset falls back to the rank-based movement table
+  massEffect?: PowerMassEffectData; // Affects everyone in range / all targets, each with a resist roll; applies statusEffects on failure
+  grantsArmor?: boolean; // Grants an armor layer: soaks armorTypes at the power's value (degrades like Body Armor)
+  armorTypes?: string[]; // Damage types the layer protects against
+  armorLayer?: number; // Layer slot, same numbering as armor items (0/1 = outermost). Pieces in the same layer add together
+  armorToggle?: boolean; // Layer only applies while armorActive is on; otherwise it is always on
+  armorActive?: boolean; // Runtime on/off state when armorToggle is set - not synced to Charman
+  armorBlocksAttacks?: boolean; // The owner cannot attack while the layer is active
   blendIn?: boolean; // Lets the owner hide their token from other players' clients; spotting difficulty scales with distance based on this power's rank
   blendInDurationFormula?: string; // Blank/"indefinite" = stays active until manually toggled off; otherwise rolled once on activation and ticks down each combat round
   isLifeLink?: boolean; // Bonds the owner to whoever is in the aura region, redirecting a % of health damage between them

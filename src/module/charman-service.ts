@@ -2,6 +2,7 @@ import {
   parseRankFromCharman,
   nanoid,
   valueToRank,
+  stringToRank,
   getRankValue
 } from "./utils";
 import { Rank } from "./enums";
@@ -15,6 +16,49 @@ import {
 /**
  * Configuration for Charman API
  */
+/**
+ * Charman stores ranks as a short code ("in") or a numeric score (40); Foundry
+ * needs the Rank enum value. Blank becomes null.
+ */
+function toRankKey(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (!isNaN(Number(value))) return valueToRank(Number(value));
+  return stringToRank(String(value));
+}
+
+export interface CharmanMassEffect {
+  enabled: boolean;
+  scope: "area" | "targets";
+  baseRangeFeet: number;
+  falloffFeet: number;
+  includeSelf: boolean;
+  resistAttribute: string;
+  resistResult: "green" | "yellow" | "red";
+}
+
+function normalizeMassEffect(raw: any): CharmanMassEffect {
+  return {
+    enabled: !!raw?.enabled,
+    scope: raw?.scope === "targets" ? "targets" : "area",
+    baseRangeFeet: Math.max(0, Math.round(Number(raw?.baseRangeFeet ?? 20))),
+    falloffFeet: Math.max(0, Math.round(Number(raw?.falloffFeet ?? 20))),
+    includeSelf: !!raw?.includeSelf,
+    resistAttribute: raw?.resistAttribute || "",
+    resistResult: ["yellow", "red"].includes(raw?.resistResult)
+      ? raw.resistResult
+      : "green"
+  };
+}
+
+/** Rank-normalize a Charman DoT list (damage rank and armor piercing). */
+function normalizeDots(dots: any[] | undefined): any[] {
+  return (dots || []).map(d => ({
+    ...d,
+    rank: toRankKey(d.rank) ?? "",
+    armorPiercing: toRankKey(d.armorPiercing) ?? ""
+  }));
+}
+
 export interface CharmanConfig {
   baseUrl: string;
   apiPath?: string;
@@ -142,6 +186,12 @@ export interface CharmanPower {
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
   auraRange?: number; // Radius in scene distance units (e.g. feet); 0/unset falls back to the rank-based movement table
+  massEffect?: CharmanMassEffect; // Affects everyone in range / all targets with a resist roll
+  grantsArmor?: boolean; // Grants an armor layer soaking armorTypes at the power's value
+  armorTypes?: string[];
+  armorLayer?: number;
+  armorToggle?: boolean; // Layer only applies while switched on in Foundry
+  armorBlocksAttacks?: boolean; // Owner can't attack while the layer is active
   blendIn?: boolean; // Lets the owner hide their token from other players' clients; spotting difficulty scales with distance based on this power's rank
   blendInDurationFormula?: string; // Blank/"indefinite" = stays active until manually toggled off; otherwise rolled once on activation and ticks down each combat round
   isLifeLink?: boolean; // Bonds the owner to a target selected on cast, redirecting a % of health damage between them while the target stays within the aura's range
@@ -183,6 +233,7 @@ export interface CharmanWeapon {
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
   statDebuffs?: CharmanPowerStatDebuff[]; // Temporary stat debuffs applied on hit
   damageBuffs?: CharmanPowerDamageBuff[]; // Temporary damage buffs/debuffs applied on hit
+  armorPiercing?: string | number | null; // Armor-piercing rank (short code or score)
   dots?: CharmanPowerDot[]; // Damage-over-time effects applied on hit
   statusEffects?: CharmanPowerStatusEffect[]; // Foundry status conditions (sleep, stun, prone, etc.) applied on hit
   areaOfEffect?: CharmanWeaponAreaOfEffect; // Region template placed centered on the target on hit
@@ -521,7 +572,7 @@ export class CharmanService {
                 tokenHeight: form.tokenHeight || 1,
                 tokenScale: form.tokenScale || 1,
                 weaponSlots: form.weaponSlots ?? undefined,
-                visionSources: (form.visionSources || []).map(vs => ({
+                visionSources: (form.visionSources || []).map((vs: CharmanVisionSource) => ({
                   id: nanoid(),
                   type: vs.type || "sight:basic",
                   rangeSource: vs.rangeSource || "flat",
@@ -605,7 +656,7 @@ export class CharmanService {
 
         // Find highest rank value to use as default
         let highestValue = 0;
-        for (const [formName, rankValue] of formRanks) {
+        for (const [, rankValue] of formRanks) {
           const numValue = Number(rankValue);
           if (!isNaN(numValue) && numValue > highestValue) {
             highestValue = numValue;
@@ -647,7 +698,7 @@ export class CharmanService {
         resistanceType: power.resistanceType || undefined,
         vulnerabilityType: power.vulnerabilityType || undefined,
         multiHit: power.multiHit || false,
-        armorPiercing: power.armorPiercing || null,
+        armorPiercing: toRankKey(power.armorPiercing),
         leechPercent: power.leechPercent || 0,
         targetType: power.targetType || "any",
         statDebuffs: (power.statDebuffs || []).map(sd => ({
@@ -667,8 +718,8 @@ export class CharmanService {
         })),
         dots: (power.dots || []).map(d => ({
           enabled: d.enabled ?? false,
-          rank: d.rank ?? "",
-          armorPiercing: d.armorPiercing ?? "",
+          rank: toRankKey(d.rank) ?? "",
+          armorPiercing: toRankKey(d.armorPiercing) ?? "",
           durationFormula: d.durationFormula ?? ""
         })),
         statusEffects: (power.statusEffects || []).map(se => ({
@@ -680,6 +731,12 @@ export class CharmanService {
         auraDisposition: power.auraDisposition || "any",
         auraIncludeSelf: power.auraIncludeSelf || false,
         auraRange: power.auraRange || 0,
+        massEffect: normalizeMassEffect(power.massEffect),
+        grantsArmor: power.grantsArmor || false,
+        armorTypes: Array.isArray(power.armorTypes) ? power.armorTypes : [],
+        armorLayer: power.armorLayer ?? 1,
+        armorToggle: power.armorToggle || false,
+        armorBlocksAttacks: power.armorBlocksAttacks || false,
         blendIn: power.blendIn || false,
         blendInDurationFormula: power.blendInDurationFormula || "",
         isLifeLink: power.isLifeLink || false,
@@ -849,6 +906,7 @@ export class CharmanService {
             description: weapon.description || "",
             equipped: weapon.equipped || false,
             multiHit: weapon.multiHit || false,
+            armorPiercing: toRankKey(weapon.armorPiercing) ?? "",
             statDebuffs: (weapon.statDebuffs || []).map(sd => ({
               enabled: sd.enabled ?? false,
               attribute: sd.attribute,
@@ -866,8 +924,8 @@ export class CharmanService {
             })),
             dots: (weapon.dots || []).map(d => ({
               enabled: d.enabled ?? false,
-              rank: d.rank ?? "",
-              armorPiercing: d.armorPiercing ?? "",
+              rank: toRankKey(d.rank) ?? "",
+              armorPiercing: toRankKey(d.armorPiercing) ?? "",
               durationFormula: d.durationFormula ?? ""
             })),
             statusEffects: (weapon.statusEffects || []).map(se => ({
@@ -1055,9 +1113,10 @@ export class CharmanService {
           description: charmanWeapon.description || "",
           talents: charmanWeapon.applicableTalents || [],
           multiHit: charmanWeapon.multiHit || false,
+          armorPiercing: toRankKey(charmanWeapon.armorPiercing) ?? "",
           statDebuffs: charmanWeapon.statDebuffs || [],
           damageBuffs: charmanWeapon.damageBuffs || [],
-          dots: charmanWeapon.dots || [],
+          dots: normalizeDots(charmanWeapon.dots),
           statusEffects: charmanWeapon.statusEffects || [],
           areaOfEffect: charmanWeapon.areaOfEffect
         };
@@ -1068,7 +1127,7 @@ export class CharmanService {
         );
 
         if (existingItem) {
-          claimedExistingIds.add(existingItem.id);
+          claimedExistingIds.add(existingItem.id!);
           // Update existing weapon
           weaponUpdates.push({
             _id: existingItem.id,
@@ -1197,9 +1256,10 @@ export class CharmanService {
               description: weapon.description || "",
               talents: weapon.applicableTalents || [],
               multiHit: weapon.multiHit || false,
+              armorPiercing: toRankKey(weapon.armorPiercing) ?? "",
               statDebuffs: weapon.statDebuffs || [],
               damageBuffs: weapon.damageBuffs || [],
-              dots: weapon.dots || [],
+              dots: normalizeDots(weapon.dots),
               statusEffects: weapon.statusEffects || [],
               areaOfEffect: weapon.areaOfEffect
             }
@@ -1507,6 +1567,12 @@ export class CharmanService {
         auraDisposition: power.auraDisposition || "any",
         auraIncludeSelf: !!power.auraIncludeSelf,
         auraRange: Math.round(Number(power.auraRange)) || 0,
+        massEffect: normalizeMassEffect(power.massEffect),
+        grantsArmor: !!power.grantsArmor,
+        armorTypes: Array.isArray(power.armorTypes) ? power.armorTypes : [],
+        armorLayer: Number(power.armorLayer ?? 1),
+        armorToggle: !!power.armorToggle,
+        armorBlocksAttacks: !!power.armorBlocksAttacks,
         blendIn: !!power.blendIn,
         blendInDurationFormula: power.blendInDurationFormula || "",
         isLifeLink: !!power.isLifeLink,

@@ -134,6 +134,55 @@
         </div>
       </div>
 
+      <!-- Layer -->
+      <div class="fsr-form-group">
+        <label class="fsr-form-label"
+          >Armor Layer
+          <span class="fsr-help-text"
+            >(1 = outermost. Damage passes through layers outer to inner; pieces
+            in the same layer add together)</span
+          ></label
+        >
+        <input
+          v-model.number="reactiveItem.system.layer"
+          type="number"
+          min="1"
+          class="fsr-input"
+        />
+      </div>
+
+      <!-- Other damage types -->
+      <div class="fsr-form-group">
+        <label class="fsr-form-label"
+          >Other Damage Types
+          <span class="fsr-help-text"
+            >(leave all untouched for legacy behavior: soaks these at the Current
+            Armor Value. Once any is set, unlisted types soak 0 on this
+            piece)</span
+          ></label
+        >
+        <div class="grid grid-cols-3 gap-2">
+          <div v-for="t in EXTRA_SOAK_TYPES" :key="t.key">
+            <label class="text-xs text-gray-400">{{ t.label }}</label>
+            <input
+              :value="reactiveItem.system.typeValues?.[t.key]?.value ?? ''"
+              @input="setTypeValue(t.key, 'value', $event)"
+              type="number"
+              min="0"
+              class="fsr-input text-sm"
+            />
+            <input
+              :value="reactiveItem.system.typeValues?.[t.key]?.max ?? ''"
+              @input="setTypeValue(t.key, 'max', $event)"
+              type="number"
+              min="0"
+              class="fsr-input text-sm mt-1"
+              placeholder="Max"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- Equipped Checkbox -->
       <div class="fsr-form-group">
         <label
@@ -171,6 +220,7 @@
 import { inject, computed } from "vue";
 import { Rank, RANK_VALUES, formatRankDisplay } from "../../enums";
 import { stringToRank } from "../../utils";
+// @ts-expect-error - Foundry Item type exists
 import type { Item } from "@league-of-foundry-developers/foundry-vtt-types/src/foundry/client/data/documents/item";
 
 const reactiveItem = inject("reactiveItem") as any;
@@ -196,6 +246,36 @@ const rankChoicesWithValues = computed(() => {
   });
   return choices;
 });
+
+const EXTRA_SOAK_TYPES = [
+  { key: "energy", label: "Energy" },
+  { key: "fire", label: "Fire" },
+  { key: "cold", label: "Cold" },
+  { key: "electricity", label: "Electricity" },
+  { key: "radiation", label: "Radiation" },
+  { key: "sonic", label: "Sonic" },
+  { key: "acid", label: "Acid" },
+  { key: "poison", label: "Poison" },
+  { key: "force", label: "Force" }
+];
+
+// Blank counts as 0. Keys are never removed (item updates merge object
+// fields), so a cleared type stays configured at 0. Max follows value upward
+// so a piece never ends up with a current value above its max.
+function setTypeValue(type: string, field: "value" | "max", event: Event) {
+  const raw = (event.target as HTMLInputElement).value;
+  const entry = {
+    value: 0,
+    max: 0,
+    ...(reactiveItem.system.typeValues?.[type] ?? {})
+  };
+  entry[field] = raw === "" ? 0 : Math.max(0, Number(raw));
+  if (field === "value" && entry.max < entry.value) entry.max = entry.value;
+  reactiveItem.system.typeValues = {
+    ...(reactiveItem.system.typeValues ?? {}),
+    [type]: entry
+  };
+}
 
 // Handle rank change - update all three values atomically
 function handleRankChange(event: Event) {

@@ -7,7 +7,7 @@ import type { FaseripActor } from "../documents";
 import DefenseResponseModal from "../applications/DefenseResponseModal.vue";
 import CounterAttackModal from "../applications/CounterAttackModal.vue";
 import { VueDialog } from "../applications/vue-dialog";
-import { formatRankDisplay } from "../enums";
+import { formatRankDisplay, RollResult } from "../enums";
 import type { BaseActorSystemData } from "../types/actor-system";
 import {
   applyDamageToActor,
@@ -17,7 +17,10 @@ import {
   type DamageComponent
 } from "../utils/damage-application";
 import { getActiveLifeLinkRedirect } from "../utils/power-aura";
-import { createEffectRegion, type CreateEffectRegionOptions } from "../utils/region-effects";
+import {
+  createEffectRegion,
+  type CreateEffectRegionOptions
+} from "../utils/region-effects";
 import type { ArmorPiercingResult } from "../utils/armor-piercing";
 import { getEffectiveAttributeData } from "../utils/stat-debuffs";
 import { applyTemporaryModifier } from "../utils/temp-effects";
@@ -29,6 +32,7 @@ import {
   type PvpDefenderAction,
   type FaseripPvpConfig
 } from "../integrations/holosuite-pvp-intrusion";
+import { FaseripRoll } from "../rolling/FaseripRoll";
 
 /**
  * Socket module instance
@@ -226,6 +230,7 @@ export function initializeSocket(): void {
   socket.register("cancelDefensePrompt", handleCancelDefensePrompt);
   socket.register("promptCounterAttack", handleCounterAttackPrompt);
   socket.register("cancelCounterAttackPrompt", handleCancelCounterAttackPrompt);
+  socket.register("promptResist", handleResistPrompt);
   socket.register("applyDamage", handleApplyDamage);
   socket.register("applyLifeLinkRedirect", handleApplyLifeLinkRedirect);
   socket.register("applyStatDebuff", handleApplyStatDebuff);
@@ -282,7 +287,9 @@ async function handleCreateEffectRegion(
   // @ts-expect-error - Foundry fromUuidSync global
   const scene = fromUuidSync(data.sceneUuid);
   if (!scene) {
-    console.error("FASERIP Socket | Scene not found for effect region creation");
+    console.error(
+      "FASERIP Socket | Scene not found for effect region creation"
+    );
     return null;
   }
 
@@ -363,10 +370,13 @@ async function handleSetBlendInState(data: {
   tokenUuid: string;
   flag: import("../utils/blend-in").BlendInFlag | null;
 }): Promise<void> {
-  // @ts-expect-error - Foundry fromUuidSync global
-  const tokenDoc = fromUuidSync(data.tokenUuid);
+  // Typed as any: Foundry's flag typing rejects our custom "faserip" scope
+  const tokenDoc = fromUuidSync(data.tokenUuid as any) as any;
   if (!tokenDoc) {
-    console.error("FASERIP Socket | Blend-in target token not found", data.tokenUuid);
+    console.error(
+      "FASERIP Socket | Blend-in target token not found",
+      data.tokenUuid
+    );
     return;
   }
 
@@ -397,10 +407,13 @@ async function handleRevealBlendedToken(data: {
   tokenUuid: string;
   userId: string;
 }): Promise<void> {
-  // @ts-expect-error - Foundry fromUuidSync global
-  const tokenDoc = fromUuidSync(data.tokenUuid);
+  // Typed as any: Foundry's flag typing rejects our custom "faserip" scope
+  const tokenDoc = fromUuidSync(data.tokenUuid as any) as any;
   if (!tokenDoc) {
-    console.error("FASERIP Socket | Blend-in reveal target not found", data.tokenUuid);
+    console.error(
+      "FASERIP Socket | Blend-in reveal target not found",
+      data.tokenUuid
+    );
     return;
   }
 
@@ -446,13 +459,16 @@ function handleOpenPvpDefenderView(data: {
     return;
   }
 
-  const view = new PvpDefenderView(data.snapshot, (action: PvpDefenderAction) => {
-    if (!socket) return;
-    socket.executeAsUser("pvpDefenderAction", data.pvp.attackerUserId, {
-      sessionId: data.snapshot.sessionId,
-      action
-    });
-  });
+  const view = new PvpDefenderView(
+    data.snapshot,
+    (action: PvpDefenderAction) => {
+      if (!socket) return;
+      socket.executeAsUser("pvpDefenderAction", data.pvp.attackerUserId, {
+        sessionId: data.snapshot.sessionId,
+        action
+      });
+    }
+  );
   pvpDefenderViews.set(data.snapshot.sessionId, view);
   void view.render(true);
 }
@@ -521,7 +537,10 @@ export function openPvpDefenderView(
     );
     return;
   }
-  socket.executeAsUser("openPvpDefenderView", pvp.defenderUserId, { pvp, snapshot });
+  socket.executeAsUser("openPvpDefenderView", pvp.defenderUserId, {
+    pvp,
+    snapshot
+  });
 }
 
 /** Pushes a fresh PvpSnapshot to the defender's cross-client view, if one is
@@ -642,13 +661,17 @@ interface NodeHackModePromptData {
  * once a node attempt first fails, or a meter that only grows on failure, scaled by the
  * failed node's difficulty.
  */
-async function handlePromptNodeHackMode(data: NodeHackModePromptData): Promise<{ mode: NodeHackMode }> {
+async function handlePromptNodeHackMode(
+  data: NodeHackModePromptData
+): Promise<{ mode: NodeHackMode }> {
   const options = [
     `<option value="auto-time">Auto - Timed Countdown</option>`,
     `<option value="auto-points" selected>Auto - Failure Meter</option>`
   ];
   if (data.canManage) {
-    options.unshift(`<option value="managed">Managed (I play the trace live)</option>`);
+    options.unshift(
+      `<option value="managed">Managed (I play the trace live)</option>`
+    );
   }
 
   // @ts-expect-error - Foundry DialogV2 is not typed in the current version
@@ -668,7 +691,9 @@ async function handlePromptNodeHackMode(data: NodeHackModePromptData): Promise<{
 }
 
 /** Requests the managed-vs-auto (and auto trace flavor) choice from the GM specifically. */
-export async function requestNodeHackMode(data: NodeHackModePromptData): Promise<NodeHackMode> {
+export async function requestNodeHackMode(
+  data: NodeHackModePromptData
+): Promise<NodeHackMode> {
   // @ts-expect-error - Foundry game.user global
   if (game.user?.isGM) {
     const result = await handlePromptNodeHackMode(data);
@@ -795,12 +820,13 @@ interface SetDoorLockStateData {
   ds: number;
 }
 
-
 /** Runs on a GM client (or locally if the caller already is GM) - only a
  * GM typically holds update permission on Wall documents. */
-async function handleSetDoorLockState(data: SetDoorLockStateData): Promise<boolean> {
+async function handleSetDoorLockState(
+  data: SetDoorLockStateData
+): Promise<boolean> {
   // @ts-expect-error - Foundry global fromUuid
-  const wall = await fromUuid(data.wallUuid);
+  const wall = (await fromUuid(data.wallUuid)) as any;
   if (!wall) return false;
   await wall.update({ ds: data.ds });
   return true;
@@ -881,7 +907,10 @@ export async function requestSetDoorHackRequiredColor(
     );
     return false;
   }
-  return await socket.executeAsGM("setDoorHackRequiredColor", { wallUuid, value });
+  return await socket.executeAsGM("setDoorHackRequiredColor", {
+    wallUuid,
+    value
+  });
 }
 
 interface SetDoorHackGraphNameData {
@@ -891,7 +920,9 @@ interface SetDoorHackGraphNameData {
 
 /** Runs on a GM client (or locally if the caller already is GM) - only a
  * GM typically holds update permission on Wall documents. */
-async function handleSetDoorHackGraphName(data: SetDoorHackGraphNameData): Promise<boolean> {
+async function handleSetDoorHackGraphName(
+  data: SetDoorHackGraphNameData
+): Promise<boolean> {
   // @ts-expect-error - Foundry global fromUuid
   const wall = await fromUuid(data.wallUuid);
   if (!wall) return false;
@@ -921,7 +952,10 @@ export async function requestSetDoorHackGraphName(
     );
     return false;
   }
-  return await socket.executeAsGM("setDoorHackGraphName", { wallUuid, graphName });
+  return await socket.executeAsGM("setDoorHackGraphName", {
+    wallUuid,
+    graphName
+  });
 }
 
 /**
@@ -955,10 +989,9 @@ function pollForDefenseResolution(
         resolve(null);
         return;
       }
-      const resolution = targetActor.getFlag(
-        "faserip",
-        "defenseResolution"
-      ) as DefenseResolutionFlag | undefined;
+      const resolution = targetActor.getFlag("faserip", "defenseResolution") as
+        | DefenseResolutionFlag
+        | undefined;
       if (resolution && resolution.promptId === promptId) {
         clearInterval(timer);
         await targetActor.unsetFlag("faserip", "defenseResolution");
@@ -1234,7 +1267,10 @@ async function handleDefensePrompt(
   if (isActorDead(targetActor)) {
     return { defenseType: "takeHit" };
   }
-  if (isActorUnconscious(targetActor) && isPhysicalDefenseAttribute(defenseAttribute)) {
+  if (
+    isActorUnconscious(targetActor) &&
+    isPhysicalDefenseAttribute(defenseAttribute)
+  ) {
     return { defenseType: "takeHit" };
   }
 
@@ -1396,16 +1432,14 @@ async function handleDefensePrompt(
  * stuck forever if a prompt is truly abandoned.
  */
 async function checkPendingAttacksOnReady(): Promise<void> {
-  // @ts-expect-error - Foundry game.actors collection
   const actors = (game.actors ?? []) as FaseripActor[];
 
   for (const actor of actors) {
     if (!actor.isOwner) continue;
 
-    const pending = actor.getFlag(
-      "faserip",
-      "pendingAttack"
-    ) as PendingAttackFlag | undefined;
+    const pending = actor.getFlag("faserip", "pendingAttack") as
+      | PendingAttackFlag
+      | undefined;
     if (!pending) continue;
 
     if (Date.now() - pending.createdAt > PENDING_ATTACK_STALE_MS) {
@@ -1734,6 +1768,122 @@ export async function requestDamageApplication(
   return result;
 }
 
+/**
+ * A resist roll an affected actor makes against a mass-effect power (see
+ * utils/power-mass-effect.ts). `tier`: 0 = White, 1 = Green, 2 = Yellow,
+ * 3 = Red, 4 = a natural 100.
+ */
+interface ResistPromptData {
+  targetActorId: string;
+  targetTokenId?: string;
+  attribute: string; // "intuition", "psyche", ...
+  powerName: string;
+  sourceName: string; // who is using the power
+}
+
+export interface ResistRollResult {
+  rolled: boolean; // false when no roll could be made
+  tier: number;
+}
+
+/**
+ * Runs on the affected actor's owner's client. Goes through the standard
+ * attribute roll, which prompts for karma before and after the roll, so each
+ * owner decides for their own actor whether to spend it.
+ */
+async function handleResistPrompt(
+  data: ResistPromptData
+): Promise<ResistRollResult> {
+  let targetActor: FaseripActor | undefined;
+  if (data.targetTokenId) {
+    targetActor = canvas?.tokens?.get(data.targetTokenId)?.actor as
+      | FaseripActor
+      | undefined;
+  }
+  if (!targetActor) {
+    // @ts-expect-error - Foundry game.actors collection
+    targetActor = game.actors?.get(data.targetActorId) as
+      | FaseripActor
+      | undefined;
+  }
+  if (!targetActor) return { rolled: false, tier: 0 };
+
+  // @ts-expect-error - Foundry game.user global
+  if (!game.user?.isGM && !targetActor.isOwner) {
+    return { rolled: false, tier: 0 };
+  }
+
+  const stat = getEffectiveAttributeData(
+    targetActor,
+    data.attribute.toLowerCase() as any
+  );
+  if (!stat) return { rolled: false, tier: 0 };
+
+  const attributeLabel =
+    data.attribute.charAt(0).toUpperCase() + data.attribute.slice(1);
+  ui.notifications?.info(
+    `${data.sourceName} uses ${data.powerName} on ${targetActor.name} - roll ${attributeLabel} to resist!`
+  );
+
+  // Imported lazily: FaseripRoll pulls in dialogs that import this module.
+  const roll = await FaseripRoll.rollAttribute(
+    attributeLabel,
+    stat.rank,
+    stat.value,
+    0,
+    targetActor,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    false,
+    0,
+    `Resisting ${data.powerName}`
+  );
+  if (!roll) return { rolled: false, tier: 0 };
+
+  const total = roll.roll.total || 0;
+  let tier = 0;
+  if (total === 100) tier = 4;
+  else if (roll.result === RollResult.Red) tier = 3;
+  else if (roll.result === RollResult.Yellow) tier = 2;
+  else if (roll.result === RollResult.Green) tier = 1;
+  return { rolled: true, tier };
+}
+
+/**
+ * Ask the owner of an affected actor to make a resist roll. Falls back to
+ * the GM when nobody who owns it is online, and to rolling locally when
+ * socketlib isn't available.
+ */
+export async function requestResistRoll(
+  targetActor: FaseripActor,
+  targetTokenId: string | undefined,
+  data: Omit<ResistPromptData, "targetActorId" | "targetTokenId">
+): Promise<ResistRollResult> {
+  const payload: ResistPromptData = {
+    ...data,
+    targetActorId: targetActor.id!,
+    targetTokenId
+  };
+
+  const controllers = findTokenControllers(targetActor);
+  // @ts-expect-error - Foundry game.user global
+  const me = game.user;
+
+  if (!socket || controllers.some(u => u.id === me?.id)) {
+    return await handleResistPrompt(payload);
+  }
+  if (controllers.length > 0) {
+    return await socket.executeAsUser(
+      "promptResist",
+      controllers[0].id,
+      payload
+    );
+  }
+  return await socket.executeAsGM("promptResist", payload);
+}
+
 export async function requestStatDebuffApplication(
   targetActor: FaseripActor,
   data: ApplyStatDebuffData
@@ -1825,6 +1975,17 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     targetArmorOnly: data.targetArmorOnly
   });
 
+  // The flattened armorDamage/newArmorValue are only filled in for a
+  // single-damage-type attack; for multi-type attacks total them from the
+  // per-type breakdown so the messages and return value are always numbers.
+  const perTypeResults = Object.values(result.perType ?? {});
+  const armorDamage =
+    result.armorDamage ??
+    perTypeResults.reduce((sum, r) => sum + r.armorDamage, 0);
+  const newArmorValue =
+    result.newArmorValue ??
+    perTypeResults.reduce((sum, r) => sum + r.newArmorValue, 0);
+
   // Life-link: redirect a % of the health damage just dealt onto a bonded
   // actor instead (see getActiveLifeLinkRedirect in utils/power-aura.ts).
   // Only the FINAL health-damage number is split (after armor/resistance) -
@@ -1887,12 +2048,12 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
               ? "fsr-roll-green"
               : "fsr-roll-white";
 
-      if (result.armorDamage > 0) {
+      if (armorDamage > 0) {
         // Resistance applied to overflow after armor
         await ChatMessage.create({
           content: `<div class="fsr-chat-card">
             <h3>Resistance: Two-Stage Protection</h3>
-            <p><strong>${targetActor.name}</strong>'s armor absorbed ${result.armorDamage} damage</p>
+            <p><strong>${targetActor.name}</strong>'s armor absorbed ${armorDamage} damage</p>
             <p><strong>${rr.resistancePower.name}</strong> (${formatRankDisplay(rr.resistanceRank)}): ${rr.resistanceValue} flat reduction</p>
             <p class="fsr-rank-change">${rr.incomingDamage} overflow - ${rr.resistanceValue} resistance = ${rr.overflowDamage} remaining</p>
             <p>Resistance Roll: <span class="${colorClass}">${rr.rollValue}</span> - <strong class="${colorClass}">${rr.colorResult?.toUpperCase()}</strong> result (${rr.resistancePercent}% reduction of overflow)</p>
@@ -1918,17 +2079,14 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
     }
   } else if (result.resistancePower && result.resistanceReduction) {
     // Legacy fallback for old resistance system (deprecated - kept for backward compatibility)
-    if (result.armorDamage > 0) {
+    if (armorDamage > 0) {
       // Resistance applied to overflow
-      if (
-        result.resistanceReduction >=
-        result.originalDamage! - result.armorDamage
-      ) {
+      if (result.resistanceReduction >= result.originalDamage! - armorDamage) {
         // Complete resistance to overflow
         await ChatMessage.create({
           content: `<div class="fsr-chat-card fsr-success">
             <h3>Resistance: Complete Protection</h3>
-            <p><strong>${targetActor.name}</strong>'s armor absorbed ${result.armorDamage} damage</p>
+            <p><strong>${targetActor.name}</strong>'s armor absorbed ${armorDamage} damage</p>
             <p><strong>${result.resistancePower.name}</strong> (${formatRankDisplay(result.resistancePower.rank)}: ${result.resistancePower.value}) completely resists ${result.resistanceReduction} overflow ${data.damageType} damage${data.powerName ? ` from <strong>${data.powerName}</strong>` : ""}!</p>
           </div>`,
           speaker: ChatMessage.getSpeaker({ actor: targetActor })
@@ -1938,9 +2096,9 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
         await ChatMessage.create({
           content: `<div class="fsr-chat-card">
             <h3>Resistance: Partial Protection</h3>
-            <p><strong>${targetActor.name}</strong>'s armor absorbed ${result.armorDamage} damage</p>
+            <p><strong>${targetActor.name}</strong>'s armor absorbed ${armorDamage} damage</p>
             <p><strong>${result.resistancePower.name}</strong> (${formatRankDisplay(result.resistancePower.rank)}: ${result.resistancePower.value}) reduces overflow ${data.damageType} damage by ${result.resistanceReduction}</p>
-            <p class="fsr-rank-change">${result.originalDamage! - result.armorDamage} → ${result.healthDamage} overflow damage</p>
+            <p class="fsr-rank-change">${result.originalDamage! - armorDamage} → ${result.healthDamage} overflow damage</p>
           </div>`,
           speaker: ChatMessage.getSpeaker({ actor: targetActor })
         });
@@ -2050,9 +2208,9 @@ async function handleApplyDamage(data: ApplyDamageData): Promise<{
   }
 
   const returnResult = {
-    armorDamage: result.armorDamage,
+    armorDamage,
     healthDamage: result.healthDamage,
-    newArmorValue: result.newArmorValue,
+    newArmorValue,
     newHealthValue: result.newHealthValue,
     piercingResult: result.piercingResult
   };
@@ -2105,9 +2263,7 @@ async function handleApplyLifeLinkRedirect(data: {
 
   // @ts-expect-error - Foundry game.user global
   if (!game.user?.isGM && !targetActor.isOwner) {
-    console.warn(
-      "FASERIP Socket | User doesn't own life-link redirect target"
-    );
+    console.warn("FASERIP Socket | User doesn't own life-link redirect target");
     return;
   }
 
@@ -2319,7 +2475,9 @@ export async function requestStatusEffectApplication(
   return await socket.executeAsUser("applyStatusEffect", owner.id, data);
 }
 
-async function handleApplyDot(data: ApplyDotData): Promise<ApplyDotData | null> {
+async function handleApplyDot(
+  data: ApplyDotData
+): Promise<ApplyDotData | null> {
   let targetActor: FaseripActor | undefined;
 
   if (data.targetTokenId) {
@@ -2447,7 +2605,6 @@ export async function requestDotRemoval(
   targetActor: FaseripActor,
   effectId: string
 ): Promise<boolean> {
-  // @ts-expect-error - Foundry token property may exist on synthetic actors
   const targetTokenId: string | null = targetActor.token?.id ?? null;
   const data: RemoveDotData = {
     targetActorId: targetActor.id!,

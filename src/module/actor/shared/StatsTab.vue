@@ -39,6 +39,8 @@ import {
   getBlendInFlag,
   resolveBlendInSpotChecksFromRoll
 } from "../../utils/blend-in";
+import { activateMassEffect } from "../../utils/power-mass-effect";
+import { rollEntryDuration } from "../../utils/area-of-effect";
 import type { Talent } from "../../types";
 import {
   executeCombatAttack,
@@ -54,6 +56,7 @@ import type {
   PowerStatDebuffData,
   PowerDamageDebuffData,
   PowerDotData,
+  PowerStatusEffectData,
   WeaponAreaOfEffectData
 } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
@@ -67,6 +70,8 @@ import { applyHealingToActor } from "../../utils/damage-application";
 import { isWeaponItem, type WeaponItem } from "../../types/items";
 import {
   getEffectiveAttributeData,
+  getStatDebuffShiftForResult,
+  getDamageBuffShiftForResult,
   type AttributeKey
 } from "../../utils/stat-debuffs";
 
@@ -84,6 +89,7 @@ interface Weapon {
   statDebuffs?: PowerStatDebuffData[];
   damageBuffs?: PowerDamageDebuffData[];
   dots?: PowerDotData[];
+  statusEffects?: PowerStatusEffectData[];
   areaOfEffect?: WeaponAreaOfEffectData;
   damageTypes?: string[]; // Damage type(s) this weapon deals (defaults to Physical)
 }
@@ -170,6 +176,9 @@ const weapons = computed<Weapon[]>(() => {
       | PowerDamageDebuffData[]
       | undefined,
     dots: item.system.dots as PowerDotData[] | undefined,
+    statusEffects: item.system.statusEffects as
+      | PowerStatusEffectData[]
+      | undefined,
     areaOfEffect: item.system.areaOfEffect as
       | WeaponAreaOfEffectData
       | undefined,
@@ -234,6 +243,7 @@ const handleItemDelete = (item: Item) => {
   }
 };
 
+// @ts-expect-error - Foundry game.user global
 const isGM = game.user?.isGM ?? false;
 const gmPowerOverride = ref(false);
 const powersNegated = ref(isPowersNegated(actor));
@@ -1814,6 +1824,13 @@ async function rollPower(power: any) {
     return;
   }
 
+  // Mass-effect powers hit everyone in range / every target, each with a
+  // resist roll, instead of one attack roll against one defender.
+  if (power.massEffect?.enabled) {
+    await activateMassEffect(actor, power);
+    return;
+  }
+
   // Auras aren't rolled against a target - using the power toggles its
   // region on/off instead of running the normal roll/targeting flow. A
   // life-link aura is the one exception: it still needs a target selected
@@ -2596,24 +2613,38 @@ async function rollPower(power: any) {
       // Apply stat debuffs
       for (const sd of power.statDebuffs ?? []) {
         if (!sd.enabled) continue;
+        const shift = getStatDebuffShiftForResult(
+          sd,
+          faseripRoll.result,
+          faseripRoll.roll.total || 0
+        );
+        if (!shift) continue;
+        const duration = await rollEntryDuration(sd.durationFormula);
         await applyHitStatDebuff(
           targetActor,
           token.id,
           sd,
           { powerName: power.name },
-          faseripRoll
+          { chartShift: shift, ...duration }
         );
       }
 
       // Apply damage buffs
       for (const db of power.damageBuffs ?? []) {
         if (!db.enabled) continue;
+        const shift = getDamageBuffShiftForResult(
+          db,
+          faseripRoll.result,
+          faseripRoll.roll.total || 0
+        );
+        if (!shift) continue;
+        const duration = await rollEntryDuration(db.durationFormula);
         await applyHitDamageBuff(
           targetActor,
           token.id,
           db,
           { powerName: power.name },
-          faseripRoll
+          { chartShift: shift, ...duration }
         );
       }
 

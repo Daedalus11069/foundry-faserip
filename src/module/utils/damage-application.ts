@@ -19,19 +19,39 @@ export interface DamageComponent {
   amount: number;
 }
 
+interface SoakSource {
+  grantsArmor?: boolean;
+  armorTypes?: string[];
+  value?: number;
+  physicalValue?: number | null;
+  magicValue?: number;
+  mentalValue?: number;
+  typeValues?: Record<string, { value?: number; max?: number }>;
+}
+
+/** Whether a power currently provides its armor layer. */
+export function isArmorPowerActive(power: {
+  grantsArmor?: boolean;
+  armorToggle?: boolean;
+  armorActive?: boolean;
+}): boolean {
+  return !!power.grantsArmor && (!power.armorToggle || !!power.armorActive);
+}
+
+const hasTypeValues = (source: SoakSource): boolean =>
+  !!source.typeValues && Object.keys(source.typeValues).length > 0;
+
 /** Per-type armor soak lookup. Physical falls back to the legacy flat `value`
  * field when not explicitly configured; Magic/Mental have no legacy
- * equivalent and default to 0. Any other damage type (fire, cold, etc.)
- * keeps today's behavior of soaking off the flat `value` field. */
-function getArmorSoak(
-  source: {
-    value?: number;
-    physicalValue?: number | null;
-    magicValue?: number;
-    mentalValue?: number;
-  },
-  type: DamageType | string
-): number {
+ * equivalent and default to 0. Any other damage type (fire, energy, etc.)
+ * uses the piece's `typeValues` entry; a legacy piece with no `typeValues`
+ * keeps soaking those off the flat `value`, while a piece that configures
+ * any type soaks 0 against the types it doesn't list. */
+function getArmorSoak(source: SoakSource, type: DamageType | string): number {
+  // Armor-granting powers soak only their listed types, at the power's value
+  if (source.grantsArmor) {
+    return source.armorTypes?.includes(type as string) ? (source.value ?? 0) : 0;
+  }
   if (type === DamageType.Physical) {
     return source.physicalValue ?? source.value ?? 0;
   }
@@ -41,40 +61,48 @@ function getArmorSoak(
   if (type === DamageType.Mental) {
     return source.mentalValue ?? 0;
   }
+  if (hasTypeValues(source)) {
+    return source.typeValues![type]?.value ?? 0;
+  }
   return source.value ?? 0;
+}
+
+/** Item update key for the soak bucket that `type` reads from. */
+function soakUpdateKey(source: SoakSource, type: DamageType | string): string {
+  if (source.grantsArmor) return "system.value";
+  if (type === DamageType.Magic) return "system.magicValue";
+  if (type === DamageType.Mental) return "system.mentalValue";
+  if (type === DamageType.Physical) {
+    return source.physicalValue != null
+      ? "system.physicalValue"
+      : "system.value";
+  }
+  return hasTypeValues(source)
+    ? `system.typeValues.${type}.value`
+    : "system.value";
 }
 
 /** Reduce the per-type armor field(s) that correspond to `type` by `amount`.
  * Returns the new remaining value for that bucket and whether it hit 0. */
 function degradeArmorSoak(
-  source: {
-    value?: number;
-    physicalValue?: number | null;
-    magicValue?: number;
-    mentalValue?: number;
-  },
+  source: SoakSource,
   type: DamageType | string,
   amount: number
 ): { newValue: number; destroyed: boolean } {
-  if (type === DamageType.Magic) {
-    const newValue = Math.max(0, (source.magicValue ?? 0) - amount);
+  const newValue = Math.max(0, getArmorSoak(source, type) - amount);
+  if (source.grantsArmor) {
+    source.value = newValue;
+  } else if (type === DamageType.Magic) {
     source.magicValue = newValue;
-    return { newValue, destroyed: newValue === 0 };
-  }
-  if (type === DamageType.Mental) {
-    const newValue = Math.max(0, (source.mentalValue ?? 0) - amount);
+  } else if (type === DamageType.Mental) {
     source.mentalValue = newValue;
-    return { newValue, destroyed: newValue === 0 };
-  }
-  // Physical (and any unbucketed type) degrades the legacy flat value,
-  // unless physicalValue has been explicitly configured as its own bucket.
-  if (type === DamageType.Physical && source.physicalValue != null) {
-    const newValue = Math.max(0, source.physicalValue - amount);
+  } else if (type === DamageType.Physical && source.physicalValue != null) {
     source.physicalValue = newValue;
-    return { newValue, destroyed: newValue === 0 };
+  } else if (type !== DamageType.Physical && hasTypeValues(source)) {
+    source.typeValues![type] = { ...source.typeValues![type], value: newValue };
+  } else {
+    source.value = newValue;
   }
-  const newValue = Math.max(0, (source.value ?? 0) - amount);
-  source.value = newValue;
   return { newValue, destroyed: newValue === 0 };
 }
 
@@ -224,6 +252,36 @@ export async function applyDamageToActor(
         item.system.formIds.includes(currentFormId))
   );
 
+  // Group armor into layers, outermost first. Pieces sharing a layer add
+  // together; Body Armor is the innermost layer. Damage passes outer to inner.
+  type ArmorPiece = { source: SoakSource; item?: ArmorItem };
+  const layerMap = new Map<number, ArmorPiece[]>();
+  for (const item of equippedArmorItems) {
+    const layerNo = item.system.layer ?? 1;
+    const pieces = layerMap.get(layerNo) ?? [];
+    pieces.push({ source: item.system as any, item });
+    layerMap.set(layerNo, pieces);
+  }
+  // Armor-granting powers join the layers at their own layer number
+  for (const power of system.powers || []) {
+    if (
+      !isArmorPowerActive(power) ||
+      (power.formIds?.length && !power.formIds.includes(currentFormId))
+    ) {
+      continue;
+    }
+    const layerNo = power.armorLayer ?? 1;
+    const pieces = layerMap.get(layerNo) ?? [];
+    pieces.push({ source: power });
+    layerMap.set(layerNo, pieces);
+  }
+  const layers: ArmorPiece[][] = [...layerMap.keys()]
+    .sort((a, b) => a - b)
+    .map(k => layerMap.get(k)!);
+  if (bodyArmorPower) layers.push([{ source: bodyArmorPower }]);
+  const layerSoak = (layer: ArmorPiece[], type: string) =>
+    layer.reduce((sum, piece) => sum + getArmorSoak(piece.source, type), 0);
+
   const perType: Record<string, PerTypeDamageResult> = {};
   let totalHealthDamage = 0;
   let anyArmorDestroyed = false;
@@ -234,14 +292,10 @@ export async function applyDamageToActor(
     let damage = component.amount;
 
     // Total armor available against this specific damage type
-    const bodyArmorValueForType = bodyArmorPower
-      ? getArmorSoak(bodyArmorPower, type)
-      : 0;
-    const equippedArmorValueForType = equippedArmorItems.reduce(
-      (sum, item) => sum + getArmorSoak(item.system as any, type),
+    const totalArmor = layers.reduce(
+      (sum, layer) => sum + layerSoak(layer, type),
       0
     );
-    const totalArmor = bodyArmorValueForType + equippedArmorValueForType;
 
     let armorDamage = 0;
     let overflow = 0;
@@ -307,131 +361,49 @@ export async function applyDamageToActor(
         overflow += hitDamage - soaked;
       }
 
-      // Reduce armor values (EQUIPPED ARMOR FIRST, then body armor power).
-      // Each damage type degrades only its own soak bucket independently.
-      // "full" mode degrades by what armor would have soaked with no
-      // piercing applied (pre-AP), even though the actual (post-AP)
-      // armorDamage may be lower or zero - a fully-pierced hit still wears
-      // the armor down.
-      const preApArmorDamage = Math.min(damage, totalArmor);
-      let remainingArmorDamage = preApArmorDamage;
+      // Degrade layer by layer, outermost first. A layer only wears from
+      // damage that actually reached it: "full" mode wears by the pre-AP
+      // damage the layer would absorb, "per-hit" mode by hitCount (default 1)
+      // for every layer the hit reached. Fully-pierced hits still wear armor.
+      if (
+        (degradingArmorMode === "full" || degradingArmorMode === "per-hit") &&
+        Math.min(damage, totalArmor) > 0
+      ) {
+        let passing = damage;
+        for (const layer of layers) {
+          if (passing <= 0) break;
+          const capacity = layerSoak(layer, type);
+          if (capacity <= 0) continue;
 
-      if (degradingArmorMode === "full") {
-        for (const armorItem of equippedArmorItems) {
-          if (remainingArmorDamage <= 0) break;
+          let remainingWear =
+            degradingArmorMode === "full"
+              ? Math.min(passing, capacity)
+              : Math.min(data.hitCount || 1, capacity);
 
-          const armorValue = getArmorSoak(armorItem.system as any, type);
-          const armorReduction = Math.min(remainingArmorDamage, armorValue);
+          for (const piece of layer) {
+            if (remainingWear <= 0) break;
+            const pieceValue = getArmorSoak(piece.source, type);
+            const reduction = Math.min(remainingWear, pieceValue);
+            if (reduction <= 0) continue;
 
-          if (armorReduction > 0) {
+            const updateKey = soakUpdateKey(piece.source, type);
             const { newValue, destroyed } = degradeArmorSoak(
-              armorItem.system as any,
-              type,
-              armorReduction
-            );
-            const updateKey =
-              type === DamageType.Magic
-                ? "system.magicValue"
-                : type === DamageType.Mental
-                  ? "system.mentalValue"
-                  : type === DamageType.Physical &&
-                      (armorItem.system as any).physicalValue != null
-                    ? "system.physicalValue"
-                    : "system.value";
-            await armorItem.update({
-              [updateKey]: newValue
-            } as Record<string, unknown>);
-            remainingArmorDamage -= armorReduction;
-
-            if (destroyed) {
-              armorDestroyed = true;
-            }
-          }
-        }
-
-        if (bodyArmorPower && remainingArmorDamage > 0) {
-          const bodyArmorValue = getArmorSoak(bodyArmorPower, type);
-          const bodyArmorReduction = Math.min(
-            remainingArmorDamage,
-            bodyArmorValue
-          );
-          if (bodyArmorReduction > 0) {
-            const { destroyed } = degradeArmorSoak(
-              bodyArmorPower,
-              type,
-              bodyArmorReduction
-            );
-            if (destroyed) {
-              bodyArmorDestroyed = true;
-            }
-          }
-        }
-      } else if (degradingArmorMode === "per-hit" && preApArmorDamage > 0) {
-        // Per-hit degradation: Reduce armor by hitCount (default 1) whenever
-        // the hit would have reached armor (pre-AP), including fully-pierced hits.
-        const degradationAmount = data.hitCount || 1;
-
-        if (equippedArmorItems.length > 0) {
-          let remainingDegradation = degradationAmount;
-
-          for (const armorItem of equippedArmorItems) {
-            if (remainingDegradation <= 0) break;
-            const armorValue = getArmorSoak(armorItem.system as any, type);
-            if (armorValue <= 0) continue;
-
-            const reduction = Math.min(remainingDegradation, armorValue);
-            const { newValue, destroyed } = degradeArmorSoak(
-              armorItem.system as any,
+              piece.source,
               type,
               reduction
             );
-            const updateKey =
-              type === DamageType.Magic
-                ? "system.magicValue"
-                : type === DamageType.Mental
-                  ? "system.mentalValue"
-                  : type === DamageType.Physical &&
-                      (armorItem.system as any).physicalValue != null
-                    ? "system.physicalValue"
-                    : "system.value";
-            await armorItem.update({
-              [updateKey]: newValue
-            } as Record<string, unknown>);
+            remainingWear -= reduction;
 
-            remainingDegradation -= reduction;
-
-            if (destroyed) {
-              armorDestroyed = true;
-            }
-          }
-
-          if (
-            remainingDegradation > 0 &&
-            bodyArmorPower &&
-            getArmorSoak(bodyArmorPower, type) > 0
-          ) {
-            const reduction = Math.min(
-              remainingDegradation,
-              getArmorSoak(bodyArmorPower, type)
-            );
-            const { destroyed } = degradeArmorSoak(
-              bodyArmorPower,
-              type,
-              reduction
-            );
-            if (destroyed) {
+            if (piece.item) {
+              await piece.item.update({
+                [updateKey]: newValue
+              } as Record<string, unknown>);
+              if (destroyed) armorDestroyed = true;
+            } else if (destroyed) {
               bodyArmorDestroyed = true;
             }
           }
-        } else if (bodyArmorPower && getArmorSoak(bodyArmorPower, type) > 0) {
-          const reduction = Math.min(
-            degradationAmount,
-            getArmorSoak(bodyArmorPower, type)
-          );
-          const { destroyed } = degradeArmorSoak(bodyArmorPower, type, reduction);
-          if (destroyed) {
-            bodyArmorDestroyed = true;
-          }
+          passing -= capacity;
         }
       }
       // "none" mode: No degradation, armor soaks but keeps full value
@@ -487,7 +459,13 @@ export async function applyDamageToActor(
       armorDamage,
       overflow,
       healthDamage: healthDamageForType,
-      newArmorValue: totalArmor - armorDamage,
+      // Actual armor left after degradation (degradeArmorSoak mutates the
+      // in-memory sources). Not totalArmor - armorDamage: per-hit mode
+      // degrades by hit count, not by the amount soaked.
+      newArmorValue: layers.reduce(
+        (sum, layer) => sum + layerSoak(layer, type),
+        0
+      ),
       armorDestroyed,
       bodyArmorDestroyed,
       resistanceRollResult,

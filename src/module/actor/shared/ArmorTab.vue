@@ -21,9 +21,12 @@ const armorItems = computed((): ArmorItem[] => {
   return actor.items.filter(isArmorItem);
 });
 
-const equippedArmor = computed((): ArmorItem | undefined => {
+// Equipped pieces, outermost layer first
+const equippedArmorList = computed((): ArmorItem[] => {
   void itemsUpdateKey.value; // Force reactivity
-  return armorItems.value.find(item => item.system.equipped);
+  return armorItems.value
+    .filter(item => item.system.equipped)
+    .sort((a, b) => (a.system.layer ?? 1) - (b.system.layer ?? 1));
 });
 
 // Hook callbacks
@@ -108,19 +111,7 @@ async function deleteArmor(itemId: string) {
 }
 
 async function equipArmor(itemId: string) {
-  // Unequip all armor first
-  const updates = armorItems.value
-    .filter(item => item.system.equipped && item.id !== itemId)
-    .map(item => ({
-      _id: item.id,
-      "system.equipped": false
-    }));
-
-  if (updates.length > 0) {
-    await actor.updateEmbeddedDocuments("Item", updates);
-  }
-
-  // Equip the selected armor
+  // Armor layers: any number of pieces can be equipped at once
   const targetItem = actor.items.get(itemId);
   if (targetItem) {
     await targetItem.update({ "system.equipped": true } as Record<
@@ -148,6 +139,86 @@ async function updateArmorName(itemId: string, newName: string) {
   const item = actor.items.get(itemId);
   if (item && newName.trim()) {
     await item.update({ name: newName.trim() });
+  }
+}
+
+// Per-type soak buckets. The first three live in dedicated fields; the rest
+// are keyed entries in system.typeValues ({ value, max }).
+interface SoakField {
+  key: string;
+  label: string;
+  valueKey?: string; // dedicated field names (Physical/Magic/Mental)
+  maxKey?: string;
+}
+
+const SOAK_FIELDS: SoakField[] = [
+  { key: "physical", label: "Physical", valueKey: "physicalValue", maxKey: "physicalMaxValue" },
+  { key: "magic", label: "Magic", valueKey: "magicValue", maxKey: "magicMaxValue" },
+  { key: "mental", label: "Mental", valueKey: "mentalValue", maxKey: "mentalMaxValue" },
+  { key: "energy", label: "Energy" },
+  { key: "fire", label: "Fire" },
+  { key: "cold", label: "Cold" },
+  { key: "electricity", label: "Electricity" },
+  { key: "radiation", label: "Radiation" },
+  { key: "sonic", label: "Sonic" },
+  { key: "acid", label: "Acid" },
+  { key: "poison", label: "Poison" },
+  { key: "force", label: "Force" }
+];
+
+function getSoak(
+  item: ArmorItem,
+  field: SoakField,
+  which: "value" | "max"
+): number | string {
+  const system = item.system as any;
+  if (field.valueKey) {
+    return system[which === "value" ? field.valueKey : field.maxKey!] ?? "";
+  }
+  return system.typeValues?.[field.key]?.[which] ?? "";
+}
+
+// Blank counts as 0 (Physical blank clears back to "use the main value").
+// Typed entries are never removed, since item updates merge object fields.
+async function setSoak(
+  item: ArmorItem,
+  field: SoakField,
+  which: "value" | "max",
+  event: Event
+) {
+  const raw = (event.target as HTMLInputElement).value;
+  const system = item.system as any;
+  const amount = raw === "" ? null : Math.max(0, Math.floor(Number(raw)));
+
+  if (field.valueKey) {
+    const update: Record<string, unknown> = {};
+    const valueKey = `system.${field.valueKey}`;
+    const maxKey = `system.${field.maxKey}`;
+    if (which === "value") {
+      update[valueKey] = field.key === "physical" ? amount : (amount ?? 0);
+      const currentMax = system[field.maxKey!] ?? 0;
+      if (amount !== null && amount > currentMax) update[maxKey] = amount;
+    } else {
+      update[maxKey] = field.key === "physical" ? amount : (amount ?? 0);
+    }
+    await item.update(update);
+    return;
+  }
+
+  const entry = { value: 0, max: 0, ...(system.typeValues?.[field.key] ?? {}) };
+  entry[which] = amount ?? 0;
+  if (which === "value" && entry.max < entry.value) entry.max = entry.value;
+  await item.update({
+    [`system.typeValues.${field.key}`]: entry
+  } as Record<string, unknown>);
+}
+
+async function updateArmorLayer(itemId: string, layer: number) {
+  const item = actor.items.get(itemId);
+  if (item && Number.isFinite(layer)) {
+    await item.update({
+      "system.layer": Math.max(1, Math.floor(layer))
+    } as Record<string, unknown>);
   }
 }
 
@@ -268,36 +339,48 @@ async function toggleArmorForm(item: ArmorItem, formId: string) {
     <!-- Equipped summary -->
     <div
       class="mb-4 p-3 rounded"
-      :class="equippedArmor
+      :class="equippedArmorList.length
         ? 'bg-green-900/40 border border-green-600'
         : 'bg-gray-800/40 border border-gray-600'
         "
     >
       <div class="text-sm font-semibold text-gray-300 mb-1">
         Equipped Protection
+        <span class="text-xs font-normal text-gray-400"
+          >(outer layer first)</span
+        >
       </div>
-      <div v-if="equippedArmor" class="flex items-center gap-3">
-        <span class="text-white font-bold">{{ equippedArmor.name }}</span>
-        <span class="fsr-rank-badge">{{
-          formatRankDisplay(equippedArmor.system.rank)
-        }}</span>
-        <span v-if="degradingEnabled" class="text-green-400 font-bold"
-          >{{ equippedArmor.system.value }}/{{
-            equippedArmor.system.maxValue || equippedArmor.system.value
-          }}
-          armor</span
+      <div v-if="equippedArmorList.length" class="flex flex-col gap-1">
+        <div
+          v-for="piece in equippedArmorList"
+          :key="piece.id!"
+          class="flex items-center gap-3"
         >
-        <span v-else class="text-green-400 font-bold"
-          >–{{ equippedArmor.system.value }} dmg</span
-        >
-        <button
-          v-if="equippedArmor.id"
-          @click="unequipArmor(equippedArmor.id)"
-          class="ml-auto text-xs text-gray-400 hover:text-red-400"
-          :title="'Unequip'"
-        >
-          ✕ unequip
-        </button>
+          <span class="text-xs text-gray-400 w-14 shrink-0"
+            >Layer {{ piece.system.layer ?? 1 }}</span
+          >
+          <span class="text-white font-bold">{{ piece.name }}</span>
+          <span class="fsr-rank-badge">{{
+            formatRankDisplay(piece.system.rank)
+          }}</span>
+          <span v-if="degradingEnabled" class="text-green-400 font-bold"
+            >{{ piece.system.value }}/{{
+              piece.system.maxValue || piece.system.value
+            }}
+            armor</span
+          >
+          <span v-else class="text-green-400 font-bold"
+            >–{{ piece.system.value }} dmg</span
+          >
+          <button
+            v-if="piece.id"
+            @click="unequipArmor(piece.id)"
+            class="ml-auto text-xs text-gray-400 hover:text-red-400"
+            :title="'Unequip'"
+          >
+            ✕ unequip
+          </button>
+        </div>
       </div>
       <div v-else class="text-gray-500 italic text-sm">None</div>
     </div>
@@ -477,6 +560,24 @@ async function toggleArmorForm(item: ArmorItem, formId: string) {
               }}</span>
             </div>
 
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-gray-400">Layer:</label>
+              <input
+                type="number"
+                :value="item.system.layer ?? 1"
+                @change="
+                  e =>
+                    updateArmorLayer(
+                      item.id!,
+                      Number((e.target as HTMLInputElement).value)
+                    )
+                "
+                :min="1"
+                title="1 = outermost"
+                class="w-14 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
             <button
               v-if="degradingEnabled && item.system.value < item.system.maxValue"
               @click="repairArmor(item)"
@@ -484,6 +585,41 @@ async function toggleArmorForm(item: ArmorItem, formId: string) {
             >
               🔧 Repair
             </button>
+          </div>
+
+          <!-- Per-type armor -->
+          <div class="mt-2">
+            <label class="text-xs text-gray-400 block mb-1"
+              >Armor by damage type (current / max)
+              <span class="text-gray-500"
+                >- Physical blank uses the value above. Once any type below
+                Mental is set, the unlisted ones soak 0 on this piece.</span
+              ></label
+            >
+            <div class="grid grid-cols-3 gap-2">
+              <div v-for="field in SOAK_FIELDS" :key="field.key">
+                <label class="text-xs text-gray-400">{{ field.label }}</label>
+                <div class="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="0"
+                    :value="getSoak(item, field, 'value')"
+                    @change="e => setSoak(item, field, 'value', e)"
+                    :placeholder="field.key === 'physical' ? 'main' : '0'"
+                    class="w-14 bg-gray-800 border border-gray-600 rounded px-1 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  />
+                  <span class="text-xs text-gray-400">/</span>
+                  <input
+                    type="number"
+                    min="0"
+                    :value="getSoak(item, field, 'max')"
+                    @change="e => setSoak(item, field, 'max', e)"
+                    placeholder="max"
+                    class="w-14 bg-gray-800 border border-gray-600 rounded px-1 py-0.5 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Description -->
