@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getCharmanItemError } from "../../charman-errors";
 import { inject, computed, ref } from "vue";
 import { formatRankDisplay, RANK_VALUES, DamageType } from "../../enums";
 
@@ -473,8 +474,11 @@ function toggleItem(id: string) {
         <!-- Accordion header: always visible -->
         <div
           class="flex items-center gap-2 cursor-pointer select-none flex-wrap"
+          :class="{ 'fsr-accordion-error': getCharmanItemError('powers', power.name) }"
+          :title="getCharmanItemError('powers', power.name) || undefined"
           @click="toggleItem(power.id)"
         >
+          <span v-if="getCharmanItemError('powers', power.name)" class="text-red-400 shrink-0">⚠</span>
           <span class="text-gray-400 text-xs w-4 shrink-0">{{ expandedItems === power.id ? '▼' : '▶' }}</span>
           <span class="font-semibold text-white flex-1 truncate">{{ power.name || '(unnamed)' }}</span>
           <template v-if="forms.length > 1 && power.formIds && power.formIds.length > 0">

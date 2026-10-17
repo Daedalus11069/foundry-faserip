@@ -12,6 +12,11 @@ import {
   type SyncDecisions,
   type SyncDiff
 } from "./charman-sync-diff";
+import {
+  clearCharmanItemErrors,
+  setCharmanItemError,
+  type CharmanErrorSection
+} from "./charman-errors";
 
 /**
  * Configuration for Charman API
@@ -57,6 +62,57 @@ function normalizeDots(dots: any[] | undefined): any[] {
     rank: toRankKey(d.rank) ?? "",
     armorPiercing: toRankKey(d.armorPiercing) ?? ""
   }));
+}
+
+/**
+ * Turn an HTTP failure into a readable message, preferring Charman's own
+ * `message` and field-level validation errors when it supplied them.
+ */
+export function describeHttpFailure(status: number, data: any): string {
+  if (status === 401 || status === 403) {
+    return "Authentication failed - check the Charman API key";
+  }
+  if (status === 422 && data?.errors) {
+    const details = Object.entries(data.errors)
+      .slice(0, 5)
+      .map(([field, msgs]) => `${field}: ${([] as string[]).concat(msgs as any).join(" ")}`)
+      .join("<br>");
+    return `Charman rejected the data<br>${details}`;
+  }
+  if (data?.message && String(data.message).trim()) return data.message;
+  if (status >= 500) return `Charman server error (${status})`;
+  return status ? `Request failed (${status})` : "";
+}
+
+/**
+ * Normalise a thrown value into a message. A bare fetch TypeError
+ * ("Failed to fetch") says nothing useful, so explain the likely causes.
+ */
+export function describeCharmanError(error: unknown, baseUrl?: string): string {
+  if (error instanceof TypeError) {
+    return `Could not reach Charman${baseUrl ? ` at ${baseUrl}` : ""} - check the API URL setting, that the server is running, and that it allows requests from Foundry (CORS)`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+const recentErrors = new Map<string, number>();
+
+/**
+ * Log and show a persistent error notification. Identical messages within a
+ * few seconds are collapsed so a burst of failing background syncs does not
+ * stack a wall of toasts.
+ */
+export function notifyCharmanError(
+  context: string,
+  error: unknown,
+  baseUrl?: string
+): void {
+  const message = `${context}: ${describeCharmanError(error, baseUrl)}`;
+  console.error(`[Charman] ${context}`, error);
+  const now = Date.now();
+  if (now - (recentErrors.get(message) ?? 0) < 5000) return;
+  recentErrors.set(message, now);
+  ui.notifications?.error(message, { permanent: true });
 }
 
 export interface CharmanConfig {
@@ -265,6 +321,7 @@ interface SyncDetails {
   talentsLoaded: number;
   weaponsLoaded: number;
   armorsLoaded: number;
+  warnings: string[];
 }
 
 /**
@@ -343,7 +400,10 @@ export class CharmanService {
       return data;
     } catch (error) {
       console.error("Error fetching character from Charman:", error);
-      // Re-throw the error so it can be caught by importCharacter
+      // Re-throw (with a readable message for network failures) so callers can notify
+      if (error instanceof TypeError) {
+        throw new Error(describeCharmanError(error, this.config.baseUrl));
+      }
       throw error;
     }
   }
@@ -372,7 +432,11 @@ export class CharmanService {
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error("Error listing characters from Charman:", error);
+      notifyCharmanError(
+        "Could not list Charman characters",
+        error,
+        this.config.baseUrl
+      );
       return [];
     }
   }
@@ -475,7 +539,7 @@ export class CharmanService {
 
       return uploadResult.path;
     } catch (error) {
-      console.error("Error uploading remote image:", error);
+      notifyCharmanError("Could not upload Charman image", error);
       return null;
     }
   }
@@ -495,7 +559,8 @@ export class CharmanService {
       powersLoaded: 0,
       talentsLoaded: 0,
       weaponsLoaded: 0,
-      armorsLoaded: 0
+      armorsLoaded: 0,
+      warnings: []
     };
 
     // Upload remote image if present
@@ -517,6 +582,9 @@ export class CharmanService {
           syncDetails.imagesUploaded++;
         } else {
           console.warn("Image upload returned null, using default icon");
+          syncDetails.warnings.push(
+            "Character image could not be uploaded; using the default icon"
+          );
         }
       } catch (error) {
         console.warn(
@@ -552,6 +620,10 @@ export class CharmanService {
                   if (uploadedPath) {
                     tokenImagePath = uploadedPath;
                     syncDetails.imagesUploaded++;
+                  } else {
+                    syncDetails.warnings.push(
+                      `Token image for form "${form.name}" could not be uploaded`
+                    );
                   }
                 } catch (error) {
                   console.warn(
@@ -608,6 +680,10 @@ export class CharmanService {
                 if (uploadedPath) {
                   baseTokenImagePath = uploadedPath;
                   syncDetails.imagesUploaded++;
+                } else {
+                  syncDetails.warnings.push(
+                    "Base form token image could not be uploaded"
+                  );
                 }
               } catch (error) {
                 console.warn(`Failed to upload base form token image:`, error);
@@ -959,6 +1035,14 @@ export class CharmanService {
     return { actorData, syncDetails };
   }
 
+  private reportWarnings(syncDetails: SyncDetails): void {
+    if (!syncDetails.warnings.length) return;
+    ui.notifications?.warn(
+      `Charman import completed with problems:<br>${syncDetails.warnings.join("<br>")}`,
+      { permanent: true }
+    );
+  }
+
   /**
    * Import a character from Charman and create/update Foundry actor
    */
@@ -1193,6 +1277,7 @@ export class CharmanService {
       }
 
       ui.notifications?.info(messageParts.join(" "));
+      this.reportWarnings(syncDetails);
       return existingActor;
     } else {
       // Create new actor (without armors/weapons in system data)
@@ -1301,7 +1386,58 @@ export class CharmanService {
       }
 
       ui.notifications?.success(messageParts.join(" "));
+      this.reportWarnings(syncDetails);
       return actor as Actor;
+    }
+  }
+
+  /**
+   * POST a background sync update to Charman. Failures are surfaced to the
+   * user (persistent notification + console) rather than swallowed, since
+   * the sheet otherwise looks fine while Charman has silently drifted.
+   */
+  private async postUpdate(
+    path: string,
+    body: Record<string, unknown>,
+    label: string
+  ): Promise<boolean> {
+    try {
+      const apiPath = this.config.apiPath || "/charman/api/foundry";
+      const url = `${this.config.baseUrl}${apiPath}${path}`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(this.config.apiKey && {
+            Authorization: `Bearer ${this.config.apiKey}`
+          })
+        },
+        body: JSON.stringify(body)
+      });
+
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch {
+        // Non-JSON body - fall back to the status-based message
+      }
+
+      if (!response.ok || !data?.success) {
+        throw new Error(
+          describeHttpFailure(response.status, data) ||
+            `Charman did not confirm the update (${response.status})`
+        );
+      }
+      return true;
+    } catch (error) {
+      notifyCharmanError(
+        `Could not sync ${label} to Charman`,
+        error,
+        this.config.baseUrl
+      );
+      return false;
     }
   }
 
@@ -1313,37 +1449,11 @@ export class CharmanService {
     characterName: string,
     newKarmaValue: number
   ): Promise<boolean> {
-    try {
-      const apiPath = this.config.apiPath || "/charman/api/foundry";
-      const url = `${this.config.baseUrl}${apiPath}/character/karma`;
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...(this.config.apiKey && {
-            Authorization: `Bearer ${this.config.apiKey}`
-          })
-        },
-        body: JSON.stringify({
-          username,
-          callname: characterName,
-          karma: newKarmaValue
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to update karma: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data.success;
-    } catch (error) {
-      console.error("Error updating karma in Charman:", error);
-      // Don't show error notification to user - this is a background sync
-      return false;
-    }
+    return this.postUpdate(
+      "/character/karma",
+      { username, callname: characterName, karma: newKarmaValue },
+      "karma"
+    );
   }
 
   /**
@@ -1354,39 +1464,11 @@ export class CharmanService {
     characterName: string,
     newMPValue: number
   ): Promise<boolean> {
-    try {
-      const apiPath = this.config.apiPath || "/charman/api/foundry";
-      const url = `${this.config.baseUrl}${apiPath}/character/mentalpoints`;
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...(this.config.apiKey && {
-            Authorization: `Bearer ${this.config.apiKey}`
-          })
-        },
-        body: JSON.stringify({
-          username,
-          callname: characterName,
-          mentalpoints: newMPValue
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to update Mental Points: ${response.statusText}`
-        );
-      }
-
-      const data = await response.json();
-      return data.success;
-    } catch (error) {
-      console.error("Error updating Mental Points in Charman:", error);
-      // Don't show error notification to user - this is a background sync
-      return false;
-    }
+    return this.postUpdate(
+      "/character/mentalpoints",
+      { username, callname: characterName, mentalpoints: newMPValue },
+      "Mental Points"
+    );
   }
 
   /**
@@ -1398,40 +1480,16 @@ export class CharmanService {
     armorName: string,
     newValue: number
   ): Promise<boolean> {
-    try {
-      const apiPath = this.config.apiPath || "/charman/api/foundry";
-      const url = `${this.config.baseUrl}${apiPath}/character/armor`;
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...(this.config.apiKey && {
-            Authorization: `Bearer ${this.config.apiKey}`
-          })
-        },
-        body: JSON.stringify({
-          username,
-          callname: characterName,
-          armor_name: armorName,
-          value: newValue
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to update equipment armor: ${response.statusText}`
-        );
-      }
-
-      const data = await response.json();
-      return data.success;
-    } catch (error) {
-      console.error("Error updating equipment armor in Charman:", error);
-      // Don't show error notification to user - this is a background sync
-      return false;
-    }
+    return this.postUpdate(
+      "/character/armor",
+      {
+        username,
+        callname: characterName,
+        armor_name: armorName,
+        value: newValue
+      },
+      `armor "${armorName}"`
+    );
   }
 
   /**
@@ -1442,39 +1500,11 @@ export class CharmanService {
     characterName: string,
     newValue: number
   ): Promise<boolean> {
-    try {
-      const apiPath = this.config.apiPath || "/charman/api/foundry";
-      const url = `${this.config.baseUrl}${apiPath}/character/bodyarmor`;
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...(this.config.apiKey && {
-            Authorization: `Bearer ${this.config.apiKey}`
-          })
-        },
-        body: JSON.stringify({
-          username,
-          callname: characterName,
-          value: newValue
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to update Body Armor power: ${response.statusText}`
-        );
-      }
-
-      const data = await response.json();
-      return data.success;
-    } catch (error) {
-      console.error("Error updating Body Armor power in Charman:", error);
-      // Don't show error notification to user - this is a background sync
-      return false;
-    }
+    return this.postUpdate(
+      "/character/bodyarmor",
+      { username, callname: characterName, value: newValue },
+      "Body Armor"
+    );
   }
 
   /**
@@ -1653,6 +1683,29 @@ export class CharmanService {
   }
 
   /**
+   * Map Laravel field errors ("powers.2.name") back to the item they came
+   * from so the sheet can highlight its accordion titlebar.
+   */
+  private flagItemErrors(
+    payload: Record<string, any>,
+    errors: Record<string, string[]> | undefined
+  ): void {
+    clearCharmanItemErrors();
+    for (const [field, msgs] of Object.entries(errors ?? {})) {
+      const [section, index, ...rest] = field.split(".");
+      const name = payload[section]?.[Number(index)]?.name;
+      if (!name || !["powers", "talents", "weapons", "armors"].includes(section))
+        continue;
+      const text = ([] as string[]).concat(msgs as any).join(" ");
+      setCharmanItemError(
+        section as CharmanErrorSection,
+        name,
+        rest.length ? `${rest.join(".")}: ${text}` : text
+      );
+    }
+  }
+
+  /**
    * Push only the changes the GM chose in the review dialog (Foundry ->
    * Charman). Throws with a readable message on failure so the caller can
    * notify.
@@ -1688,20 +1741,15 @@ export class CharmanService {
     }
 
     if (!response.ok || !data?.success) {
-      let message = data?.message || `Request failed (${response.status})`;
-      if (response.status === 401 || response.status === 403) {
-        message = "Authentication failed - check API key";
-      } else if (response.status === 404) {
-        message = `Character "${payload.callname}" not found for user "${payload.username}"`;
-      } else if (response.status === 422 && data?.errors) {
-        const details = Object.entries(data.errors)
-          .slice(0, 5)
-          .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(" ")}`)
-          .join("<br>");
-        message = `Charman rejected the character data<br>${details}`;
-      }
+      const message =
+        response.status === 404
+          ? `Character "${payload.callname}" not found for user "${payload.username}"`
+          : describeHttpFailure(response.status, data) ||
+            "Charman did not confirm the sync";
+      this.flagItemErrors(payload, data?.errors);
       throw new Error(message);
     }
+    clearCharmanItemErrors();
 
     await (actor as any).update({ "system.charman.lastSync": Date.now() });
     return { success: true, synced: data.synced ?? {} };

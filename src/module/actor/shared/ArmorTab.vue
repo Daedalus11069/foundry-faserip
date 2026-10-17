@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getCharmanItemError } from "../../charman-errors";
 import { inject, computed, ref, onMounted, onUnmounted } from "vue";
 import { Rank, formatRankDisplay, ItemType, RANK_VALUES } from "../../enums";
 import { stringToRank } from "../../utils";
@@ -403,8 +404,11 @@ async function toggleArmorForm(item: ArmorItem, formId: string) {
         <!-- Accordion header: always visible -->
         <div
           class="flex items-center gap-2 cursor-pointer select-none"
+          :class="{ 'fsr-accordion-error': getCharmanItemError('armors', item.name) }"
+          :title="getCharmanItemError('armors', item.name) || undefined"
           @click="toggleItem(item.id!)"
         >
+          <span v-if="getCharmanItemError('armors', item.name)" class="text-red-400 shrink-0">⚠</span>
           <!-- Equip toggle -->
           <button
             @click.stop="

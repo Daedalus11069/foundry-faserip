@@ -207,6 +207,11 @@
             @apply hover:border-red-500 transition-colors;
         }
 
+        /* Accordion titlebar flagged with a Charman validation error */
+        .fsr-accordion-error {
+            @apply bg-red-900/70 border border-red-500 rounded px-2 py-1 -mx-1;
+        }
+
         .fsr-list-item-header {
             @apply flex justify-between items-center;
         }

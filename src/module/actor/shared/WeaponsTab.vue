@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getCharmanItemError } from "../../charman-errors";
 import { inject, computed, ref, onMounted, onUnmounted } from "vue";
 import {
   Rank,
@@ -796,8 +797,11 @@ function toggleItem(id: string) {
         <!-- Accordion header: always visible -->
         <div
           class="flex items-center gap-2 cursor-pointer select-none"
+          :class="{ 'fsr-accordion-error': getCharmanItemError('weapons', weapon.name) }"
+          :title="getCharmanItemError('weapons', weapon.name) || undefined"
           @click="toggleItem(weapon.id)"
         >
+          <span v-if="getCharmanItemError('weapons', weapon.name)" class="text-red-400 shrink-0">⚠</span>
           <!-- Equipped badge -->
           <button
             @click.stop="toggleEquip(weapon.id, weapon.isItem, weapon.systemIndex)"

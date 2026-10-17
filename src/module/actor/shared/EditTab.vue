@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { inject, computed, onMounted, ref, watch, watchEffect } from "vue";
-import { getCharmanService } from "../../charman-service";
+import {
+  getCharmanService,
+  describeCharmanError
+} from "../../charman-service";
 import { getRankValue } from "../../utils";
 import { showCharmanSyncDiffDialog } from "../../applications/dialog-utils";
 import { hasChosenChanges } from "../../charman-sync-diff";
@@ -291,9 +294,7 @@ async function importFromCharman() {
     // Check if error has available_characters array
     const errorWithChars = error as Error & { availableCharacters?: string[] };
     let errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to import character from Charman";
+      describeCharmanError(error);
 
     if (
       errorWithChars.availableCharacters &&
@@ -302,7 +303,7 @@ async function importFromCharman() {
       errorMessage += `<br><br><strong>Available characters:</strong><br>${errorWithChars.availableCharacters.join(", ")}`;
     }
 
-    ui.notifications?.error(errorMessage);
+    ui.notifications?.error(errorMessage, { permanent: true });
   } finally {
     importing.value = false;
   }
@@ -335,9 +336,7 @@ async function resyncFromCharman() {
     // Check if error has available_characters array
     const errorWithChars = error as Error & { availableCharacters?: string[] };
     let errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to re-sync character from Charman";
+      describeCharmanError(error);
 
     if (
       errorWithChars.availableCharacters &&
@@ -346,7 +345,7 @@ async function resyncFromCharman() {
       errorMessage += `<br><br><strong>Available characters:</strong><br>${errorWithChars.availableCharacters.join(", ")}`;
     }
 
-    ui.notifications?.error(errorMessage);
+    ui.notifications?.error(errorMessage, { permanent: true });
   } finally {
     importing.value = false;
   }
@@ -394,7 +393,8 @@ async function pushToCharman() {
   } catch (error) {
     console.error("Push to Charman failed:", error);
     ui.notifications?.error(
-      error instanceof Error ? error.message : "Failed to push to Charman"
+      `Push to Charman failed: ${describeCharmanError(error, undefined)}<br><em>Items Charman rejected are highlighted in red on their tabs.</em>`,
+      { permanent: true }
     );
   } finally {
     pushing.value = false;

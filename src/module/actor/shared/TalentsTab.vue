@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getCharmanItemError } from "../../charman-errors";
 import { inject, computed, ref, onMounted, onUnmounted } from "vue";
 import type { Talent, Form } from "../../types";
 import {
@@ -161,8 +162,11 @@ function toggleItem(id: string) {
         <!-- Accordion header: always visible -->
         <div
           class="flex items-center gap-2 cursor-pointer select-none"
+          :class="{ 'fsr-accordion-error': getCharmanItemError('talents', talent.name) }"
+          :title="getCharmanItemError('talents', talent.name) || undefined"
           @click="toggleItem(talent.id)"
         >
+          <span v-if="getCharmanItemError('talents', talent.name)" class="text-red-400 shrink-0">⚠</span>
           <span class="text-gray-400 text-xs w-4 shrink-0">{{ expandedItems === talent.id ? '▼' : '▶' }}</span>
           <span class="font-semibold text-white flex-1 truncate">{{ talent.name || '(unnamed)' }}</span>
           <template v-if="forms.length > 1 && talent.formIds && talent.formIds.length > 0">
