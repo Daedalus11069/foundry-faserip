@@ -410,7 +410,7 @@ export function registerBlendInVisibilityHook(): void {
 
   (globalThis as any).libWrapper.register(
     "faserip",
-    "Token.prototype.isVisible",
+    "foundry.canvas.placeables.Token.prototype.isVisible",
     function (
       this: Token,
       wrapped: (...args: any[]) => boolean,

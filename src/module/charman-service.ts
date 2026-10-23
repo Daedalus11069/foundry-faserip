@@ -474,12 +474,12 @@ export class CharmanService {
    * Upload a remote image to Foundry's user data directory
    * @param imageUrl - URL of the remote image to upload
    * @param characterName - Character name for generating filename
-   * @param existingImagePath - Optional existing image path to reuse filename (overwrites old file)
+   * @param _existingImagePath - Unused; a new filename is always generated so caches are bypassed
    */
   async uploadRemoteImage(
     imageUrl: string,
     characterName: string,
-    existingImagePath?: string
+    _existingImagePath?: string
   ): Promise<string | null> {
     try {
       // Fetch the remote image
@@ -508,25 +508,14 @@ export class CharmanService {
         extension = "webp";
       }
 
-      // Determine filename: reuse existing if provided, otherwise generate new
-      let filename: string;
-      if (
-        existingImagePath &&
-        !existingImagePath.startsWith("icons/") &&
-        !existingImagePath.startsWith("http://") &&
-        !existingImagePath.startsWith("https://")
-      ) {
-        // Extract filename from existing path (e.g., "worlds/xyz/actors/art_123.png" -> "art_123.png")
-        filename =
-          existingImagePath.split("/").pop() ||
-          `${characterName}_${Date.now()}.${extension}`;
-      } else {
-        // Create a new filename based on character name
-        const sanitizedName = characterName
-          .replace(/[^a-z0-9]/gi, "_")
-          .toLowerCase();
-        filename = `${sanitizedName}_${Date.now()}.${extension}`;
-      }
+      // Always generate a fresh filename. Reusing the existing path overwrote
+      // the file in place, so the actor's img/token src never changed value and
+      // both the browser cache and Foundry's texture cache kept serving the
+      // old image (existingImagePath is intentionally unused for that reason).
+      const sanitizedName = characterName
+        .replace(/[^a-z0-9]/gi, "_")
+        .toLowerCase();
+      const filename = `${sanitizedName}_${Date.now()}.${extension}`;
 
       // Create a File object from the blob
       const file = new File([blob], filename, { type: blob.type });
@@ -1082,7 +1071,6 @@ export class CharmanService {
       return null;
     }
 
-    // Pass existing image path so we can reuse the filename (overwrites instead of creating duplicates)
     const { actorData, syncDetails } = await this.convertToActorData(
       charmanChar,
       // @ts-expect-error - Accessing system data for existing actor
@@ -1092,9 +1080,6 @@ export class CharmanService {
     actorData.system.charman.characterName = characterName;
 
     if (existingActor) {
-      // Note: If the old image path was reused, uploadRemoteImage() overwrote it
-      // No deletion needed - the new image replaced the old one automatically
-
       // Update existing actor - need to flatten system updates with dot notation
       const updateData: Record<string, any> = {
         name: actorData.name,

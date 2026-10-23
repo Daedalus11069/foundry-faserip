@@ -395,6 +395,13 @@ export class FaseripActor<
       system.temporaryStatModifiers = [];
     }
 
+    // Guard against actors whose source data lacks resources (e.g. a type
+    // that doesn't inherit the base template, or partially-migrated data)
+    system.resources ??= {};
+    system.resources.health ??= { value: 0, max: 0 };
+    system.resources.armor ??= { value: 0, max: 0 };
+    system.resources.karma ??= { value: 0 };
+
     // Get current form
     const currentForm = system.forms.find(
       (f: any) => f.id === system.currentFormId

@@ -23,6 +23,16 @@ import type { FaseripActor } from "../../documents";
 import { isArmorItem } from "../../types/items";
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
+
+// Cache breaker: the actor's modifiedTime changes on every update, so a file
+// overwritten in place (same path) is re-fetched instead of served from cache.
+const avatarSrc = computed(() => {
+  const img = reactiveActor.img ?? "";
+  const stamp = (reactiveActor as any)._stats?.modifiedTime;
+  if (!img || !stamp || img.startsWith("data:") || img.startsWith("icons/"))
+    return img;
+  return `${img}${img.includes("?") ? "&" : "?"}v=${stamp}`;
+});
 const actor = inject("actor") as FaseripActor;
 const { fields, setField, persistDeep } = useActorField(() => reactiveActor);
 
@@ -324,12 +334,13 @@ function openImagePicker() {
   // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
   const fp = new foundry.applications.apps.FilePicker.implementation({
     type: "image",
+    current: reactiveActor.img ?? "",
     callback: async (path: string) => {
       // Update to new image (browsing existing files, no deletion needed)
       setField("img", path);
     }
   });
-  fp.browse();
+  fp.render(true);
 }
 
 function copyMovementPath() {
@@ -510,7 +521,7 @@ onUnmounted(() => {
         <!-- Avatar -->
         <div class="cursor-pointer" @click="openImagePicker">
           <img
-            :src="reactiveActor.img ?? ''"
+            :src="avatarSrc"
             :alt="reactiveActor.name"
             class="fsr-avatar"
           />
