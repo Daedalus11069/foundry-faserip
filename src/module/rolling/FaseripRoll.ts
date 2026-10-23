@@ -439,9 +439,13 @@ export class FaseripRoll {
     // Draw from the configured critical botch/success table, if any, and
     // apply any effect configured on the drawn result to the actor.
     const resultText = faseripRoll.getResultText();
+    // Botches apply to any roll made for an actor (not only attacks), and use
+    // the karma-modified total so shifted rolls are judged consistently.
     if (
-      additionalFlags?.attackRoll &&
-      (resultText === "Botch" || resultText === "Ultimate Botch!")
+      actor &&
+      (rollTotal <= 5 ||
+        resultText === "Botch" ||
+        resultText === "Ultimate Botch!")
     ) {
       await drawCriticalTableEffect(
         actor,

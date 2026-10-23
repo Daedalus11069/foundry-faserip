@@ -291,7 +291,7 @@ function editWeapon(weaponId: string, isItem: boolean) {
 
 function newWeaponStatDebuff(): PowerStatDebuffData {
   return {
-    enabled: false,
+    enabled: true,
     attribute: "fighting",
     greenShift: 0,
     yellowShift: 0,
@@ -302,7 +302,7 @@ function newWeaponStatDebuff(): PowerStatDebuffData {
 
 function newWeaponDamageBuff(): PowerDamageDebuffData {
   return {
-    enabled: false,
+    enabled: true,
     greenShift: 0,
     yellowShift: 0,
     redShift: 0,
@@ -312,7 +312,7 @@ function newWeaponDamageBuff(): PowerDamageDebuffData {
 
 function newWeaponDot(): PowerDotData {
   return {
-    enabled: false,
+    enabled: true,
     rank: "",
     armorPiercing: "",
     durationFormula: "1d3"
@@ -356,7 +356,9 @@ const defaultAreaOfEffect: WeaponAreaOfEffectData = {
   width: 5,
   angle: 53,
   color: "#ff0000",
-  durationRounds: ""
+  durationRounds: "",
+  remotePlaced: false,
+  maxRangeFeet: 0
 };
 
 function ensureWeaponAreaOfEffect(weapon: DisplayWeapon) {
@@ -1218,8 +1220,63 @@ function toggleItem(id: string) {
                 </div>
               </div>
 
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="!!ensureWeaponAreaOfEffect(weapon)!.instant"
+                  @change="
+                    e =>
+                      updateWeaponAreaOfEffect(
+                        weapon.id,
+                        'instant',
+                        (e.target as HTMLInputElement).checked
+                      )
+                  "
+                  class="w-4 h-4 rounded border-gray-600"
+                />
+                <span class="text-xs text-gray-300">
+                  Instant (the shape only decides who is hit; leaves no region behind)
+                </span>
+              </label>
+
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="!!ensureWeaponAreaOfEffect(weapon)!.remotePlaced"
+                  @change="
+                    e =>
+                      updateWeaponAreaOfEffect(
+                        weapon.id,
+                        'remotePlaced',
+                        (e.target as HTMLInputElement).checked
+                      )
+                  "
+                  class="w-4 h-4 rounded border-gray-600"
+                />
+                <span class="text-xs text-gray-300">
+                  Propel Remotely (drag the weapon's button onto the map; rolls the weapon's stat to land it, white scatters)
+                </span>
+              </label>
+              <div v-if="ensureWeaponAreaOfEffect(weapon)!.remotePlaced">
+                <label class="text-xs text-gray-400 block mb-1">Max Propel Range (scene units from the user's token; 0 = unlimited)</label>
+                <input
+                  type="number"
+                  min="0"
+                  :value="ensureWeaponAreaOfEffect(weapon)!.maxRangeFeet ?? 0"
+                  @change="
+                    e =>
+                      updateWeaponAreaOfEffect(
+                        weapon.id,
+                        'maxRangeFeet',
+                        Number((e.target as HTMLInputElement).value) || 0
+                      )
+                  "
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm hover:border-blue-500 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
               <div class="text-xs text-gray-400">
-                Anyone else standing inside picks up whichever of this weapon's Temporary Stat/Damage (De)buffs and Damage Over Time entries are enabled below, for as long as they remain inside (or, for DoT, each round until the region expires).
+                Anyone else standing inside picks up whichever of this weapon's Temporary Stat/Damage (De)buffs and Damage Over Time entries are listed below, for as long as they remain inside (or, for DoT, each round until the region expires).
               </div>
             </div>
           </div>
@@ -1243,24 +1300,7 @@ function toggleItem(id: string) {
               :key="idx"
               class="border border-indigo-700 rounded p-2 space-y-2"
             >
-              <div class="flex items-center justify-between">
-                <label class="flex items-center gap-2 cursor-pointer mb-0">
-                  <input
-                    :checked="entry.enabled"
-                    @change="
-                      e =>
-                        updateWeaponStatDebuff(
-                          weapon.id,
-                          idx,
-                          'enabled',
-                          (e.target as HTMLInputElement).checked
-                        )
-                    "
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <span class="text-sm font-medium text-indigo-200">Enabled</span>
-                </label>
+              <div class="flex items-center justify-end">
                 <button
                   @click="removeWeaponStatDebuff(weapon.id, idx)"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
@@ -1270,7 +1310,7 @@ function toggleItem(id: string) {
                 </button>
               </div>
 
-              <div v-if="entry.enabled" class="space-y-3">
+              <div class="space-y-3">
                 <div>
                   <label class="text-xs text-gray-400 block mb-1">Target Attribute</label>
                   <select
@@ -1402,24 +1442,7 @@ function toggleItem(id: string) {
               :key="idx"
               class="border border-purple-700 rounded p-2 space-y-2"
             >
-              <div class="flex items-center justify-between">
-                <label class="flex items-center gap-2 cursor-pointer mb-0">
-                  <input
-                    :checked="entry.enabled"
-                    @change="
-                      e =>
-                        updateWeaponDamageBuff(
-                          weapon.id,
-                          idx,
-                          'enabled',
-                          (e.target as HTMLInputElement).checked
-                        )
-                    "
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
-                  />
-                  <span class="text-sm font-medium text-purple-200">Enabled</span>
-                </label>
+              <div class="flex items-center justify-end">
                 <button
                   @click="removeWeaponDamageBuff(weapon.id, idx)"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
@@ -1429,7 +1452,7 @@ function toggleItem(id: string) {
                 </button>
               </div>
 
-              <div v-if="entry.enabled" class="space-y-3">
+              <div class="space-y-3">
                 <div class="grid grid-cols-3 gap-2">
                   <div>
                     <label class="text-xs text-gray-400 block mb-1">Half Success</label>
@@ -1539,24 +1562,7 @@ function toggleItem(id: string) {
               :key="idx"
               class="border border-green-700 rounded p-2 space-y-2"
             >
-              <div class="flex items-center justify-between">
-                <label class="flex items-center gap-2 cursor-pointer mb-0">
-                  <input
-                    :checked="entry.enabled"
-                    @change="
-                      e =>
-                        updateWeaponDot(
-                          weapon.id,
-                          idx,
-                          'enabled',
-                          (e.target as HTMLInputElement).checked
-                        )
-                    "
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
-                  />
-                  <span class="text-sm font-medium text-green-200">Enabled</span>
-                </label>
+              <div class="flex items-center justify-end">
                 <button
                   @click="removeWeaponDot(weapon.id, idx)"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
@@ -1566,7 +1572,7 @@ function toggleItem(id: string) {
                 </button>
               </div>
 
-              <div v-if="entry.enabled" class="space-y-3">
+              <div class="space-y-3">
                 <div class="grid grid-cols-2 gap-2">
                   <div>
                     <label class="text-xs text-gray-400 block mb-1">Rank</label>

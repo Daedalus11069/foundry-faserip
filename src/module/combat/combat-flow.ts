@@ -94,6 +94,8 @@ interface AttackData {
   dots?: PowerDotData[]; // Optional damage-over-time effects to apply on hit
   statusEffects?: PowerStatusEffectData[]; // Optional Foundry status conditions (sleep, stun, prone, etc.) to apply on hit
   areaOfEffect?: WeaponAreaOfEffectData; // Optional region template placed centered on the target on hit
+  attackRankOverride?: { rank: Rank; value: number }; // Roll this rank/value instead of the attack attribute (e.g. a power rolling its own rank)
+  resolveTargetsAfterRoll?: (roll: FaseripRoll) => Promise<Token[]>; // Remote-placed areas: the attack is rolled with no targets, then this decides where the area lands (the roll can scatter it) and returns whoever is inside
   deferDamageApplication?: boolean; // True to accumulate damage without applying (for cumulative combo damage)
   comboBotchCount?: number; // Optional: Number of botches so far in this combo (for cumulative penalty)
 }
@@ -904,10 +906,12 @@ export async function executeCombatAttack(
   const pendingDamages: PendingDamage[] = [];
 
   // Get targeted tokens - use explicit targets if provided, otherwise use selected targets
-  const targets = attackData.targets
+  let targets = attackData.targets
     ? attackData.targets
-    : // @ts-expect-error - game.user.targets may not be typed
-      (Array.from(game.user?.targets ?? []) as Token[]);
+    : attackData.resolveTargetsAfterRoll
+      ? [] // Decided after the roll - see resolveTargetsAfterRoll
+      : // @ts-expect-error - game.user.targets may not be typed
+        (Array.from(game.user?.targets ?? []) as Token[]);
 
   // MULTI-TARGET HANDLING:
   // If NOT multi-hit and multiple targets, process each target individually with separate rolls
@@ -956,7 +960,7 @@ export async function executeCombatAttack(
   }
 
   // If no targets, show warning and just roll the attack without combat flow
-  if (targets.length === 0) {
+  if (targets.length === 0 && !attackData.resolveTargetsAfterRoll) {
     const system = attacker.system as any;
     const attackAttr = getEffectiveAttributeData(
       attacker,
@@ -1082,8 +1086,9 @@ export async function executeCombatAttack(
     return null;
   }
 
-  const attackRank = attackAttr.rank as Rank;
-  const attackValue = attackAttr.value;
+  const attackRank =
+    attackData.attackRankOverride?.rank ?? (attackAttr.rank as Rank);
+  const attackValue = attackData.attackRankOverride?.value ?? attackAttr.value;
 
   // Step 0.5: Get attack options (either preset from caller or show options dialog)
   const currentKarma = system.resources?.karma?.value ?? 0;
@@ -1329,6 +1334,12 @@ export async function executeCombatAttack(
   // Wait for dice animation to complete before showing defense dialog
   if ((game as any).dice3d && attackMessage) {
     await (game as any).dice3d.waitFor3DAnimationByMessageID(attackMessage.id);
+  }
+
+  // A remote-placed area is thrown first and only then knows who it caught
+  // (a white roll scatters it off-target), so targets are decided here.
+  if (attackData.resolveTargetsAfterRoll) {
+    targets = await attackData.resolveTargetsAfterRoll(attackRoll);
   }
 
   // Calculate effective attack rank after all modifiers (including combo penalty)
@@ -1756,7 +1767,11 @@ export async function executeCombatAttack(
     // Place any configured area-of-effect region centered on the target's
     // current position - a one-time placement that doesn't follow the
     // target afterward, regardless of whether this attack deals damage.
-    if (attackHit && attackData.areaOfEffect?.enabled) {
+    if (
+      attackHit &&
+      attackData.areaOfEffect?.enabled &&
+      !attackData.resolveTargetsAfterRoll // remote-placed areas were already placed
+    ) {
       await placeAreaOfEffectOnHit(
         attackData.areaOfEffect,
         Array.from(resolvedStatDebuffs.entries()).map(([entry, r]) => ({
@@ -1772,7 +1787,9 @@ export async function executeCombatAttack(
         })),
         attackData.dots,
         attackData.powerName || "Weapon",
-        target
+        target,
+        attackData.powerRank,
+        attackData.attackerToken ?? (attacker as any)?.getActiveTokens?.(true)?.[0]
       );
     }
 
@@ -1882,6 +1899,14 @@ export async function executeCombatAttack(
             damageResult.damage
           );
         }
+      }
+      // The region carries (de)buffs and DoT but not status effects, so a
+      // remote-placed area (where everyone inside is a direct target) applies
+      // those to each target directly.
+      if (
+        !attackData.areaOfEffect?.enabled ||
+        attackData.resolveTargetsAfterRoll
+      ) {
         for (const se of attackData.statusEffects ?? []) {
           const applied = await applyHitStatusEffect(
             targetActor,
@@ -2382,6 +2407,14 @@ export async function executeCombatAttack(
         for (const d of attackData.dots ?? []) {
           await applyHitDamageOverTime(targetActor, target.id, d, attackData);
         }
+      }
+      // The region carries (de)buffs and DoT but not status effects, so a
+      // remote-placed area (where everyone inside is a direct target) applies
+      // those to each target directly.
+      if (
+        !attackData.areaOfEffect?.enabled ||
+        attackData.resolveTargetsAfterRoll
+      ) {
         for (const se of attackData.statusEffects ?? []) {
           const applied = await applyHitStatusEffect(
             targetActor,

@@ -190,7 +190,7 @@ export interface DamageApplicationData {
 
 /**
  * Apply damage to an actor with armor soak and overflow calculation
- * If reactiveSystem is provided, modifies it directly (for sheets with watcher)
+ * If reactiveSystem is provided, modifies it directly (for sheets; the scoped persistDeep watchers in ActorSheet.vue persist it)
  * If only actor is provided, modifies actor.system (caller must persist with actor.update)
  * ALWAYS calls item.update() for armor items (Item documents must be updated individually)
  */

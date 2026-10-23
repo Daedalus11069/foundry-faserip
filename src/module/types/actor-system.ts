@@ -146,6 +146,9 @@ export interface WeaponAreaOfEffectData {
   angle: number; // Angle in degrees - only used for cone shape
   color: string; // Template border/fill color
   durationRounds: string; // Rounds before the template auto-deletes - a flat number or a dice formula (e.g. "1d3"); blank/"0" = stays until removed manually
+  remotePlaced?: boolean; // Placed by dragging the weapon/power button onto the canvas instead of centered on a hit target
+  instant?: boolean; // Instant/non-lingering: the shape only decides who is hit (ray of disintegration, cone of flame) - no region is left behind
+  maxRangeFeet?: number; // Remote placement only: farthest the region may be dropped from the user's token, in scene distance units; 0 = unlimited
 }
 
 export interface PowerMassEffectData {
@@ -194,6 +197,7 @@ export interface PowerData {
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
   auraRange?: number; // Radius in scene distance units (e.g. feet); 0/unset falls back to the rank-based movement table
   massEffect?: PowerMassEffectData; // Affects everyone in range / all targets, each with a resist roll; applies statusEffects on failure
+  areaOfEffect?: WeaponAreaOfEffectData; // Region placed centered on the target on hit, or (remotePlaced) dragged onto the canvas; rolls the power's own rank to place
   grantsArmor?: boolean; // Grants an armor layer: soaks armorTypes at the power's value (degrades like Body Armor)
   armorTypes?: string[]; // Damage types the layer protects against
   armorLayer?: number; // Layer slot, same numbering as armor items (0/1 = outermost). Pieces in the same layer add together

@@ -38,11 +38,17 @@ import { getRankValue, stringToRank } from "../../utils";
 import { getCharmanService } from "../../charman-service";
 import { isPowerAuraActive } from "../../utils/power-aura";
 import { activateBlendIn, deactivateBlendIn, getBlendInFlag, getBlendBaseRange } from "../../utils/blend-in";
-import type { ReactiveActorData, PowerData } from "../../types/actor-system";
+import { useActorField } from "./use-actor-field";
+import type {
+  ReactiveActorData,
+  PowerData,
+  WeaponAreaOfEffectData
+} from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
 const actor = inject("actor") as FaseripActor;
+const { setField } = useActorField(() => reactiveActor);
 
 const powers = computed(() => reactiveActor.system.powers || []);
 const forms = computed(() => reactiveActor.system.forms || []);
@@ -77,7 +83,7 @@ const attributeChoices = [
 
 function newStatDebuff() {
   return {
-    enabled: false,
+    enabled: true,
     attribute: "intuition" as const,
     greenShift: 0,
     yellowShift: 0,
@@ -88,7 +94,7 @@ function newStatDebuff() {
 
 function newDamageBuff() {
   return {
-    enabled: false,
+    enabled: true,
     greenShift: 0,
     yellowShift: 0,
     redShift: 0,
@@ -98,7 +104,7 @@ function newDamageBuff() {
 
 function newDot() {
   return {
-    enabled: false,
+    enabled: true,
     rank: "",
     armorPiercing: "",
     durationFormula: "1d3"
@@ -107,7 +113,7 @@ function newDot() {
 
 function newStatusEffect() {
   return {
-    enabled: false,
+    enabled: true,
     statusId: "",
     durationFormula: "1d3"
   };
@@ -218,7 +224,7 @@ const degradingEnabled = computed(
 
 function addPower() {
   if (!reactiveActor.system.powers) {
-    reactiveActor.system.powers = [];
+    setField("system.powers", []);
   }
 
   const newPower: PowerData = {
@@ -253,6 +259,17 @@ function addPower() {
       includeSelf: false,
       resistAttribute: "",
       resistResult: "green"
+    },
+    areaOfEffect: {
+      enabled: false,
+      shape: "circle",
+      size: 10,
+      width: 5,
+      angle: 53,
+      color: "#ff0000",
+      durationRounds: "",
+      remotePlaced: false,
+      maxRangeFeet: 0
     },
     grantsArmor: false,
     armorTypes: [],
@@ -308,6 +325,23 @@ function setMassEffect(power: PowerData, patch: Record<string, unknown>) {
     ...(power.massEffect ?? {}),
     ...patch
   } as PowerData["massEffect"];
+}
+
+function ensureAreaOfEffect(power: PowerData): WeaponAreaOfEffectData {
+  if (!power.areaOfEffect) {
+    power.areaOfEffect = {
+      enabled: false,
+      shape: "circle",
+      size: 10,
+      width: 5,
+      angle: 53,
+      color: "#ff0000",
+      durationRounds: "",
+      remotePlaced: false,
+      maxRangeFeet: 0
+    };
+  }
+  return power.areaOfEffect;
 }
 
 function toggleArmorType(power: PowerData, type: string) {
@@ -697,9 +731,12 @@ function toggleItem(id: string) {
             </select>
           </div>
 
+          <!-- Feature toggles: collapsed ones share a row, enabled ones expand full width -->
+          <div class="flex flex-wrap items-start gap-2 mb-2">
           <!-- Aura -->
           <div
-            class="mb-2 p-2 bg-purple-950/30 border border-purple-800 rounded space-y-2"
+            class="px-2 py-1.5 bg-purple-950/30 border border-purple-800 rounded space-y-2"
+            :class="{ 'w-full': power.isAura }"
           >
             <label class="flex items-center gap-2 cursor-pointer mb-0">
               <input
@@ -707,8 +744,8 @@ function toggleItem(id: string) {
                 type="checkbox"
                 class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
               />
-              <span class="fsr-label mb-0"
-                >Aura <span class="fsr-help-text">(spawns a region attached to the owner that follows them, applying the stat/damage (de)buffs below to actors inside instead of on-hit)</span></span
+              <span class="fsr-label mb-0" title="spawns a region attached to the owner that follows them, applying the stat/damage (de)buffs below to actors inside instead of on-hit"
+                >Aura <span class="fsr-help-text cursor-help">&#9432;</span></span
               >
             </label>
 
@@ -782,7 +819,8 @@ function toggleItem(id: string) {
 
           <!-- Mass Effect (area / multi-target, resisted) -->
           <div
-            class="mb-2 p-2 bg-fuchsia-950/30 border border-fuchsia-800 rounded space-y-2"
+            class="px-2 py-1.5 bg-fuchsia-950/30 border border-fuchsia-800 rounded space-y-2"
+            :class="{ 'w-full': power.massEffect?.enabled }"
           >
             <label class="flex items-center gap-2 cursor-pointer mb-0">
               <input
@@ -791,8 +829,8 @@ function toggleItem(id: string) {
                 @change="setMassEffect(power, { enabled: ($event.target as HTMLInputElement).checked })"
                 class="w-4 h-4 rounded border-gray-600 text-fuchsia-500"
               />
-              <span class="fsr-label mb-0"
-                >Mass Effect <span class="fsr-help-text">(using the power affects everyone in range, or all targeted tokens, instead of one attack roll. Each affected actor rolls to resist; those who fail get this power's Status Effects)</span></span
+              <span class="fsr-label mb-0" title="using the power affects everyone in range, or all targeted tokens, instead of one attack roll. Each affected actor rolls to resist; those who fail get this power's Status Effects"
+                >Mass Effect <span class="fsr-help-text cursor-help">&#9432;</span></span
               >
             </label>
             <div v-if="power.massEffect?.enabled" class="grid grid-cols-2 gap-2">
@@ -873,9 +911,114 @@ function toggleItem(id: string) {
             </div>
           </div>
 
+          <!-- Area of Effect (region on hit, or dragged onto the map) -->
+          <div
+            class="px-2 py-1.5 bg-orange-950/30 border border-orange-800 rounded space-y-2"
+            :class="{ 'w-full': power.areaOfEffect?.enabled }"
+          >
+            <label class="flex items-center gap-2 cursor-pointer mb-0">
+              <input
+                v-model="ensureAreaOfEffect(power).enabled"
+                type="checkbox"
+                class="w-4 h-4 rounded border-gray-600 text-orange-500"
+              />
+              <span class="fsr-label mb-0" title="leaves a region that damages / debuffs anyone inside, using this power's Stat/Damage (De)buffs and DoT. Placed centered on the target on hit, or dragged onto the map when Project Remotely is on"
+                >Area of Effect <span class="fsr-help-text cursor-help">&#9432;</span></span
+              >
+            </label>
+            <div v-if="power.areaOfEffect?.enabled" class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="fsr-label">Shape</label>
+                <select v-model="power.areaOfEffect.shape" class="fsr-select text-sm">
+                  <option value="circle">Circle</option>
+                  <option value="cone">Cone</option>
+                  <option value="ray">Ray (Line)</option>
+                  <option value="rect">Rectangle</option>
+                </select>
+              </div>
+              <div>
+                <label class="fsr-label">
+                  {{ power.areaOfEffect.shape === "circle" ? "Radius" : "Length" }} (scene units)
+                </label>
+                <input
+                  v-model.number="power.areaOfEffect.size"
+                  type="number"
+                  min="0"
+                  class="fsr-input text-sm"
+                />
+              </div>
+              <div v-if="['ray', 'rect'].includes(power.areaOfEffect.shape)">
+                <label class="fsr-label">Width (scene units)</label>
+                <input
+                  v-model.number="power.areaOfEffect.width"
+                  type="number"
+                  min="0"
+                  class="fsr-input text-sm"
+                />
+              </div>
+              <div v-if="power.areaOfEffect.shape === 'cone'">
+                <label class="fsr-label">Angle (degrees)</label>
+                <input
+                  v-model.number="power.areaOfEffect.angle"
+                  type="number"
+                  min="0"
+                  max="360"
+                  class="fsr-input text-sm"
+                />
+              </div>
+              <div>
+                <label class="fsr-label">Color</label>
+                <input
+                  v-model="power.areaOfEffect.color"
+                  type="color"
+                  class="fsr-input h-10 p-1"
+                />
+              </div>
+              <div>
+                <label class="fsr-label">Auto-Remove After (rounds)</label>
+                <input
+                  v-model="power.areaOfEffect.durationRounds"
+                  type="text"
+                  class="fsr-input text-sm"
+                  placeholder="e.g. 3 or 1d3; blank = stays"
+                />
+              </div>
+              <label class="flex items-center gap-2 cursor-pointer col-span-2">
+                <input
+                  v-model="power.areaOfEffect.instant"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-gray-600 text-orange-500"
+                />
+                <span class="fsr-label mb-0" title="the shape only decides who is hit, like a ray of disintegration or a cone of flame. No region stays on the map."
+                  >Instant (leaves no region) <span class="fsr-help-text cursor-help">&#9432;</span></span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer col-span-2">
+                <input
+                  v-model="power.areaOfEffect.remotePlaced"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-gray-600 text-orange-500"
+                />
+                <span class="fsr-label mb-0" title="drag this power's button onto the map instead of targeting. The power rolls its own rank to land: any result but white lands on the spot, a white scatters it. Everyone inside, including the user, is then attacked"
+                  >Project Remotely <span class="fsr-help-text cursor-help">&#9432;</span></span
+                >
+              </label>
+              <div v-if="power.areaOfEffect.remotePlaced" class="col-span-2">
+                <label class="fsr-label">Max projection range (scene units from the user's token; 0 = unlimited)</label>
+                <input
+                  v-model.number="power.areaOfEffect.maxRangeFeet"
+                  type="number"
+                  min="0"
+                  class="fsr-input text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
           <!-- Armor layer (e.g. Light-Shield) -->
           <div
-            class="mb-2 p-2 bg-yellow-950/30 border border-yellow-800 rounded space-y-2"
+            class="px-2 py-1.5 bg-yellow-950/30 border border-yellow-800 rounded space-y-2"
+            :class="{ 'w-full': power.grantsArmor }"
           >
             <label class="flex items-center gap-2 cursor-pointer mb-0">
               <input
@@ -883,8 +1026,8 @@ function toggleItem(id: string) {
                 type="checkbox"
                 class="w-4 h-4 rounded border-gray-600 text-yellow-500 focus:ring-2 focus:ring-yellow-500"
               />
-              <span class="fsr-label mb-0"
-                >Grants Armor Layer <span class="fsr-help-text">(soaks the chosen damage types up to this power's Rank value, in the chosen layer alongside worn armor)</span></span
+              <span class="fsr-label mb-0" title="soaks the chosen damage types up to this power's Rank value, in the chosen layer alongside worn armor"
+                >Grants Armor Layer <span class="fsr-help-text cursor-help">&#9432;</span></span
               >
             </label>
             <template v-if="power.grantsArmor">
@@ -919,8 +1062,8 @@ function toggleItem(id: string) {
                   type="checkbox"
                   class="w-4 h-4 rounded border-gray-600 text-yellow-500"
                 />
-                <span class="fsr-label mb-0"
-                  >Must be turned on <span class="fsr-help-text">(otherwise always active; toggle with the badge above)</span></span
+                <span class="fsr-label mb-0" title="otherwise always active; toggle with the badge above"
+                  >Must be turned on <span class="fsr-help-text cursor-help">&#9432;</span></span
                 >
               </label>
               <label class="flex items-center gap-2 cursor-pointer mb-0">
@@ -938,7 +1081,8 @@ function toggleItem(id: string) {
 
           <!-- Blend In (stealth) -->
           <div
-            class="mb-2 p-2 bg-teal-950/30 border border-teal-800 rounded space-y-2"
+            class="px-2 py-1.5 bg-teal-950/30 border border-teal-800 rounded space-y-2"
+            :class="{ 'w-full': power.blendIn }"
           >
             <label class="flex items-center gap-2 cursor-pointer mb-0">
               <input
@@ -946,8 +1090,8 @@ function toggleItem(id: string) {
                 type="checkbox"
                 class="w-4 h-4 rounded border-gray-600 text-teal-500 focus:ring-2 focus:ring-teal-500"
               />
-              <span class="fsr-label mb-0"
-                >Blend In <span class="fsr-help-text">(hides the owner's token from other players' clients while active; observers must beat an Intuition FEAT check that gets harder with distance to spot them - a higher Rank means a smaller, harder-to-spot base radius; use the "Blend In" badge above to toggle it on/off)</span></span
+              <span class="fsr-label mb-0" title="hides the owner's token from other players' clients while active; observers must beat an Intuition FEAT check that gets harder with distance to spot them - a higher Rank means a smaller, harder-to-spot base radius; use the &quot;Blend In&quot; badge above to toggle it on/off"
+                >Blend In <span class="fsr-help-text cursor-help">&#9432;</span></span
               >
             </label>
             <div v-if="power.blendIn" class="fsr-help-text">
@@ -965,6 +1109,8 @@ function toggleItem(id: string) {
                 Rolled once on activation and ticks down each combat round. Leave blank (or "indefinite") to stay active until manually toggled off.
               </div>
             </div>
+          </div>
+
           </div>
 
           <div
@@ -985,15 +1131,7 @@ function toggleItem(id: string) {
               :key="idx"
               class="border border-indigo-700 rounded p-2 space-y-2"
             >
-              <div class="flex items-center justify-between">
-                <label class="flex items-center gap-2 cursor-pointer mb-0">
-                  <input
-                    v-model="entry.enabled"
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <span class="fsr-label mb-0">Enabled</span>
-                </label>
+              <div class="flex items-center justify-end">
                 <button
                   @click="ensureStatDebuffs(power).splice(idx, 1)"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
@@ -1003,7 +1141,7 @@ function toggleItem(id: string) {
                 </button>
               </div>
 
-              <div v-if="entry.enabled" class="space-y-2">
+              <div class="space-y-2">
                 <div>
                   <label class="fsr-label">Target Attribute</label>
                   <select v-model="entry.attribute" class="fsr-select text-sm">
@@ -1083,7 +1221,8 @@ function toggleItem(id: string) {
           </div>
 
           <div
-            class="mb-2 p-2 bg-purple-950/30 border border-purple-800 rounded space-y-2"
+            class="px-2 py-1.5 bg-purple-950/30 border border-purple-800 rounded space-y-2"
+            :class="{ 'w-full': power.isAura }"
           >
             <div class="flex items-center justify-between">
               <span class="fsr-label mb-0">Temporary Damage (De)buffs</span>
@@ -1100,15 +1239,7 @@ function toggleItem(id: string) {
               :key="idx"
               class="border border-purple-700 rounded p-2 space-y-2"
             >
-              <div class="flex items-center justify-between">
-                <label class="flex items-center gap-2 cursor-pointer mb-0">
-                  <input
-                    v-model="entry.enabled"
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
-                  />
-                  <span class="fsr-label mb-0">Enabled</span>
-                </label>
+              <div class="flex items-center justify-end">
                 <button
                   @click="ensureDamageBuffs(power).splice(idx, 1)"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
@@ -1118,7 +1249,7 @@ function toggleItem(id: string) {
                 </button>
               </div>
 
-              <div v-if="entry.enabled" class="space-y-2">
+              <div class="space-y-2">
                 <div class="grid grid-cols-3 gap-2">
                   <div>
                     <label class="fsr-label">Half Success</label>
@@ -1202,15 +1333,7 @@ function toggleItem(id: string) {
               :key="idx"
               class="border border-green-700 rounded p-2 space-y-2"
             >
-              <div class="flex items-center justify-between">
-                <label class="flex items-center gap-2 cursor-pointer mb-0">
-                  <input
-                    v-model="entry.enabled"
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
-                  />
-                  <span class="fsr-label mb-0">Enabled</span>
-                </label>
+              <div class="flex items-center justify-end">
                 <button
                   @click="ensureDots(power).splice(idx, 1)"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
@@ -1220,7 +1343,7 @@ function toggleItem(id: string) {
                 </button>
               </div>
 
-              <div v-if="entry.enabled" class="space-y-2">
+              <div class="space-y-2">
                 <div class="grid grid-cols-2 gap-2">
                   <div>
                     <label class="fsr-label">Rank</label>
@@ -1306,15 +1429,7 @@ function toggleItem(id: string) {
               :key="idx"
               class="border border-indigo-700 rounded p-2 space-y-2"
             >
-              <div class="flex items-center justify-between">
-                <label class="flex items-center gap-2 cursor-pointer mb-0">
-                  <input
-                    v-model="entry.enabled"
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <span class="fsr-label mb-0">Enabled</span>
-                </label>
+              <div class="flex items-center justify-end">
                 <button
                   @click="ensureStatusEffects(power).splice(idx, 1)"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
@@ -1324,7 +1439,7 @@ function toggleItem(id: string) {
                 </button>
               </div>
 
-              <div v-if="entry.enabled" class="space-y-2">
+              <div class="space-y-2">
                 <div>
                   <label class="fsr-label">Status</label>
                   <select v-model="entry.statusId" class="fsr-select text-sm">

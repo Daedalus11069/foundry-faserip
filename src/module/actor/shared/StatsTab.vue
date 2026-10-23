@@ -41,6 +41,12 @@ import {
 } from "../../utils/blend-in";
 import { activateMassEffect } from "../../utils/power-mass-effect";
 import { rollEntryDuration } from "../../utils/area-of-effect";
+import {
+  endRemoteAreaDrag,
+  isRemotePlaced,
+  remoteAttackExtras,
+  startRemoteAreaDrag
+} from "../../utils/remote-area";
 import type { Talent } from "../../types";
 import {
   executeCombatAttack,
@@ -67,6 +73,7 @@ import {
   addActionsThisTurn
 } from "../../utils/turn-actions-tracker";
 import { applyHealingToActor } from "../../utils/damage-application";
+import { useActorField } from "./use-actor-field";
 import { isWeaponItem, type WeaponItem } from "../../types/items";
 import {
   getEffectiveAttributeData,
@@ -96,6 +103,13 @@ interface Weapon {
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
 const actor = inject("actor") as FaseripActor;
+const { setField } = useActorField(() => reactiveActor);
+
+/** Record completed attacks this turn and persist the new count. */
+function addActions(count: number) {
+  addActionsThisTurn(reactiveActor.system, count);
+  setField("system.actionsThisTurn", reactiveActor.system.actionsThisTurn);
+}
 
 /**
  * Snapshot of the currently-targeted token's actor "incoming attack"
@@ -656,7 +670,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           0,
           (reactiveActor.system.resources?.karma?.value || 0) - totalKarmaCost
         );
-        reactiveActor.system.resources.karma.value = newKarmaValue;
+        setField("system.resources.karma.value", newKarmaValue);
         await actor.update({
           // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
           "system.resources.karma.value": newKarmaValue
@@ -755,7 +769,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           await applyPendingDamages(actor as any, allPendingDamages);
         }
 
-        addActionsThisTurn(reactiveActor.system, attacksCompleted);
+        addActions(attacksCompleted);
 
         // Show exhaustion warning if combo reached Poor or below
         if (comboResult.hasExhaustion) {
@@ -795,7 +809,7 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
           actionsBeforeThisCombo: actionsBeforeUnarmed
         });
         if (singleResult !== null) {
-          addActionsThisTurn(reactiveActor.system, 1);
+          addActions(1);
           if (comboResult.hasExhaustion) {
             await ChatMessage.create({
               speaker: ChatMessage.getSpeaker({ actor }),
@@ -1043,7 +1057,7 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
       0,
       (reactiveActor.system.resources?.karma?.value || 0) - totalKarmaCost
     );
-    reactiveActor.system.resources.karma.value = newKarmaValue;
+    setField("system.resources.karma.value", newKarmaValue);
     await actor.update({
       // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
       "system.resources.karma.value": newKarmaValue
@@ -1159,7 +1173,7 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
     await applyPendingDamages(actor as any, allPendingDamages);
   }
 
-  addActionsThisTurn(reactiveActor.system, actionsCompleted);
+  addActions(actionsCompleted);
 
   if (comboResult.hasExhaustion) {
     await ChatMessage.create({
@@ -1288,7 +1302,7 @@ async function rollAllEquippedWeapons() {
       0,
       (reactiveActor.system.resources?.karma?.value || 0) - totalKarmaCost
     );
-    reactiveActor.system.resources.karma.value = newKarmaValue;
+    setField("system.resources.karma.value", newKarmaValue);
     await actor.update({
       // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
       "system.resources.karma.value": newKarmaValue
@@ -1411,7 +1425,7 @@ async function rollAllEquippedWeapons() {
     await applyPendingDamages(actor as any, allPendingDamages);
   }
 
-  addActionsThisTurn(reactiveActor.system, actionsCompleted);
+  addActions(actionsCompleted);
 
   if (comboResult.hasExhaustion) {
     await ChatMessage.create({
@@ -1425,7 +1439,43 @@ async function rollAllEquippedWeapons() {
   }
 }
 
-async function rollWeapon(weapon: Weapon, armLabel: string = "") {
+/**
+ * Remote-placed weapons/powers (grenades etc.) are dragged onto the canvas
+ * instead of clicked - the drop calls back into rollWeapon/rollPower with the
+ * spot. See utils/remote-area.ts.
+ */
+/** Hover text explaining how to use a remote-placed weapon/power, incl. the Ctrl option for rectangles. */
+function remoteDragHint(
+  thing: { areaOfEffect?: WeaponAreaOfEffectData },
+  verb: "propel" | "project"
+): string {
+  let hint = `Drag onto the map to ${verb}.`;
+  if (thing.areaOfEffect?.shape === "rect") {
+    hint +=
+      " Hold CTRL while dropping to rotate and size the rectangle by hand.";
+  }
+  return hint;
+}
+
+function onRemoteAreaDragStart(
+  event: DragEvent,
+  thing: { areaOfEffect?: WeaponAreaOfEffectData },
+  rank: Rank,
+  run: (point: { x: number; y: number }) => Promise<void>
+) {
+  startRemoteAreaDrag(event, {
+    actor: actor as any,
+    aoe: thing.areaOfEffect!,
+    rank,
+    run
+  });
+}
+
+async function rollWeapon(
+  weapon: Weapon,
+  armLabel: string = "",
+  remotePoint?: { x: number; y: number }
+) {
   if (!currentForm.value) return;
 
   // Only equipped weapons may be attacked with
@@ -1435,6 +1485,26 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
     );
     return;
   }
+
+  if (isRemotePlaced(weapon) && !remotePoint) {
+    ui.notifications?.info(
+      `${weapon.name} is propelled onto the map - drag its button onto the canvas.`
+    );
+    return;
+  }
+  const remoteExtras =
+    isRemotePlaced(weapon) && remotePoint
+      ? remoteAttackExtras({
+          attacker: actor as any,
+          origin: remotePoint,
+          aoe: weapon.areaOfEffect!,
+          name: weapon.name,
+          dots: weapon.dots,
+          dotRank: getWeaponDamageRankFor(weapon),
+          statDebuffs: weapon.statDebuffs,
+          damageBuffs: weapon.damageBuffs
+        })
+      : {};
 
   const attackAttribute = weapon.stat;
   const attackType = weapon.type;
@@ -1554,7 +1624,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
       0,
       (reactiveActor.system.resources?.karma?.value || 0) - totalKarmaCost
     );
-    reactiveActor.system.resources.karma.value = newKarmaValue;
+    setField("system.resources.karma.value", newKarmaValue);
     await actor.update({
       // @ts-expect-error - TypeScript doesn't recognize the update method on Actor
       "system.resources.karma.value": newKarmaValue
@@ -1618,7 +1688,8 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
         statusEffects: weapon.statusEffects,
         areaOfEffect: weapon.areaOfEffect,
         deferDamageApplication: true, // Defer damage for cumulative application
-        comboBotchCount // Pass current botch count
+        comboBotchCount, // Pass current botch count
+        ...remoteExtras
       });
 
       // Check for botch (1-5) or cancellation - break combo immediately
@@ -1675,7 +1746,7 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
       await applyExhaustionStun(actor);
     }
 
-    addActionsThisTurn(reactiveActor.system, attacksCompleted);
+    addActions(attacksCompleted);
   } else {
     // Single attack
     const firstAttackKarma = comboResult.attackKarmaSettings[0];
@@ -1707,10 +1778,11 @@ async function rollWeapon(weapon: Weapon, armLabel: string = "") {
       dots: weapon.dots,
       statusEffects: weapon.statusEffects,
       areaOfEffect: weapon.areaOfEffect,
-      actionsBeforeThisCombo: actionsBeforeWeapon
+      actionsBeforeThisCombo: actionsBeforeWeapon,
+      ...remoteExtras
     });
     if (singleResult !== null) {
-      addActionsThisTurn(reactiveActor.system, 1);
+      addActions(1);
       if (comboResult.hasExhaustion) {
         await ChatMessage.create({
           speaker: ChatMessage.getSpeaker({ actor }),
@@ -1806,7 +1878,10 @@ async function toggleEquip(weapon: Weapon) {
   }
 }
 
-async function rollPower(power: any) {
+async function rollPower(
+  power: any,
+  remotePoint?: { x: number; y: number }
+) {
   if (!currentForm.value) return;
 
   if (powersEffectivelyNegated.value) {
@@ -1861,11 +1936,38 @@ async function rollPower(power: any) {
   const rank = stringToRank(power.rank);
   const rankValue = power.value || 6;
 
+  // A remote-placed power is dragged onto the canvas instead of clicked and
+  // rolls its own rank to land (an agility roll would be wrong for a power).
+  // It needs no target token - whoever is inside the placed area is attacked.
+  const remoteArea = isRemotePlaced(power);
+  if (remoteArea && !remotePoint) {
+    ui.notifications?.info(
+      `${power.name} is projected onto the map - drag its button onto the canvas.`
+    );
+    return;
+  }
+  const remoteExtras =
+    remoteArea && remotePoint
+      ? {
+          ...remoteAttackExtras({
+            attacker: actor as any,
+            origin: remotePoint,
+            aoe: power.areaOfEffect,
+            name: power.name,
+            dots: power.dots,
+            dotRank: rank,
+            statDebuffs: power.statDebuffs,
+            damageBuffs: power.damageBuffs
+          }),
+          attackRankOverride: { rank, value: rankValue }
+        }
+      : {};
+
   // Enforce target type restrictions
   // @ts-expect-error - game.user.targets is a Set
   const currentTargets = Array.from(game.user?.targets || []);
   const targetType = power.targetType ?? "any";
-  if (targetType === "others" && currentTargets.length === 0) {
+  if (!remoteArea && targetType === "others" && currentTargets.length === 0) {
     ui.notifications?.error(
       `${power.name} can only target others. Select a target token first.`
     );
@@ -1891,7 +1993,10 @@ async function rollPower(power: any) {
   let talentNames: string[] = [];
 
   // Route healing powers - must be rolled first
-  if (power.effectType === "heal-health" || power.effectType === "heal-armor") {
+  if (
+    !remoteArea &&
+    (power.effectType === "heal-health" || power.effectType === "heal-armor")
+  ) {
     // Check for targeted tokens (effectiveTargets respects power.targetType)
     const targets = effectiveTargets;
     const hasTargets = targets.length > 0;
@@ -2329,7 +2434,7 @@ async function rollPower(power: any) {
   }
 
   // Route all contested powers through combat flow
-  if (power.attackType && power.attackType !== "none") {
+  if (remoteArea || (power.attackType && power.attackType !== "none")) {
     // Determine attack attribute and type based on power settings
     let attackAttribute: "fighting" | "agility" | "psyche" | "strength";
     let attackType: "melee" | "ranged" | "psyche" | "strength";
@@ -2410,8 +2515,10 @@ async function rollPower(power: any) {
           damageBuffs: power.damageBuffs,
           dots: power.dots,
           statusEffects: power.statusEffects,
+          areaOfEffect: power.areaOfEffect,
           deferDamageApplication: true, // Defer damage for cumulative application
-          comboBotchCount // Pass current botch count
+          comboBotchCount, // Pass current botch count
+          ...remoteExtras
         });
 
         // Check for botch (1-5) or cancellation - break combo immediately
@@ -2455,7 +2562,7 @@ async function rollPower(power: any) {
         await applyPendingDamages(actor as any, allPendingDamages);
       }
 
-      addActionsThisTurn(reactiveActor.system, attacksCompleted);
+      addActions(attacksCompleted);
     } else {
       // Single attack with karma from combo dialog
       const firstAttackKarma = comboResult.attackKarmaSettings[0];
@@ -2489,10 +2596,12 @@ async function rollPower(power: any) {
         damageBuffs: power.damageBuffs,
         dots: power.dots,
         statusEffects: power.statusEffects,
-        actionsBeforeThisCombo: actionsBeforePower
+        areaOfEffect: power.areaOfEffect,
+        actionsBeforeThisCombo: actionsBeforePower,
+        ...remoteExtras
       });
       if (singleResult !== null) {
-        addActionsThisTurn(reactiveActor.system, 1);
+        addActions(1);
         if (comboResult.hasExhaustion) {
           await ChatMessage.create({
             speaker: ChatMessage.getSpeaker({ actor }),
@@ -2906,23 +3015,26 @@ async function rollPower(power: any) {
           >
             ⚔️ Attack w/ Equipped ({{ equippedWeapons.length }})
           </button>
-          <div class="flex flex-col gap-2">
+          <div class="grid grid-cols-2 gap-2">
             <div
               v-for="weapon in weapons"
               :key="weapon.id"
-              class="flex items-center gap-2"
+              class="flex items-center gap-2 min-w-0"
             >
               <button
                 @click="rollWeapon(weapon)"
                 :disabled="!weapon.equipped"
+                :draggable="weapon.equipped && isRemotePlaced(weapon)"
+                @dragstart="isRemotePlaced(weapon) && onRemoteAreaDragStart($event, weapon, getWeaponDamageRankFor(weapon), point => rollWeapon(weapon, '', point))"
+                @dragend="endRemoteAreaDrag()"
                 style="--button-size: auto"
                 :class="[
-                  'fsr-btn text-xs px-3 py-1 text-left flex-1',
+                  'fsr-btn text-xs px-3 py-1 text-left flex-1 min-w-0',
                   weapon.equipped
                     ? 'fsr-btn-secondary'
                     : 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-60'
                 ]"
-                :title="weapon.equipped
+                :title="(weapon.equipped
                   ? weapon.name +
                   ' (' +
                   formatWeaponDamage(weapon) +
@@ -2935,12 +3047,15 @@ async function rollPower(power: any) {
                     ? ' | AP: ' + formatRankDisplay(weapon.armorPiercing)
                     : '')
                   : 'Weapon must be equipped to attack'
+                  ) + (weapon.equipped && isRemotePlaced(weapon) ? '\n' + remoteDragHint(weapon, 'propel') : '')
                   "
               >
-                {{ weapon.type === "melee" ? "⚔️" : "🏹" }} {{ weapon.name }}
-                <span class="ml-1 fsr-rank-badge text-xs">{{
-                  formatWeaponDamage(weapon)
-                }}</span>
+                {{ weapon.name }}
+                <i
+                  v-if="isRemotePlaced(weapon)"
+                  class="fas fa-bullseye ml-1 text-orange-400"
+                  :title="remoteDragHint(weapon, 'propel')"
+                ></i>
                 <span
                   v-if="weapon.armorPiercing"
                   class="ml-1 text-red-400"
@@ -3008,20 +3123,28 @@ async function rollPower(power: any) {
               (Enhanced +{{ powerEnhancementShift }}CS)
             </span>
           </h3>
-          <div class="flex flex-col gap-2">
+          <div class="grid grid-cols-2 gap-2">
             <button
               v-for="power in powers"
               :key="power.id"
               @click="rollPower(power)"
               :disabled="powersEffectivelyNegated"
-              class="fsr-btn fsr-btn-secondary text-xs px-3 py-1 text-left"
+              :draggable="!powersEffectivelyNegated && isRemotePlaced(power)"
+              @dragstart="isRemotePlaced(power) && onRemoteAreaDragStart($event, power, stringToRank(power.rank), point => rollPower(power, point))"
+              @dragend="endRemoteAreaDrag()"
+              class="fsr-btn fsr-btn-secondary text-xs px-3 py-1 text-left min-w-0"
               :class="{ 'opacity-40 cursor-not-allowed grayscale': powersEffectivelyNegated }"
               :title="powersEffectivelyNegated
                 ? `Powers are negated in this area.`
                 : `${power.name} (${formatRankDisplay(power.rank)})${mpEnabled && power.mpCost ? ` - MP Cost: ${power.mpCost}` : ''
-                  }`"
+                  }${isRemotePlaced(power) ? '\n' + remoteDragHint(power, 'project') : ''}`"
             >
-              ⚡ {{ power.name }}
+              {{ power.name }}
+              <i
+                v-if="isRemotePlaced(power)"
+                class="fas fa-bullseye ml-1 text-orange-400"
+                :title="remoteDragHint(power, 'project')"
+              ></i>
               <span
                 v-if="mpEnabled && power.mpCost"
                 class="ml-1 text-yellow-400"

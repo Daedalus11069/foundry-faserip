@@ -17,12 +17,29 @@ import {
   applyDamageToActor,
   applyHealingToActor
 } from "../../utils/damage-application";
+import { useActorField } from "./use-actor-field";
 import type { ReactiveActorData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 import { isArmorItem } from "../../types/items";
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
 const actor = inject("actor") as FaseripActor;
+const { fields, setField, persistDeep } = useActorField(() => reactiveActor);
+
+// Child tabs (and the damage/healing helpers) mutate these collections in
+// place - v-model on power.name, push/splice, armor/health bookkeeping. They
+// are watched here, scoped to one subtree each, because this component is
+// always mounted whereas the tabs that mutate them come and go.
+for (const path of [
+  "system.powers",
+  "system.talents",
+  "system.forms",
+  "system.armors",
+  "system.healthByForm",
+  "system.resources.mentalPoints"
+]) {
+  persistDeep(path);
+}
 
 // Reactive key to force computed updates when actor/items change
 const actorUpdateKey = ref(0);
@@ -309,8 +326,7 @@ function openImagePicker() {
     type: "image",
     callback: async (path: string) => {
       // Update to new image (browsing existing files, no deletion needed)
-      reactiveActor.img = path;
-      await actor.update({ img: path });
+      setField("img", path);
     }
   });
   fp.browse();
@@ -338,7 +354,7 @@ async function applyDamage() {
   const degradingMode =
     (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
 
-  // Apply damage directly to reactive system - watcher will persist changes
+  // Apply damage directly to reactive system - scoped watchers persist changes
   const result = await applyDamageToActor({
     reactiveSystem: reactiveActor.system,
     actor: actor,
@@ -412,7 +428,7 @@ async function applyDamage() {
 async function applyHealing() {
   if (damageAmount.value <= 0) return;
 
-  // Apply healing directly to reactive system - watcher will persist changes
+  // Apply healing directly to reactive system - scoped watchers persist changes
   const newHealthValue = await applyHealingToActor(
     reactiveActor.system,
     damageAmount.value,
@@ -420,7 +436,7 @@ async function applyHealing() {
   );
 
   // CRITICAL: Also update the derived resource value for immediate UI feedback
-  // The watcher will persist healthByForm, and prepareDerivedData will recalculate on next load
+  // the healthByForm watcher persists the source of truth, and prepareDerivedData will recalculate on next load
   reactiveActor.system.resources.health.value = newHealthValue;
 
   damageAmount.value = 0;
@@ -503,7 +519,7 @@ onUnmounted(() => {
         <!-- Name and Form Selector -->
         <div class="flex-1">
           <input
-            v-model="reactiveActor.name"
+            v-model="fields['name']"
             type="text"
             class="fsr-title bg-transparent border-b-2 border-red-500 focus:border-red-300 outline-none w-full"
             placeholder="Character Name"

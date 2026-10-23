@@ -1,8 +1,21 @@
 import { Rank, RANK_VALUES, formatRankDisplay } from "../enums";
 import type { PowerDotData, WeaponAreaOfEffectData } from "../types/actor-system";
-import { getContainingRegionBehaviors } from "./region-effects";
+import { aimDirection, getContainingRegionBehaviors } from "./region-effects";
 import { requestDamageApplication, requestCreateEffectRegion } from "../socket/faserip-socket";
 import type { AttributeKey } from "./stat-debuffs";
+
+export interface ResolvedStatShift {
+  attribute: string;
+  chartShift: number;
+  indefinite: boolean;
+  roundsRemaining: number;
+}
+
+export interface ResolvedDamageShift {
+  chartShift: number;
+  indefinite: boolean;
+  roundsRemaining: number;
+}
 
 /**
  * Rolls a duration formula ONCE - shared by the direct hit target's own
@@ -39,8 +52,15 @@ export async function rollEntryDuration(
  * auto-render an ArrayField of SchemaFields, so the real tracking arrays are
  * otherwise invisible there).
  */
+type RegionDot = {
+  rank: string;
+  armorPiercing?: string;
+  indefinite?: boolean;
+  roundsRemaining?: number;
+};
+
 function buildSummaryText(
-  dots: Array<{ rank: string; armorPiercing?: string }>,
+  dots: RegionDot[],
   statShifts: Array<{
     attribute: string;
     chartShift: number;
@@ -60,7 +80,10 @@ function buildSummaryText(
     const apText = d.armorPiercing
       ? ` (${formatRankDisplay(d.armorPiercing as Rank)} AP)`
       : "";
-    parts.push(`DoT: ${rankText}${apText}`);
+    const durationText = d.indefinite
+      ? "indefinite"
+      : `${d.roundsRemaining ?? 0} rd${d.roundsRemaining === 1 ? "" : "s"}`;
+    parts.push(`DoT: ${rankText}${apText} (${durationText})`);
   }
 
   for (const s of statShifts) {
@@ -115,41 +138,96 @@ function buildSummaryText(
  */
 export async function placeAreaOfEffectOnHit(
   aoe: WeaponAreaOfEffectData | undefined,
-  resolvedStatShifts: Array<{
-    attribute: string;
-    chartShift: number;
-    indefinite: boolean;
-    roundsRemaining: number;
-  }>,
-  resolvedDamageShifts: Array<{
-    chartShift: number;
-    indefinite: boolean;
-    roundsRemaining: number;
-  }>,
+  resolvedStatShifts: ResolvedStatShift[],
+  resolvedDamageShifts: ResolvedDamageShift[],
   dots: PowerDotData[] | undefined,
   weaponName: string,
-  targetToken: Token
+  targetToken: Token,
+  defaultDotRank?: string,
+  /** The attacker's token - the area is aimed away from it, through the target. */
+  attackerToken?: Token
 ): Promise<void> {
-  if (!aoe?.enabled) return;
-
   const scene = targetToken.document?.parent;
   if (!scene) return;
 
   const center = targetToken.center as { x: number; y: number } | undefined;
   if (!center) return;
 
-  const regionDots = (dots ?? [])
-    .filter(d => d.enabled)
-    .map(d => ({ rank: d.rank || "", armorPiercing: d.armorPiercing || "" }));
+  await placeAreaOfEffectAt(
+    aoe,
+    resolvedStatShifts,
+    resolvedDamageShifts,
+    dots,
+    weaponName,
+    scene,
+    center,
+    defaultDotRank,
+    aimDirection(attackerToken?.center, center),
+    targetToken.id ?? undefined
+  );
+}
 
+/**
+ * Same as placeAreaOfEffectOnHit, but centered on an arbitrary scene point
+ * instead of a target token - used when the weapon/power is dragged onto the
+ * canvas (see utils/remote-area.ts), where there may be nothing at the spot.
+ */
+export async function placeAreaOfEffectAt(
+  aoe: WeaponAreaOfEffectData | undefined,
+  resolvedStatShifts: ResolvedStatShift[],
+  resolvedDamageShifts: ResolvedDamageShift[],
+  dots: PowerDotData[] | undefined,
+  weaponName: string,
+  scene: any,
+  center: { x: number; y: number },
+  /** Rank for DoT entries with no rank of their own (they follow the power/weapon's rank). */
+  defaultDotRank?: string,
+  /** Degrees, 0 = east; see EffectRegionShapeConfig.direction. */
+  direction?: number,
+  /** Token already dealt this hit's DoT directly - not re-damaged by the region this round. */
+  excludeTokenId?: string
+): Promise<void> {
+  if (!aoe?.enabled) return;
+  // Instant areas only define who is hit - nothing is left on the map
+  if (aoe.instant) return;
+
+  // Each DoT rolls its own duration once, same as the (de)buff entries.
+  const regionDots: RegionDot[] = [];
+  for (const d of (dots ?? []).filter(d => d.enabled)) {
+    const duration = await rollEntryDuration(d.durationFormula);
+    regionDots.push({
+      rank: d.rank?.trim() || defaultDotRank || "",
+      armorPiercing: d.armorPiercing || "",
+      indefinite: duration.indefinite,
+      roundsRemaining: duration.roundsRemaining
+    });
+  }
+
+  // The region's own lifetime: the area's Auto-Remove setting when given,
+  // otherwise it lasts as long as its longest-lived effect (indefinite if any
+  // effect is, or if it carries none).
   const durationFormula = String(aoe.durationRounds ?? "").trim();
-  const indefinite = !durationFormula || durationFormula === "0";
+  let indefinite: boolean;
   let roundsRemaining: number | undefined;
-  if (!indefinite) {
+  if (durationFormula && durationFormula !== "0") {
+    indefinite = false;
     const durationRoll = Roll.create(durationFormula);
     await durationRoll.evaluate();
     roundsRemaining = durationRoll.total || 0;
+  } else {
+    const entries: Array<{ indefinite?: boolean; roundsRemaining?: number }> = [
+      ...regionDots,
+      ...resolvedStatShifts,
+      ...resolvedDamageShifts
+    ];
+    indefinite = entries.length === 0 || entries.some(e => e.indefinite);
+    if (!indefinite) {
+      roundsRemaining = Math.max(...entries.map(e => Number(e.roundsRemaining) || 0));
+    }
   }
+
+  const activeCombat = (game as any).combat?.started ? (game as any).combat : null;
+  const roundKey = combatRoundKey();
 
   // Creating an embedded Region requires Scene Update permission, which a
   // player landing a hit doesn't have by default - relayed through
@@ -168,7 +246,8 @@ export async function placeAreaOfEffectOnHit(
       type: aoe.shape,
       size: aoe.size,
       width: aoe.width,
-      angle: aoe.angle
+      angle: aoe.angle,
+      direction
     },
     behaviors: [
       {
@@ -184,7 +263,13 @@ export async function placeAreaOfEffectOnHit(
           faserip: {
             sourceWeaponName: weaponName,
             indefinite,
-            roundsRemaining
+            roundsRemaining,
+            // DoTs tick at the start of the turn this field was created on
+            // (see tickWeaponAreaEffectRegions); a token entering sooner takes
+            // its tick on entry instead, tracked in damagedRounds.
+            creatorCombatantId: activeCombat?.combatant?.id ?? null,
+            damagedRounds:
+              excludeTokenId && roundKey ? { [excludeTokenId]: roundKey } : {}
           }
         }
       }
@@ -224,6 +309,83 @@ export function getWeaponAreaEffectDamageShift(actor: any): number {
   return total;
 }
 
+/** Identifies the current combat round, or null when no combat is running. */
+function combatRoundKey(): string | null {
+  const combat = (game as any).combat;
+  return combat?.started ? `${combat.id}:${combat.round}` : null;
+}
+
+function activeDotEntries(behavior: any): RegionDot[] {
+  return ((behavior.system?.dots ?? []) as RegionDot[]).filter(
+    entry => entry.indefinite || Number(entry.roundsRemaining) > 0
+  );
+}
+
+/**
+ * Applies one tick of every active DoT on the region to a token, unless that
+ * token was already damaged by this region this combat round (entry tick vs.
+ * the creation-turn tick must never both land in one round). Records the tick
+ * so the other path skips it.
+ */
+async function damageTokenFromRegion(
+  region: any,
+  behavior: any,
+  token: any,
+  dotEntries: RegionDot[]
+): Promise<void> {
+  if (!token?.actor || dotEntries.length === 0) return;
+
+  const roundKey = combatRoundKey();
+  const damagedRounds: Record<string, string> =
+    behavior.flags?.faserip?.damagedRounds ?? {};
+  if (roundKey && damagedRounds[token.id] === roundKey) return;
+
+  for (const dotEntry of dotEntries) {
+    const damage = RANK_VALUES[dotEntry.rank as Rank] ?? 0;
+    if (damage <= 0) continue;
+
+    try {
+      await requestDamageApplication(
+        token.actor,
+        damage,
+        "dot",
+        region.name || "Area Effect",
+        token.id,
+        dotEntry.armorPiercing || null,
+        undefined,
+        1
+      );
+    } catch (err) {
+      console.error(
+        `faserip | failed to apply weapon area effect DoT tick to ${token.actor?.name}`,
+        err
+      );
+    }
+  }
+
+  if (roundKey) {
+    try {
+      // Keep only this round's entries so the map doesn't grow unbounded.
+      const kept = Object.fromEntries(
+        Object.entries(damagedRounds).filter(([, key]) => key === roundKey)
+      );
+      kept[token.id] = roundKey;
+      await behavior.update({ "flags.faserip.damagedRounds": kept });
+    } catch (err) {
+      console.error("faserip | failed to record weapon area effect DoT tick", err);
+    }
+  }
+}
+
+/** Entry tick: a token moving into a weapon area effect takes its DoTs immediately. */
+export async function applyWeaponAreaEffectEntryDots(
+  behavior: any,
+  token: any
+): Promise<void> {
+  if (behavior.disabled) return;
+  await damageTokenFromRegion(behavior.parent, behavior, token, activeDotEntries(behavior));
+}
+
 /**
  * Decrements roundsRemaining on every weaponAreaEffect behavior across every
  * scene by one, deleting the region once it hits zero (mirrors
@@ -236,7 +398,10 @@ export function getWeaponAreaEffectDamageShift(actor: any): number {
  * Call once per combat round from the same updateCombat hook that ticks the
  * other round-based modifiers/auras.
  */
-export async function tickWeaponAreaEffectRegions(): Promise<void> {
+export async function tickWeaponAreaEffectRegions(
+  combatantIds?: string[]
+): Promise<void> {
+  const combat = (game as any).combat;
   for (const scene of game.scenes ?? []) {
     for (const region of Array.from(scene.regions ?? [])) {
       for (const behavior of Array.from((region as any).behaviors ?? [])) {
@@ -244,6 +409,19 @@ export async function tickWeaponAreaEffectRegions(): Promise<void> {
         if ((behavior as any).disabled) continue;
 
         const flags = (behavior as any).flags?.faserip;
+
+        // Each field ticks once per round, at the start of the turn it was
+        // created on. Called with the combatants whose turn is starting; with
+        // none (round change) it picks up fields with no usable creator turn
+        // (made outside combat, or the creator has left the combat).
+        const creatorId: string | null = flags?.creatorCombatantId ?? null;
+        const creatorPresent = !!creatorId && !!combat?.combatants?.has(creatorId);
+        if (combatantIds) {
+          if (!creatorId || !combatantIds.includes(creatorId)) continue;
+        } else if (creatorPresent) {
+          continue;
+        }
+
         if (flags && !flags.indefinite && flags.roundsRemaining !== undefined) {
           const next = Number(flags.roundsRemaining) - 1;
           try {
@@ -280,15 +458,25 @@ export async function tickWeaponAreaEffectRegions(): Promise<void> {
           )
           .filter((entry: any) => entry.indefinite || entry.roundsRemaining > 0);
 
-        const dotEntriesForSummary: Array<{ rank: string; armorPiercing?: string }> =
+        // DoTs tick this round at full effect, then lose a round of their own
+        // duration; one wearing off doesn't touch another.
+        const dotEntriesForSummary: RegionDot[] =
           (behavior as any).system?.dots ?? [];
+        const remainingDots = dotEntriesForSummary
+          .map(entry =>
+            entry.indefinite
+              ? entry
+              : { ...entry, roundsRemaining: Number(entry.roundsRemaining) - 1 }
+          )
+          .filter(entry => entry.indefinite || Number(entry.roundsRemaining) > 0);
 
         try {
           await (behavior as any).update({
+            "system.dots": remainingDots,
             "system.resolvedStatShifts": statShifts,
             "system.resolvedDamageShifts": damageShifts,
             "system.summary": buildSummaryText(
-              dotEntriesForSummary,
+              remainingDots,
               statShifts,
               damageShifts
             )
@@ -302,33 +490,13 @@ export async function tickWeaponAreaEffectRegions(): Promise<void> {
 
         if (dotEntriesForSummary.length === 0) continue;
 
+        const activeDots = dotEntriesForSummary.filter(
+          entry => entry.indefinite || Number(entry.roundsRemaining) > 0
+        );
         for (const token of scene.tokens ?? []) {
-          if (!token.actor) continue;
           // @ts-expect-error - TokenDocument#regions is a Set maintained by core
           if (!token.regions?.has(region)) continue;
-
-          for (const dotEntry of dotEntriesForSummary) {
-            const damage = RANK_VALUES[dotEntry.rank as Rank] ?? 0;
-            if (damage <= 0) continue;
-
-            try {
-              await requestDamageApplication(
-                token.actor,
-                damage,
-                "dot",
-                (region as any).name || "Area Effect",
-                token.id,
-                dotEntry.armorPiercing || null,
-                undefined,
-                1
-              );
-            } catch (err) {
-              console.error(
-                `faserip | failed to apply weapon area effect DoT tick to ${token.actor?.name}`,
-                err
-              );
-            }
-          }
+          await damageTokenFromRegion(region, behavior, token, activeDots);
         }
       }
     }

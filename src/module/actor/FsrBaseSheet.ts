@@ -5,7 +5,10 @@ import {
   type Component,
   type Reactive
 } from "vue";
-import { watchIgnorable } from "@vueuse/core";
+import { nextTick, toRaw } from "vue";
+import { useDebounceFn } from "@vueuse/core";
+import { assignIfChanged } from "./shared/assign-if-changed";
+import { deepEqual, mergeThreeWay } from "./shared/merge-data";
 import { getRankValue } from "../utils";
 import type { FaseripActor } from "../documents";
 
@@ -29,9 +32,21 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
 
   #vueApp: App | null = null;
   #reactiveActor: Reactive<FaseripActor> | null = null;
-  #stopWatcher: (() => void) | null = null;
-  #ignoreUpdates: ((cb: () => void) => void) | null = null;
   #isUpdating: boolean = false;
+  /** True while Foundry data is being synced into the reactive actor. */
+  #syncing: boolean = false;
+  #syncAfterFlush: boolean = false;
+  /**
+   * Snapshot of the document's data as of the last sync. It is the "base" for
+   * three-way merging subtrees that must be sent whole, so another user's
+   * edits to the same array/object aren't overwritten.
+   */
+  #baseline: Record<string, any> = {};
+  /** Document paths written via setActorField that await persistence. */
+  #pendingFieldPaths = new Set<string>();
+  #flushChain: Promise<void> = Promise.resolve();
+  #scheduleFieldFlush = useDebounceFn(() => this.flushActorFields(), 50);
+  #scheduleAudit = useDebounceFn(() => this.auditUnpersistedFields(), 800);
   #updateActorCallback:
     | ((
         actor: Actor,
@@ -74,6 +89,9 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       // For unlinked token sheets, this.actor is already the synthetic actor (base + delta)
       const reactiveClone = reactive(clone);
       this.#reactiveActor = reactiveClone;
+      this.#baseline = JSON.parse(
+        JSON.stringify({ system: this.actor.system })
+      );
     }
 
     const container = document.createElement("div");
@@ -91,200 +109,27 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       app.mount(container);
       this.#vueApp = app;
 
-      // Set up watchIgnorable for automatic syncing
-      const { ignoreUpdates, stop } = watchIgnorable(
-        this.#reactiveActor!,
-        async () => {
-          // Prevent redundant updates if we're already in the middle of one
-          if (this.#isUpdating) {
-            return;
-          }
+      // Persistence is path-based (see setActorField); there is no deep
+      // watcher. Optionally audit for writes that bypassed setActorField.
+      if (this.#auditEnabled()) {
+        container.addEventListener("focusout", () => this.#scheduleAudit());
+      }
 
-          // Store ignoreUpdates for use in syncReactiveActor()
-          if (!this.#ignoreUpdates) {
-            this.#ignoreUpdates = ignoreUpdates;
-          }
-
-          // Skip updates if the sheet is not editable
-          // @ts-expect-error - isEditable property exists on ActorSheetV2
-          if (!this.isEditable) {
-            return;
-          }
-
-          // Extract reactive values before serialization
-          const newActorData = {
-            _id: this.#reactiveActor!._id,
-            name: this.#reactiveActor!.name,
-            img: this.#reactiveActor!.img,
-            system: { ...this.#reactiveActor!.system }
-          };
-
-          // Calculate diff between old and new data
-          const oldActorPlain = JSON.parse(JSON.stringify(this.actor));
-          const newActorPlain = JSON.parse(JSON.stringify(newActorData));
-
-          const diff = foundry.utils.diffObject(oldActorPlain, newActorPlain, {
-            deletionKeys: true
-          }) as any;
-
-          // Remove _id from diff (never update the ID)
-          const { _id, ...cleanDiff } = diff;
-
-          // Skip if no real changes
-          if (Object.keys(cleanDiff).length === 0) {
-            return;
-          }
-
-          // Flatten to dot notation for reliable nested updates
-          const updateData = foundry.utils.flattenObject(cleanDiff);
-
-          // CRITICAL: If powers array changed, we need to send the FULL array, not partial diffs
-          // diffObject creates partial arrays with only changed elements, but Foundry needs the complete array
-          const hasPowersChange = Object.keys(updateData).some(key =>
-            key.startsWith("system.powers")
-          );
-          if (hasPowersChange) {
-            // Remove all partial power keys
-            for (const key of Object.keys(updateData)) {
-              if (key.startsWith("system.powers")) {
-                // @ts-expect-error - reactiveActor is typed as any
-                delete updateData[key];
-              }
-            }
-            // Add the complete powers array
-            // @ts-expect-error - reactiveActor is typed as any
-            updateData["system.powers"] = JSON.parse(
-              // @ts-expect-error - reactiveActor is typed as any
-              JSON.stringify(this.#reactiveActor!.system.powers)
-            );
-          }
-
-          // CRITICAL: Filter out derived data paths that are calculated by prepareDerivedData
-          // These should NEVER be stored in actor/token data
-          const derivedPaths = [
-            /^system\.resources\.health\./,
-            /^system\.resources\.armor\./,
-            /^system\.resources\.mp\.max$/
-          ];
-
-          const filteredUpdateData: Record<string, any> = {};
-          for (const [key, value] of Object.entries(updateData)) {
-            const isDerived = derivedPaths.some(pattern => pattern.test(key));
-            // Also filter out _id at any level
-            const isIdField = key === "_id" || key.endsWith("._id");
-
-            if (!isDerived && !isIdField) {
-              filteredUpdateData[key] = value;
-            }
-          }
-
-          // Third-party modules (e.g. tokenmagic-automatic-wounds) key off
-          // system.resources.health.value in the preUpdateActor diff to detect
-          // HP changes. healthByForm is our source of truth and health.value is
-          // normally re-derived by prepareDerivedData, but since nothing else
-          // sends it through, include the already-resolved value here so it
-          // rides along in the same update instead of racing a later recompute.
-          const currentFormId = (this.#reactiveActor!.system as any)
-            .currentFormId;
-          const healthByFormKey = currentFormId
-            ? `system.healthByForm.${currentFormId}`
-            : undefined;
-          if (healthByFormKey && healthByFormKey in filteredUpdateData) {
-            filteredUpdateData["system.resources.health.value"] =
-              filteredUpdateData[healthByFormKey];
-          }
-
-          // Skip if no real changes after filtering
-          if (Object.keys(filteredUpdateData).length === 0) {
-            return;
-          }
-
-          // Set flag to prevent redundant watcher firing during update
-          this.#isUpdating = true;
-
-          try {
-            // Update the real actor or token
-            const actor = this.actor;
-            // @ts-expect-error - token property exists on ActorSheetV2
-            const token = this.token;
-
-            // Check if this is an unlinked token by checking actor.isToken
-            const isUnlinkedToken = actor.isToken && token && !token.actorLink;
-
-            if (isUnlinkedToken) {
-              // Prefix all keys with "delta." for token delta updates
-              const tokenUpdates: Record<string, any> = {};
-              for (const [key, value] of Object.entries(filteredUpdateData)) {
-                tokenUpdates[`delta.${key}`] = value;
-              }
-
-              await token.update(tokenUpdates);
-
-              // CRITICAL: After delta update, explicitly refresh bar values AND max
-              // The token bars cache values and need to be told to recalculate from actor resources
-              const updatedActor = token.actor; // Get fresh synthetic actor (base + delta)
-              if (updatedActor && token.object) {
-                const healthResource = (updatedActor.system as any).resources
-                  ?.health;
-                const armorResource = (updatedActor.system as any).resources
-                  ?.armor;
-
-                // Update bar value and max cache directly
-                if (healthResource !== undefined) {
-                  token.bar1.value = healthResource.value;
-                  token.bar1.max = healthResource.max;
-                }
-                if (armorResource !== undefined) {
-                  token.bar2.value = armorResource.value;
-                  token.bar2.max = armorResource.max;
-                }
-
-                // Trigger visual refresh
-                token.object.drawBars();
-              }
-            } else {
-              // For linked actors or base actors, update normally
-              await actor.update(filteredUpdateData);
-            }
-          } catch (error) {
-            console.error("[FsrBaseSheet] Update failed:", error);
-          } finally {
-            // Clear flag after update completes
-            this.#isUpdating = false;
-          }
-        },
-        { deep: true }
-      );
-
-      this.#stopWatcher = stop;
 
       // Listen to external updates from Foundry
       this.#updateActorCallback = (
         actor: Actor,
         changed: unknown,
         _options: unknown,
-        _userId: string
+        userId: string
       ) => {
         if (actor.id === this.actor.id) {
-          this.#syncReactiveActor(changed as Record<string, any>);
+          this.#syncReactiveActor(changed as Record<string, any>, userId);
         }
       };
 
       Hooks.on("updateActor", this.#updateActorCallback);
 
-      // Listen to item updates (for armor items being damaged)
-      this.#updateItemCallback = (
-        item: Item,
-        _changed: unknown,
-        _options: unknown,
-        _userId: string
-      ) => {
-        if (item.parent?.id === this.actor.id) {
-          this.#syncReactiveActor();
-        }
-      };
-
-      Hooks.on("updateItem", this.#updateItemCallback);
       // Listen to item updates (for armor items being damaged)
       this.#updateItemCallback = (
         item: Item,
@@ -334,6 +179,12 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
 
   // @ts-expect-error - override modifier works at runtime
   override async close(options?: unknown): Promise<this> {
+    // Let scoped watchers (persistDeep) queue their writes, then persist
+    // everything still inside the debounce window before tearing down.
+    await nextTick();
+    await this.flushActorFields();
+    if (this.#auditEnabled()) await this.auditUnpersistedFields();
+
     // Unmount Vue app
     if (this.#vueApp) {
       this.#vueApp.unmount();
@@ -343,15 +194,11 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
     // Clear reactive actor reference
     this.#reactiveActor = null;
 
-    // Stop watcher
-    if (this.#stopWatcher) {
-      this.#stopWatcher();
-      this.#stopWatcher = null;
-    }
-
     // Clear flags
-    this.#ignoreUpdates = null;
     this.#isUpdating = false;
+    this.#syncing = false;
+    this.#syncAfterFlush = false;
+    this.#pendingFieldPaths.clear();
 
     // Unregister hook
     if (this.#updateActorCallback) {
@@ -377,7 +224,10 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
   /**
    * Sync the reactive actor with external changes
    */
-  #syncReactiveActor(changed?: Record<string, any>): void {
+  #syncReactiveActor(
+    changed?: Record<string, any>,
+    userId?: string
+  ): void {
     if (!this.#reactiveActor) {
       return;
     }
@@ -385,7 +235,17 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
     // CRITICAL: Don't sync while we're in the middle of pushing changes to the database
     // The updateActor hook will fire during our own update(), but we should ignore it
     // and let our update complete before syncing back
+    // Anything NOT from our own update (another user, an item change) must be
+    // replayed once the update finishes, or this clone stays stale.
     if (this.#isUpdating) {
+      if (userId !== (game as any).user?.id) this.#syncAfterFlush = true;
+      return;
+    }
+
+    // Unflushed local writes would be clobbered by the (older) document data;
+    // run the sync once they have been persisted.
+    if (this.#pendingFieldPaths.size > 0) {
+      this.#syncAfterFlush = true;
       return;
     }
 
@@ -400,8 +260,10 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       const sourceActor = this.actor; // Always use this.actor (it's already the synthetic actor for token sheets)
 
       // Update top-level properties
-      this.#reactiveActor!.name = sourceActor.name;
-      this.#reactiveActor!.img = sourceActor.img;
+      assignIfChanged(this.#reactiveActor as any, {
+        name: sourceActor.name,
+        img: sourceActor.img
+      });
 
       // Deep update system data - but preserve derived resources
       const freshSystem = JSON.parse(
@@ -409,6 +271,7 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       ) as Record<string, unknown>;
 
       // CRITICAL: Don't overwrite derived resources - these are calculated by prepareDerivedData
+      const systemUpdates: Record<string, unknown> = {};
       for (const key of Object.keys(freshSystem)) {
         if (key === "resources") {
           // Skip resources - keep current derived values
@@ -423,9 +286,13 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
             changed?.["system.actionsThisTurn"] !== undefined;
           if (!explicitlyChanged) continue;
         }
-        (this.#reactiveActor!.system as Record<string, unknown>)[key] =
-          freshSystem[key];
+        systemUpdates[key] = freshSystem[key];
       }
+      assignIfChanged(this.#reactiveActor!.system as any, systemUpdates);
+      // Must be an independent copy: freshSystem's arrays/objects were just
+      // assigned into the reactive actor by reference, so sharing them would
+      // make local edits mutate the baseline and look like "no change".
+      this.#baseline = { system: JSON.parse(JSON.stringify(freshSystem)) };
 
       // Manually update resources from freshSystem but preserve derived fields
       if (freshSystem.resources) {
@@ -434,11 +301,13 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           .resources;
 
         // Copy non-derived resource fields (karma, mentalPoints, etc.)
+        const nonDerivedResources: Record<string, unknown> = {};
         for (const resourceKey of Object.keys(freshResources)) {
           if (resourceKey !== "health" && resourceKey !== "armor") {
-            reactiveResources[resourceKey] = freshResources[resourceKey];
+            nonDerivedResources[resourceKey] = freshResources[resourceKey];
           }
         }
+        assignIfChanged(reactiveResources, nonDerivedResources);
 
         // For health and armor, keep their max values but recalculate value from source data
         // Health value should be recalculated from healthByForm
@@ -453,19 +322,23 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
           currentFormId &&
           systemData.healthByForm?.[currentFormId] !== undefined
         ) {
-          reactiveResources.health = {
-            value: systemData.healthByForm[currentFormId],
-            max:
-              freshResources.health?.max ?? reactiveResources.health?.max ?? 0
-          };
+          assignIfChanged(reactiveResources, {
+            health: {
+              value: systemData.healthByForm[currentFormId],
+              max:
+                freshResources.health?.max ??
+                reactiveResources.health?.max ??
+                0
+            }
+          });
         } else {
-          reactiveResources.health = freshResources.health;
+          assignIfChanged(reactiveResources, { health: freshResources.health });
         }
 
         // Armor value is derived from armors + body armor power
         // For now, use the freshSystem value but this will be recalculated on next access
         if (freshResources.armor) {
-          reactiveResources.armor = freshResources.armor;
+          assignIfChanged(reactiveResources, { armor: freshResources.armor });
         }
       }
 
@@ -511,11 +384,233 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
       }
     };
 
-    if (this.#ignoreUpdates) {
-      this.#ignoreUpdates(doSync);
-    } else {
+    // Scoped persistDeep watchers fire after this tick; keep their callbacks
+    // from writing the freshly synced data straight back.
+    this.#syncing = true;
+    try {
       doSync();
+    } finally {
+      void nextTick(() => {
+        this.#syncing = false;
+      });
     }
+  }
+
+  // ─── Path-based persistence ───────────────────────────────────────────────
+
+  /**
+   * Paths computed by prepareDerivedData. These must NEVER be written back to
+   * actor/token data, so a stray write is dropped at flush time.
+   */
+  #isDerivedPath(path: string): boolean {
+    return (
+      /^system\.resources\.health\./.test(path) ||
+      /^system\.resources\.armor\./.test(path) ||
+      /^system\.resources\.mp\.max$/.test(path) ||
+      path === "_id" ||
+      path.endsWith("._id")
+    );
+  }
+
+  /**
+   * Foundry replaces arrays wholesale on update and indices go stale, so a
+   * write through an array (system.powers.3.name) is persisted as the array
+   * itself (system.powers).
+   */
+  #persistPath(path: string): string {
+    const parts = path.split(".");
+    let cursor: any = this.#reactiveActor;
+    for (let i = 0; i < parts.length - 1; i++) {
+      cursor = cursor?.[parts[i]];
+      if (Array.isArray(cursor)) return parts.slice(0, i + 1).join(".");
+      if (cursor === null || cursor === undefined) break;
+    }
+    return path;
+  }
+
+  /**
+   * Write `value` at document `path`: updates the reactive actor immediately
+   * (in place, so held proxies and toRefs stay valid) and queues exactly that
+   * path for a debounced actor.update().
+   */
+  setActorField(path: string, value: unknown): void {
+    if (!this.#reactiveActor || this.#syncing) return;
+    // @ts-expect-error - isEditable property exists on ActorSheetV2
+    if (!this.isEditable) return;
+    foundry.utils.setProperty(this.#reactiveActor, path, value);
+    this.#pendingFieldPaths.add(this.#persistPath(path));
+    void this.#scheduleFieldFlush();
+  }
+
+  /** Persist all queued setActorField writes now. */
+  flushActorFields(): Promise<void> {
+    this.#flushChain = this.#flushChain.then(() => this.#flushNow());
+    return this.#flushChain;
+  }
+
+  async #flushNow(): Promise<void> {
+    if (!this.#reactiveActor || this.#pendingFieldPaths.size === 0) {
+      return;
+    }
+
+    const paths = [...this.#pendingFieldPaths];
+    this.#pendingFieldPaths.clear();
+
+    // Drop paths already covered by a pending ancestor
+    const pathSet = new Set(paths);
+    const roots = paths.filter(path => {
+      const parts = path.split(".");
+      for (let i = 1; i < parts.length; i++) {
+        if (pathSet.has(parts.slice(0, i).join("."))) return false;
+      }
+      return true;
+    });
+
+    const updateData: Record<string, any> = {};
+    for (const path of roots) {
+      if (this.#isDerivedPath(path)) continue;
+      const value = foundry.utils.getProperty(this.#reactiveActor, path);
+      if (value === undefined) continue;
+      if (value === null || typeof value !== "object") {
+        updateData[path] = value;
+        continue;
+      }
+      const local = JSON.parse(JSON.stringify(value));
+      // Subtrees are sent whole (Foundry replaces arrays), so apply only what
+      // this client changed on top of the document's current value; otherwise
+      // another user's edits to a different item would be overwritten.
+      const base = foundry.utils.getProperty(this.#baseline, path);
+      const current = foundry.utils.getProperty(this.actor, path);
+      if (base !== undefined && current !== undefined) {
+        const remote = JSON.parse(JSON.stringify(current));
+        const merged = mergeThreeWay(base, local, remote);
+        if (!deepEqual(merged, local)) this.#syncAfterFlush = true;
+        updateData[path] = merged;
+      } else {
+        updateData[path] = local;
+      }
+    }
+
+    // Third-party modules (e.g. tokenmagic-automatic-wounds) key off
+    // system.resources.health.value in the preUpdateActor diff to detect HP
+    // changes. healthByForm is our source of truth and health.value is
+    // re-derived by prepareDerivedData, so include the already-resolved value
+    // so it rides along in the same update instead of racing a later recompute.
+    const currentFormId = (this.#reactiveActor.system as any).currentFormId;
+    if (currentFormId) {
+      const formKey = `system.healthByForm.${currentFormId}`;
+      if (formKey in updateData) {
+        updateData["system.resources.health.value"] = updateData[formKey];
+      } else if (updateData["system.healthByForm"]?.[currentFormId] !== undefined) {
+        updateData["system.resources.health.value"] =
+          updateData["system.healthByForm"][currentFormId];
+      }
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      this.#isUpdating = true;
+      try {
+        await this.#applyUpdate(updateData);
+        for (const [path, value] of Object.entries(updateData)) {
+          if (value !== null && typeof value === "object") {
+            foundry.utils.setProperty(
+              this.#baseline,
+              path,
+              JSON.parse(JSON.stringify(value))
+            );
+          }
+        }
+      } catch (error) {
+        console.error("[FsrBaseSheet] Update failed:", error);
+      } finally {
+        this.#isUpdating = false;
+      }
+    }
+
+    if (this.#syncAfterFlush && this.#pendingFieldPaths.size === 0) {
+      this.#syncAfterFlush = false;
+      this.#syncReactiveActor();
+    }
+  }
+
+  async #applyUpdate(updateData: Record<string, any>): Promise<void> {
+    const actor = this.actor;
+    // @ts-expect-error - token property exists on ActorSheetV2
+    const token = this.token;
+
+    // Unlinked tokens store changes in the token delta
+    const isUnlinkedToken = actor.isToken && token && !token.actorLink;
+    if (!isUnlinkedToken) {
+      await actor.update(updateData);
+      return;
+    }
+
+    const tokenUpdates: Record<string, any> = {};
+    for (const [key, value] of Object.entries(updateData)) {
+      tokenUpdates[`delta.${key}`] = value;
+    }
+    await token.update(tokenUpdates);
+
+    // After a delta update, explicitly refresh bar values AND max: the token
+    // bars cache values and need to be told to recalculate from resources.
+    const updatedActor = token.actor; // fresh synthetic actor (base + delta)
+    if (updatedActor && token.object) {
+      const healthResource = (updatedActor.system as any).resources?.health;
+      const armorResource = (updatedActor.system as any).resources?.armor;
+
+      if (healthResource !== undefined) {
+        token.bar1.value = healthResource.value;
+        token.bar1.max = healthResource.max;
+      }
+      if (armorResource !== undefined) {
+        token.bar2.value = armorResource.value;
+        token.bar2.max = armorResource.max;
+      }
+
+      token.object.drawBars();
+    }
+  }
+
+  // ─── Write auditor (migration safety net) ─────────────────────────────────
+
+  #auditEnabled(): boolean {
+    try {
+      return localStorage.getItem("faserip.auditWrites") === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Warn about reactive actor changes that were never persisted via
+   * setActorField. Enable with localStorage.setItem("faserip.auditWrites","1")
+   * or call from the console on an open sheet.
+   */
+  async auditUnpersistedFields(): Promise<string[]> {
+    if (!this.#reactiveActor) return [];
+    const snap = (a: any) =>
+      JSON.parse(
+        JSON.stringify({ name: a.name, img: a.img, system: a.system })
+      );
+    const diff = foundry.utils.diffObject(
+      snap(this.actor),
+      snap(toRaw(this.#reactiveActor)),
+      { deletionKeys: true }
+    );
+    const unpersisted = Object.keys(foundry.utils.flattenObject(diff)).filter(
+      key =>
+        !this.#isDerivedPath(key) &&
+        ![...this.#pendingFieldPaths].some(
+          p => key === p || key.startsWith(`${p}.`)
+        )
+    );
+    if (unpersisted.length > 0) {
+      console.warn(
+        `[FsrBaseSheet] ${unpersisted.length} reactive actor change(s) not persisted via setActorField:`,
+        unpersisted
+      );
+    }
+    return unpersisted;
   }
 
   /**

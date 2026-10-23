@@ -1,4 +1,8 @@
 import { Rank } from "../enums";
+import {
+  buildAreaOfEffectFieldSchema,
+  buildStatusEffectFieldSchema
+} from "./ItemDataModels";
 import type {
   CharmanData,
   FormData,
@@ -217,7 +221,11 @@ export function defineWeaponSchema() {
         })
       }),
       { required: false, initial: () => [] }
-    )
+    ),
+    statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
+      required: false,
+      initial: () => []
+    })
   });
 }
 
@@ -497,6 +505,10 @@ export function definePowerRefSchema() {
       }),
       { required: false, initial: () => [] }
     ),
+    statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
+      required: false,
+      initial: () => []
+    }),
     isAura: new BooleanField({
       required: false,
       initial: false
@@ -552,6 +564,9 @@ export function definePowerRefSchema() {
         choices: ["green", "yellow", "red"]
       })
     }),
+    // Region placed on hit, or dragged onto the canvas when remotePlaced - see
+    // utils/area-of-effect.ts and utils/remote-area.ts
+    areaOfEffect: buildAreaOfEffectFieldSchema(),
     // Armor layer granted by this power (e.g. Light-Shield). Soaks damage of
     // armorTypes at the power's value, in layer armorLayer alongside worn armor.
     grantsArmor: new BooleanField({

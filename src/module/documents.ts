@@ -282,10 +282,16 @@ export class FaseripActor<
       const update: Record<string, unknown> = {};
       for (const id of Object.keys(existing ?? {})) {
         if (!(id in detectionModes)) {
-          // Foundry's document update deletes a nested key when its last path
-          // segment is prefixed with "-=" and the value is null - there is no
-          // dedicated "deletion operator" class for this.
-          update[`${pathPrefix}.-=${id}`] = null;
+          // v14 deprecated the "-=key": null deletion syntax in favour of
+          // the ForcedDeletion operator; v13 (our minimum) only knows the
+          // old syntax.
+          const ForcedDeletion = (foundry.data as any).operators
+            ?.ForcedDeletion;
+          if (ForcedDeletion) {
+            update[`${pathPrefix}.${id}`] = new ForcedDeletion();
+          } else {
+            update[`${pathPrefix}.-=${id}`] = null;
+          }
         }
       }
       for (const [id, value] of Object.entries(detectionModes)) {

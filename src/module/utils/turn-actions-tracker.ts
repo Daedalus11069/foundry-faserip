@@ -24,7 +24,7 @@ export function getActionsThisTurn(actorSystem: any): number {
 
 /**
  * Record that this actor completed `count` more attacks this turn.
- * Mutates the reactive system directly; FsrBaseSheet watchIgnorable persists it.
+ * Mutates the reactive system directly; callers must persist it via setField("system.actionsThisTurn", ...).
  * No-ops outside of an active combat encounter, since actions are only
  * tracked for the purpose of mid-combat CS penalties.
  */

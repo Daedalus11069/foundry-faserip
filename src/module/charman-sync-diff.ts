@@ -116,8 +116,28 @@ const AOE_DEFAULTS = {
   width: 5,
   angle: 53,
   color: "#ff0000",
-  durationRounds: ""
+  durationRounds: "",
+  remotePlaced: false,
+  instant: false,
+  maxRangeFeet: 0
 };
+
+/**
+ * Damage types of a Charman power/weapon: its damageTypes list, or the legacy
+ * single damageType ("none" means no type) for records saved before the list
+ * existed. Never contains "none" or duplicates.
+ */
+export function normalizeDamageTypes(raw: any): string[] {
+  const listed: unknown[] = Array.isArray(raw?.damageTypes)
+    ? raw.damageTypes
+    : [];
+  const types: unknown[] = listed.length ? listed : [raw?.damageType];
+  return [
+    ...new Set(
+      types.filter((t): t is string => typeof t === "string" && !!t && t !== "none")
+    )
+  ];
+}
 
 function isBlank(value: any): boolean {
   return value === undefined || value === null || value === "";
@@ -205,7 +225,8 @@ function canonicalFields(
         mpCost: Number(raw.mpCost) || 0,
         effectType: raw.effectType || "none",
         attackType: raw.attackType || "none",
-        damageType: raw.damageType || "none",
+        damageTypes: normalizeDamageTypes(raw),
+        skipDialogs: !!raw.skipDialogs,
         resistanceType: raw.resistanceType || null,
         vulnerabilityType: raw.vulnerabilityType || null,
         multiHit: !!raw.multiHit,
@@ -226,6 +247,7 @@ function canonicalFields(
           resistAttribute: raw.massEffect?.resistAttribute || "",
           resistResult: raw.massEffect?.resistResult || "green"
         },
+        areaOfEffect: { ...AOE_DEFAULTS, ...(raw.areaOfEffect ?? {}) },
         grantsArmor: !!raw.grantsArmor,
         armorTypes: Array.isArray(raw.armorTypes) ? raw.armorTypes : [],
         armorLayer: Number(raw.armorLayer ?? 1),
@@ -260,6 +282,10 @@ function canonicalFields(
         type: raw.type,
         damage: melee ? Number(raw.damage) || 0 : rankKey(raw.damage),
         applicableTalent: raw.applicableTalent || null,
+        // Empty means Physical on the Foundry side, so compare it that way
+        damageTypes: normalizeDamageTypes(raw).length
+          ? normalizeDamageTypes(raw)
+          : ["physical"],
         armorPiercing: rankKey(raw.armorPiercing),
         description: raw.description ?? "",
         multiHit: !!raw.multiHit,

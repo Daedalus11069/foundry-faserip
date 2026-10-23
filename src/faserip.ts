@@ -86,6 +86,7 @@ import { WeaponAreaEffectRegionBehaviorType } from "./module/region/WeaponAreaEf
 import { tickPowerAuraRegions } from "./module/utils/power-aura";
 import { applyRecurringPowerHealing } from "./module/utils/power-healing";
 import { tickWeaponAreaEffectRegions } from "./module/utils/area-of-effect";
+import { registerRemoteAreaHooks } from "./module/utils/remote-area";
 
 // ─── Movement Settings Menu ─────────────────────────────────────────────────────
 
@@ -295,12 +296,35 @@ const initHandler = () => {
   });
 
   // Botch and Crit tables
+  // Choices are filled with the world's RollTables once game.tables is
+  // available (see refreshRollTableChoices); the objects are mutated in place
+  // so the registered settings pick the changes up.
+  const botchTableChoices: Record<string, string> = { "": "—" };
+  const successTableChoices: Record<string, string> = { "": "—" };
+  const refreshRollTableChoices = () => {
+    // @ts-expect-error - game.tables exists at runtime
+    const tables: any[] = Array.from(game.tables ?? []);
+    for (const choices of [botchTableChoices, successTableChoices]) {
+      for (const key of Object.keys(choices)) {
+        if (key !== "") delete choices[key];
+      }
+      for (const t of tables.sort((a, b) => a.name.localeCompare(b.name))) {
+        choices[t.id] = t.name;
+      }
+    }
+  };
+  Hooks.once("ready", refreshRollTableChoices);
+  for (const hook of ["createRollTable", "updateRollTable", "deleteRollTable"]) {
+    Hooks.on(hook as any, refreshRollTableChoices);
+  }
+
   game.settings.register("faserip", "criticalBotchTable", {
     name: "FASERIP.Settings.criticalBotchTable.name",
     hint: "FASERIP.Settings.criticalBotchTable.hint",
     scope: "world",
     config: true,
     type: String,
+    choices: botchTableChoices,
     default: ""
   });
 
@@ -310,6 +334,7 @@ const initHandler = () => {
     scope: "world",
     config: true,
     type: String,
+    choices: successTableChoices,
     default: ""
   });
 
@@ -871,6 +896,7 @@ if (import.meta.env.DEV) {
 // already available this early.
 Hooks.once("init", () => {
   initLocknKeyDoorOverlay();
+  registerRemoteAreaHooks();
 });
 
 // ─── Actor Update Hook: Sync health changes to healthByForm ────────────────────
@@ -1254,6 +1280,7 @@ Hooks.on("updateCombat", async (combat: any, changes: any) => {
 
     if (combatantsToTick.length > 0) {
       await tickDotEffectsForCombatant(combat, combatantsToTick);
+      await tickWeaponAreaEffectRegions(combatantsToTick.map(c => c.id));
       await resetActionsThisTurnForCombatants(combatantsToTick);
     }
   }

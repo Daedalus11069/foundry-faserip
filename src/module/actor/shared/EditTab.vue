@@ -8,10 +8,12 @@ import { getRankValue } from "../../utils";
 import { showCharmanSyncDiffDialog } from "../../applications/dialog-utils";
 import { hasChosenChanges } from "../../charman-sync-diff";
 import { listNodeHackerGraphNames } from "../../integrations/node-hacker-hacking";
+import { useActorField } from "./use-actor-field";
 import type { Form } from "../../types";
 
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
+const { fields, setField } = useActorField(() => reactiveActor);
 
 const nodeGraphNames = ref<string[]>([]);
 onMounted(async () => {
@@ -41,6 +43,9 @@ const mp = computed(() => {
 // ── Form management ───────────────────────────────────────────────────────────
 
 const forms = computed<Form[]>(() => reactiveActor.system.forms || []);
+
+// system.forms / mentalPoints are edited in place and persisted by the scoped
+// watchers in ActorSheet.vue.
 
 // Local ref: which form is being edited (independent of the active combat form)
 const editFormId = ref("");
@@ -189,7 +194,7 @@ async function deleteForm(formId: string) {
   if (idx !== -1) list.splice(idx, 1);
   if (editFormId.value === formId) editFormId.value = list[0]?.id ?? "";
   if (reactiveActor.system.currentFormId === formId) {
-    reactiveActor.system.currentFormId = list[0]?.id ?? "";
+    setField("system.currentFormId", list[0]?.id ?? "");
   }
 }
 
@@ -407,17 +412,17 @@ async function unlinkCharacter() {
       "Unlink this character from Charman? This will not delete the character data."
     )
   ) {
-    reactiveActor.system.charman.username = "";
-    reactiveActor.system.charman.characterName = "";
-    reactiveActor.system.charman.characterId = null;
-    reactiveActor.system.charman.lastSync = null;
+    setField("system.charman.username", "");
+    setField("system.charman.characterName", "");
+    setField("system.charman.characterId", null);
+    setField("system.charman.lastSync", null);
     ui.notifications?.info("Character unlinked from Charman");
   }
 }
 
 async function saveCharmanLink() {
-  reactiveActor.system.charman.username = editUsername.value;
-  reactiveActor.system.charman.characterName = editCallname.value;
+  setField("system.charman.username", editUsername.value);
+  setField("system.charman.characterName", editCallname.value);
   editingLink.value = false;
   ui.notifications?.success("Charman link saved");
 }
@@ -471,7 +476,7 @@ async function browseTokenImage() {
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
       <h3 class="text-sm font-bold text-yellow-400 mb-2">Call Name</h3>
       <input
-        v-model="reactiveActor.system.callname"
+        v-model="fields['system.callname']"
         type="text"
         class="fsr-input"
         placeholder="e.g. Spider-Man"
@@ -485,7 +490,7 @@ async function browseTokenImage() {
     <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
       <h3 class="text-sm font-bold text-yellow-400 mb-2">Token Alias</h3>
       <input
-        v-model="reactiveActor.system.alias"
+        v-model="fields['system.alias']"
         type="text"
         class="fsr-input"
         placeholder="e.g. Mysterious Stranger"
@@ -501,7 +506,7 @@ async function browseTokenImage() {
       <h3 class="text-sm font-bold text-yellow-400 mb-2">Weapon Slots (Default)</h3>
       <div class="flex items-center gap-3">
         <input
-          v-model.number="reactiveActor.system.weaponSlots"
+          v-model.number="fields['system.weaponSlots']"
           type="number"
           min="1"
           class="fsr-input w-20 text-center"
@@ -521,7 +526,7 @@ async function browseTokenImage() {
       </h3>
       <label class="flex items-center gap-2 cursor-pointer">
         <input
-          v-model="reactiveActor.system.hackable"
+          v-model="fields['system.hackable']"
           type="checkbox"
           class="w-4 h-4 rounded border-gray-600 text-cyan-500 focus:ring-2 focus:ring-cyan-500"
         />
@@ -536,7 +541,7 @@ async function browseTokenImage() {
       <div v-if="reactiveActor.system.hackable" class="mt-2">
         <label class="text-xs font-semibold text-gray-400">Required Roll Color</label>
         <select
-          v-model="reactiveActor.system.hackRequiredColor"
+          v-model="fields['system.hackRequiredColor']"
           class="fsr-select"
         >
           <option value="green">Green (any success)</option>
@@ -552,7 +557,7 @@ async function browseTokenImage() {
             :title="'Optional: pick a graph built in Node Hacker\'s Node Designer. Only used when this actor is the sole target of the hacking challenge - leave blank to roll the opening hack check first and generate a network sized off its result.'"
           ></i>
         </label>
-        <select v-model="reactiveActor.system.hackGraphName" class="fsr-select">
+        <select v-model="fields['system.hackGraphName']" class="fsr-select">
           <option value="">(generate from opening roll)</option>
           <option v-for="name in nodeGraphNames" :key="name" :value="name">{{ name }}</option>
         </select>
@@ -1081,14 +1086,14 @@ async function browseTokenImage() {
             <label class="fsr-form-label">Health</label>
             <div class="flex gap-1">
               <input
-                v-model.number="reactiveActor.system.resources.health.value"
+                v-model.number="fields['system.resources.health.value']"
                 type="number"
                 class="fsr-input basis-1/2"
                 min="-20"
                 :max="reactiveActor.system.resources.health.max"
               />
               <input
-                v-model.number="reactiveActor.system.resources.health.max"
+                v-model.number="fields['system.resources.health.max']"
                 type="number"
                 class="fsr-input basis-1/2"
                 min="1"
@@ -1123,7 +1128,7 @@ async function browseTokenImage() {
         <div class="fsr-form-group mt-2">
           <label class="fsr-form-label">Karma</label>
           <input
-            v-model.number="reactiveActor.system.resources.karma.value"
+            v-model.number="fields['system.resources.karma.value']"
             type="number"
             class="fsr-input"
             min="0"

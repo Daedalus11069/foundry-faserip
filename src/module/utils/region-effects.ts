@@ -21,8 +21,46 @@ export interface EffectRegionShapeConfig {
   width?: number;
   /** Degrees - only used for cone. */
   angle?: number;
-  /** Degrees, 0 = east - only used for cone/ray/rect facing. Defaults to 0. */
+  /**
+   * Degrees, 0 = east: the way the area is aimed, from the caster toward the
+   * spot (see aimDirection). Rays and cones extend away along it; a rect is a
+   * wall across it. Defaults to 0.
+   */
   direction?: number;
+}
+
+/** Aim angle in degrees (0 = east) from one scene point toward another. */
+export function aimDirection(
+  from: { x: number; y: number } | undefined,
+  to: { x: number; y: number }
+): number {
+  if (!from) return 0;
+  return (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI;
+}
+
+/** Corner points of a Region rectangle, which rotates around its own center. */
+export function rectanglePoints(data: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+}): number[] {
+  const cx = data.x + data.width / 2;
+  const cy = data.y + data.height / 2;
+  const rad = ((data.rotation ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const points: number[] = [];
+  for (const [dx, dy] of [
+    [-data.width / 2, -data.height / 2],
+    [data.width / 2, -data.height / 2],
+    [data.width / 2, data.height / 2],
+    [-data.width / 2, data.height / 2]
+  ]) {
+    points.push(cx + dx * cos - dy * sin, cy + dx * sin + dy * cos);
+  }
+  return points;
 }
 
 export interface CreateEffectRegionOptions {
@@ -53,7 +91,7 @@ function toPixels(scene: any, units: number): number {
   return (units / gridDistance) * gridSize;
 }
 
-function buildStaticRegionShapeData(
+export function buildStaticRegionShapeData(
   scene: any,
   shape: EffectRegionShapeConfig,
   origin: { x: number; y: number }
@@ -76,13 +114,25 @@ function buildStaticRegionShapeData(
         scene,
         shape.width ?? (shape.type === "ray" ? Math.max(1, shape.size * 0.1) : shape.size)
       );
-      // Extends outward from the origin along `direction` (default east) -
-      // there is no meaningful "facing" to inherit from a hit, so this is a
-      // reasonable default rather than a rotated rectangle.
+      if (shape.type === "rect") {
+        // A wall centered on the spot, its length running across the aim so it
+        // stands between the caster and whatever is beyond it.
+        return {
+          type: "rectangle",
+          x: origin.x - length / 2,
+          y: origin.y - width / 2,
+          width: length,
+          height: width,
+          rotation: direction + 90
+        };
+      }
+      // A ray starts at the spot and runs away from the caster along the aim.
+      const cx = origin.x + (length / 2) * Math.cos(directionRad);
+      const cy = origin.y + (length / 2) * Math.sin(directionRad);
       return {
         type: "rectangle",
-        x: origin.x,
-        y: origin.y - width / 2,
+        x: cx - length / 2,
+        y: cy - width / 2,
         width: length,
         height: width,
         rotation: direction
@@ -101,6 +151,64 @@ function buildStaticRegionShapeData(
       };
     }
   }
+}
+
+/**
+ * Tokens on the scene whose center lies inside the static shape that
+ * createEffectRegion would build for `shape` at `origin`. Computed from the
+ * shape geometry instead of asking the freshly created Region, because a
+ * player's Region is created by the GM and may not have reached this client
+ * (or had `TokenDocument#regions` refreshed) by the time the caller needs the
+ * answer.
+ */
+export function getTokensInEffectShape(
+  scene: any,
+  shape: EffectRegionShapeConfig,
+  origin: { x: number; y: number }
+): any[] {
+  const data = buildStaticRegionShapeData(scene, shape, origin);
+  const tokens: any[] = Array.from(scene.tokens ?? []);
+
+  const contains = (p: { x: number; y: number }): boolean => {
+    switch (data.type) {
+      case "circle":
+        return Math.hypot(p.x - data.x, p.y - data.y) <= data.radius;
+      case "rectangle": {
+        // Un-rotate the point around the rectangle's center, then test
+        // against the axis-aligned box.
+        const rad = (-(data.rotation ?? 0) * Math.PI) / 180;
+        const dx = p.x - (data.x + data.width / 2);
+        const dy = p.y - (data.y + data.height / 2);
+        const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+        const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+        return Math.abs(lx) <= data.width / 2 && Math.abs(ly) <= data.height / 2;
+      }
+      case "polygon": {
+        const pts: number[] = data.points;
+        let inside = false;
+        for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+          const xi = pts[i];
+          const yi = pts[i + 1];
+          const xj = pts[j];
+          const yj = pts[j + 1];
+          if (
+            yi > p.y !== yj > p.y &&
+            p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi
+          ) {
+            inside = !inside;
+          }
+        }
+        return inside;
+      }
+    }
+    return false;
+  };
+
+  return tokens.filter(t => {
+    const w = (t.width ?? 1) * (scene.grid?.size ?? 100);
+    const h = (t.height ?? 1) * (scene.grid?.size ?? 100);
+    return contains({ x: t.x + w / 2, y: t.y + h / 2 });
+  });
 }
 
 /**

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { getCharmanItemError } from "../../charman-errors";
 import { inject, computed, ref, onMounted, onUnmounted } from "vue";
+import { useActorField } from "./use-actor-field";
 import type { Talent, Form } from "../../types";
 import {
   isNodeHackerActive,
@@ -9,6 +10,7 @@ import {
 
 const reactiveActor = inject("reactiveActor") as any;
 const actor = inject("actor") as Actor;
+const { setField } = useActorField(() => reactiveActor);
 
 const talents = computed<Talent[]>(() => reactiveActor.system.talents || []);
 const forms = computed<Form[]>(() => reactiveActor.system.forms || []);
@@ -77,7 +79,7 @@ function toggleTalentForm(talent: Talent, formId: string) {
 
 function addTalent() {
   if (!reactiveActor.system.talents) {
-    reactiveActor.system.talents = [];
+    setField("system.talents", []);
   }
 
   const newTalent: Talent = {

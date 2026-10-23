@@ -605,9 +605,11 @@ export async function drawCriticalTableEffect(
   settingKey: "criticalBotchTable" | "criticalSuccessTable",
   label: "Critical Botch Effect" | "Critical Success Effect"
 ): Promise<void> {
-  const tableName = game.settings.get("faserip", settingKey) as string;
+  const tableRef = game.settings.get("faserip", settingKey) as string;
+  if (!tableRef) return;
+  // Setting stores a RollTable id; fall back to name for legacy values.
   // @ts-expect-error - game.tables exists at runtime
-  const table = game.tables?.getName(tableName);
+  const table = game.tables?.get(tableRef) ?? game.tables?.getName(tableRef);
   if (!table) return;
 
   const rollResult = await rollTable(table);

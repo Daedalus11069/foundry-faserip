@@ -18,7 +18,11 @@
 import type { FaseripActor } from "../documents";
 import type { PowerData, PowerMassEffectData } from "../types/actor-system";
 import { requestResistRoll } from "../socket/faserip-socket";
-import { applyHitStatusEffect } from "../combat/combat-flow";
+import {
+  applyHitDamageOverTime,
+  applyHitStatusEffect
+} from "../combat/combat-flow";
+import { stringToRank } from "../utils";
 
 const RESULT_TIER: Record<string, number> = { green: 1, yellow: 2, red: 3 };
 
@@ -136,6 +140,14 @@ export async function activateMassEffect(
     for (const se of power.statusEffects ?? []) {
       await applyHitStatusEffect(targetActor, token.id!, se, {
         powerName: power.name,
+        attacker: actor as any
+      });
+    }
+    // Damage-over-time ticks at the power's rank, same as a normal hit
+    for (const d of power.dots ?? []) {
+      await applyHitDamageOverTime(targetActor, token.id!, d, {
+        powerName: power.name,
+        powerRank: stringToRank(power.rank),
         attacker: actor as any
       });
     }

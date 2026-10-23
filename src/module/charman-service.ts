@@ -9,6 +9,7 @@ import { Rank } from "./enums";
 import {
   buildSelectivePayload,
   buildSyncDiff,
+  normalizeDamageTypes,
   type SyncDecisions,
   type SyncDiff
 } from "./charman-sync-diff";
@@ -52,6 +53,27 @@ function normalizeMassEffect(raw: any): CharmanMassEffect {
     resistResult: ["yellow", "red"].includes(raw?.resistResult)
       ? raw.resistResult
       : "green"
+  };
+}
+
+/** A Charman weapon's types for a Foundry weapon item, where an empty list means Physical. */
+function weaponDamageTypes(raw: any): string[] {
+  const types = normalizeDamageTypes(raw);
+  return types.length ? types : ["physical"];
+}
+
+function normalizeAreaOfEffect(raw: any): CharmanWeaponAreaOfEffect {
+  return {
+    enabled: raw?.enabled ?? false,
+    shape: raw?.shape ?? "circle",
+    size: raw?.size ?? 10,
+    width: raw?.width ?? 5,
+    angle: raw?.angle ?? 53,
+    color: raw?.color ?? "#ff0000",
+    durationRounds: raw?.durationRounds ?? "",
+    remotePlaced: raw?.remotePlaced ?? false,
+    instant: raw?.instant ?? false,
+    maxRangeFeet: Math.max(0, Number(raw?.maxRangeFeet) || 0)
   };
 }
 
@@ -227,7 +249,9 @@ export interface CharmanPower {
   maxValue?: number; // Maximum armor value (for Body Armor power when degrading enabled)
   effectType?: "none" | "damage" | "heal-health" | "heal-armor"; // What effect this power has (uses power's rank)
   attackType?: "none" | "melee" | "ranged" | "psyche"; // Attack type for defense attribute selection
-  damageType?: string; // Type of damage dealt (fire, cold, etc.)
+  damageType?: string; // Legacy single type; Charman keeps it equal to damageTypes[0]
+  damageTypes?: string[]; // Every type of damage dealt (fire, cold, etc.) - each receives the full amount
+  skipDialogs?: boolean; // Roll directly without the talent/combo dialogs
   resistanceType?: string; // Type of damage this power resists (for resistance powers)
   vulnerabilityType?: string; // Type of damage this power is weak to (for vulnerability/weakness powers)
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
@@ -243,6 +267,7 @@ export interface CharmanPower {
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
   auraRange?: number; // Radius in scene distance units (e.g. feet); 0/unset falls back to the rank-based movement table
   massEffect?: CharmanMassEffect; // Affects everyone in range / all targets with a resist roll
+  areaOfEffect?: CharmanWeaponAreaOfEffect; // Region placed on hit, or dragged onto the canvas when remotePlaced
   grantsArmor?: boolean; // Grants an armor layer soaking armorTypes at the power's value
   armorTypes?: string[];
   armorLayer?: number;
@@ -284,6 +309,7 @@ export interface CharmanWeapon {
   damage: string | number | null | undefined; // Damage rank string (e.g., "Typical"), numeric score (e.g., 30), or null/undefined (will default based on type)
   stat: "agility" | "fighting"; // Stat used for to-hit rolls
   applicableTalent?: string; // Name of talent that applies to this weapon
+  damageTypes?: string[]; // Every type of damage dealt - each receives the full amount; empty = Physical
   description?: string;
   equipped?: boolean;
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
@@ -303,6 +329,9 @@ export interface CharmanWeaponAreaOfEffect {
   angle: number;
   color: string;
   durationRounds: string;
+  remotePlaced?: boolean; // Dragged onto the canvas instead of centered on a hit target
+  instant?: boolean; // Leaves no region behind; the shape only decides who is hit
+  maxRangeFeet?: number; // Remote placement only; 0 = unlimited
 }
 
 export interface CharmanContact {
@@ -770,7 +799,9 @@ export class CharmanService {
         mpCost: power.mpCost ? Number(power.mpCost) : 0,
         effectType: power.effectType || "none",
         attackType: power.attackType || "none",
-        damageType: power.damageType || "none",
+        damageType: normalizeDamageTypes(power)[0] ?? "none",
+        damageTypes: normalizeDamageTypes(power),
+        skipDialogs: power.skipDialogs || false,
         resistanceType: power.resistanceType || undefined,
         vulnerabilityType: power.vulnerabilityType || undefined,
         multiHit: power.multiHit || false,
@@ -808,6 +839,7 @@ export class CharmanService {
         auraIncludeSelf: power.auraIncludeSelf || false,
         auraRange: power.auraRange || 0,
         massEffect: normalizeMassEffect(power.massEffect),
+        areaOfEffect: normalizeAreaOfEffect(power.areaOfEffect),
         grantsArmor: power.grantsArmor || false,
         armorTypes: Array.isArray(power.armorTypes) ? power.armorTypes : [],
         armorLayer: power.armorLayer ?? 1,
@@ -979,6 +1011,7 @@ export class CharmanService {
             applicableTalents: weapon.applicableTalent
               ? [weapon.applicableTalent]
               : [],
+            damageTypes: weaponDamageTypes(weapon),
             description: weapon.description || "",
             equipped: weapon.equipped || false,
             multiHit: weapon.multiHit || false,
@@ -1010,15 +1043,7 @@ export class CharmanService {
               durationFormula: se.durationFormula ?? ""
             })),
             areaOfEffect: weapon.areaOfEffect
-              ? {
-                  enabled: weapon.areaOfEffect.enabled ?? false,
-                  shape: weapon.areaOfEffect.shape ?? "circle",
-                  size: weapon.areaOfEffect.size ?? 10,
-                  width: weapon.areaOfEffect.width ?? 5,
-                  angle: weapon.areaOfEffect.angle ?? 53,
-                  color: weapon.areaOfEffect.color ?? "#ff0000",
-                  durationRounds: weapon.areaOfEffect.durationRounds ?? ""
-                }
+              ? normalizeAreaOfEffect(weapon.areaOfEffect)
               : undefined
           };
         }),
@@ -1196,6 +1221,7 @@ export class CharmanService {
           equipped: charmanWeapon.equipped,
           description: charmanWeapon.description || "",
           talents: charmanWeapon.applicableTalents || [],
+          damageTypes: weaponDamageTypes(charmanWeapon),
           multiHit: charmanWeapon.multiHit || false,
           armorPiercing: toRankKey(charmanWeapon.armorPiercing) ?? "",
           statDebuffs: charmanWeapon.statDebuffs || [],
@@ -1340,6 +1366,7 @@ export class CharmanService {
               equipped: weapon.equipped,
               description: weapon.description || "",
               talents: weapon.applicableTalents || [],
+              damageTypes: weaponDamageTypes(weapon),
               multiHit: weapon.multiHit || false,
               armorPiercing: toRankKey(weapon.armorPiercing) ?? "",
               statDebuffs: weapon.statDebuffs || [],
@@ -1585,7 +1612,10 @@ export class CharmanService {
         mpCost: Number(power.mpCost) || 0,
         effectType: power.effectType || "none",
         attackType: power.attackType || "none",
-        damageType: power.damageTypes?.[0] ?? power.damageType ?? "none",
+        // Legacy single type kept in step for older Charman readers
+        damageType: normalizeDamageTypes(power)[0] ?? "none",
+        damageTypes: normalizeDamageTypes(power),
+        skipDialogs: !!power.skipDialogs,
         resistanceType: power.resistanceType || null,
         vulnerabilityType: power.vulnerabilityType || null,
         multiHit: !!power.multiHit,
@@ -1598,6 +1628,7 @@ export class CharmanService {
         auraIncludeSelf: !!power.auraIncludeSelf,
         auraRange: Math.round(Number(power.auraRange)) || 0,
         massEffect: normalizeMassEffect(power.massEffect),
+        areaOfEffect: normalizeAreaOfEffect(power.areaOfEffect),
         grantsArmor: !!power.grantsArmor,
         armorTypes: Array.isArray(power.armorTypes) ? power.armorTypes : [],
         armorLayer: Number(power.armorLayer ?? 1),
@@ -1643,6 +1674,7 @@ export class CharmanService {
               : item.system.damageRank,
             stat: weaponType === "melee" ? "fighting" : "agility",
             applicableTalent: item.system.talents?.[0] ?? null,
+            damageTypes: normalizeDamageTypes(item.system),
             armorPiercing: item.system.armorPiercing || null,
             description: item.system.description ?? "",
             multiHit: !!item.system.multiHit,

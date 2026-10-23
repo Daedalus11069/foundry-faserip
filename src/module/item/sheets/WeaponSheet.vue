@@ -275,6 +275,55 @@
               />
             </div>
           </div>
+
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              v-model="reactiveItem.system.areaOfEffect.instant"
+              type="checkbox"
+              class="w-4 h-4 rounded border-gray-600 text-orange-500 focus:ring-2 focus:ring-orange-500"
+            />
+            <span class="fsr-form-label mb-0">
+              Instant (leaves no region behind)
+              <i
+                class="fas fa-bolt text-xs text-orange-400 ml-1"
+                :title="'The shape only decides who is hit, like a ray of disintegration or a cone of flame. No region stays on the map, so lingering DoTs and (de)buffs from the region are not applied.'"
+              ></i>
+            </span>
+          </label>
+
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              v-model="reactiveItem.system.areaOfEffect.remotePlaced"
+              type="checkbox"
+              class="w-4 h-4 rounded border-gray-600 text-orange-500 focus:ring-2 focus:ring-orange-500"
+            />
+            <span class="fsr-form-label mb-0">
+              Propel Remotely (drag onto the map)
+              <i
+                class="fas fa-bullseye text-xs text-orange-400 ml-1"
+                :title="'Instead of attacking a target, drag this weapon\'s button onto the map to place the region on any spot, even an empty square.'"
+              ></i>
+            </span>
+          </label>
+          <div v-if="reactiveItem.system.areaOfEffect.remotePlaced" class="space-y-2">
+            <div class="text-xs text-gray-400">
+              Drag this weapon's button onto the map. The user rolls the
+              weapon's stat to hit that spot: any result but white lands it
+              exactly there, a white result scatters it (circles only; rays,
+              cones and rectangles never go off target). Everyone inside the
+              region (including the user) is then attacked with that roll.
+            </div>
+            <div>
+              <label class="fsr-form-label">Max Propel Range (scene units from the user's token)</label>
+              <input
+                v-model.number="reactiveItem.system.areaOfEffect.maxRangeFeet"
+                type="number"
+                min="0"
+                class="fsr-input"
+                placeholder="0 = unlimited"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -294,15 +343,7 @@
           :key="idx"
           class="border border-indigo-700 rounded p-3 space-y-3"
         >
-          <div class="flex items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                v-model="entry.enabled"
-                type="checkbox"
-                class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
-              />
-              <span class="fsr-form-label mb-0">Enabled</span>
-            </label>
+          <div class="flex items-center justify-end">
             <button
               @click="reactiveItem.system.statDebuffs.splice(idx, 1)"
               class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
@@ -312,7 +353,7 @@
             </button>
           </div>
 
-          <div v-if="entry.enabled" class="space-y-3">
+          <div class="space-y-3">
             <div>
               <label class="fsr-form-label">Target Attribute</label>
               <select v-model="entry.attribute" class="fsr-select">
@@ -385,15 +426,7 @@
           :key="idx"
           class="border border-purple-700 rounded p-3 space-y-3"
         >
-          <div class="flex items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                v-model="entry.enabled"
-                type="checkbox"
-                class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
-              />
-              <span class="fsr-form-label mb-0">Enabled</span>
-            </label>
+          <div class="flex items-center justify-end">
             <button
               @click="reactiveItem.system.damageBuffs.splice(idx, 1)"
               class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
@@ -403,7 +436,7 @@
             </button>
           </div>
 
-          <div v-if="entry.enabled" class="space-y-3">
+          <div class="space-y-3">
             <div class="grid grid-cols-3 gap-2">
               <div>
                 <label class="fsr-form-label">Half Success</label>
@@ -467,15 +500,7 @@
           :key="idx"
           class="border border-green-700 rounded p-3 space-y-3"
         >
-          <div class="flex items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                v-model="entry.enabled"
-                type="checkbox"
-                class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
-              />
-              <span class="fsr-form-label mb-0">Enabled</span>
-            </label>
+          <div class="flex items-center justify-end">
             <button
               @click="reactiveItem.system.dots.splice(idx, 1)"
               class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
@@ -485,7 +510,7 @@
             </button>
           </div>
 
-          <div v-if="entry.enabled" class="space-y-3">
+          <div class="space-y-3">
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="fsr-form-label">Rank</label>
@@ -566,15 +591,7 @@
           :key="idx"
           class="border border-indigo-700 rounded p-3 space-y-3"
         >
-          <div class="flex items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                v-model="entry.enabled"
-                type="checkbox"
-                class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
-              />
-              <span class="fsr-form-label mb-0">Enabled</span>
-            </label>
+          <div class="flex items-center justify-end">
             <button
               @click="reactiveItem.system.statusEffects.splice(idx, 1)"
               class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
@@ -584,7 +601,7 @@
             </button>
           </div>
 
-          <div v-if="entry.enabled" class="space-y-3">
+          <div class="space-y-3">
             <div>
               <label class="fsr-form-label">Status</label>
               <select v-model="entry.statusId" class="fsr-select">
@@ -706,7 +723,7 @@ const rankChoicesWithValues = computed(() => {
 
 function newStatDebuff() {
   return {
-    enabled: false,
+    enabled: true,
     attribute: "intuition",
     greenShift: 0,
     yellowShift: 0,
@@ -717,7 +734,7 @@ function newStatDebuff() {
 
 function newDamageBuff() {
   return {
-    enabled: false,
+    enabled: true,
     greenShift: 0,
     yellowShift: 0,
     redShift: 0,
@@ -727,7 +744,7 @@ function newDamageBuff() {
 
 function newDot() {
   return {
-    enabled: false,
+    enabled: true,
     rank: "",
     armorPiercing: "",
     durationFormula: "1d3"
@@ -736,7 +753,7 @@ function newDot() {
 
 function newStatusEffect() {
   return {
-    enabled: false,
+    enabled: true,
     statusId: "",
     durationFormula: "1d3"
   };
@@ -815,7 +832,9 @@ if (!reactiveItem.system.areaOfEffect) {
     width: 5,
     angle: 53,
     color: "#ff0000",
-    durationRounds: ""
+    durationRounds: "",
+    remotePlaced: false,
+    maxRangeFeet: 0
   };
 }
 

@@ -94,7 +94,10 @@ export function buildAreaOfEffectFieldSchema() {
       max: 360
     }),
     color: new StringField({ required: false, initial: "#ff0000" }),
-    durationRounds: new StringField({ required: false, blank: true, initial: "" })
+    durationRounds: new StringField({ required: false, blank: true, initial: "" }),
+    remotePlaced: new BooleanField({ required: false, initial: false }),
+    instant: new BooleanField({ required: false, initial: false }),
+    maxRangeFeet: new NumberField({ required: false, initial: 0, min: 0 })
   });
 }
 

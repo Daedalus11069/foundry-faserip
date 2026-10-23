@@ -46,6 +46,8 @@
  * functional; a plain StringField renders fine. Editing it by hand has no
  * effect - it's overwritten the next time the underlying arrays change.
  */
+import { applyWeaponAreaEffectEntryDots } from "../utils/area-of-effect";
+
 const { StringField, NumberField, BooleanField, ArrayField, SchemaField } =
   foundry.data.fields;
 
@@ -58,7 +60,7 @@ export class WeaponAreaEffectRegionBehaviorType extends foundry.data.regionBehav
     return {
       events: this._createEventsField({
         events: ["tokenEnter", "tokenExit"],
-        initial: []
+        initial: ["tokenEnter"]
       }),
       dots: new ArrayField(
         new SchemaField({
@@ -67,6 +69,12 @@ export class WeaponAreaEffectRegionBehaviorType extends foundry.data.regionBehav
             required: false,
             blank: true,
             initial: ""
+          }),
+          indefinite: new BooleanField({ required: false, initial: false }),
+          roundsRemaining: new NumberField({
+            required: false,
+            integer: true,
+            initial: 0
           })
         }),
         { required: false, initial: [] }
@@ -107,4 +115,12 @@ export class WeaponAreaEffectRegionBehaviorType extends foundry.data.regionBehav
       summary: new StringField({ required: false, blank: true, initial: "" })
     };
   }
+
+  static override events: Record<string, (this: any, event: any) => Promise<void>> = {
+    async tokenEnter(this: WeaponAreaEffectRegionBehaviorType, event: any) {
+      // Only the active GM applies damage, or every GM client would.
+      if (!game.user?.isGM || !game.users?.activeGM?.isSelf) return;
+      await applyWeaponAreaEffectEntryDots(this, event?.data?.token);
+    }
+  };
 }
