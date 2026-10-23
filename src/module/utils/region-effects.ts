@@ -169,46 +169,99 @@ export function getTokensInEffectShape(
   const data = buildStaticRegionShapeData(scene, shape, origin);
   const tokens: any[] = Array.from(scene.tokens ?? []);
 
-  const contains = (p: { x: number; y: number }): boolean => {
-    switch (data.type) {
-      case "circle":
-        return Math.hypot(p.x - data.x, p.y - data.y) <= data.radius;
-      case "rectangle": {
-        // Un-rotate the point around the rectangle's center, then test
-        // against the axis-aligned box.
-        const rad = (-(data.rotation ?? 0) * Math.PI) / 180;
-        const dx = p.x - (data.x + data.width / 2);
-        const dy = p.y - (data.y + data.height / 2);
-        const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
-        const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
-        return Math.abs(lx) <= data.width / 2 && Math.abs(ly) <= data.height / 2;
-      }
-      case "polygon": {
-        const pts: number[] = data.points;
-        let inside = false;
-        for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
-          const xi = pts[i];
-          const yi = pts[i + 1];
-          const xj = pts[j];
-          const yj = pts[j + 1];
-          if (
-            yi > p.y !== yj > p.y &&
-            p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi
-          ) {
-            inside = !inside;
-          }
-        }
-        return inside;
-      }
-    }
-    return false;
-  };
-
   return tokens.filter(t => {
     const w = (t.width ?? 1) * (scene.grid?.size ?? 100);
     const h = (t.height ?? 1) * (scene.grid?.size ?? 100);
-    return contains({ x: t.x + w / 2, y: t.y + h / 2 });
+    return shapeContainsPoint(data, { x: t.x + w / 2, y: t.y + h / 2 });
   });
+}
+
+/** Whether a point lies inside static shape data from buildStaticRegionShapeData. */
+export function shapeContainsPoint(data: any, p: { x: number; y: number }): boolean {
+  switch (data.type) {
+    case "circle":
+      return Math.hypot(p.x - data.x, p.y - data.y) <= data.radius;
+    case "rectangle": {
+      // Un-rotate the point around the rectangle's center, then test
+      // against the axis-aligned box.
+      const rad = (-(data.rotation ?? 0) * Math.PI) / 180;
+      const dx = p.x - (data.x + data.width / 2);
+      const dy = p.y - (data.y + data.height / 2);
+      const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+      return Math.abs(lx) <= data.width / 2 && Math.abs(ly) <= data.height / 2;
+    }
+    case "polygon": {
+      const pts: number[] = data.points;
+      let inside = false;
+      for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+        const xi = pts[i];
+        const yi = pts[i + 1];
+        const xj = pts[j];
+        const yj = pts[j + 1];
+        if (yi > p.y !== yj > p.y && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi) {
+          inside = !inside;
+        }
+      }
+      return inside;
+    }
+  }
+  return false;
+}
+
+/**
+ * Vertex rings of the grid spaces whose center lies inside static shape data
+ * (in the same local space as the data) - the squares/hexes an area covers,
+ * matching what a "coverage" highlighted Region lights up. `at` is where the
+ * data's local origin sits on the scene. Empty on gridless scenes.
+ */
+export function getCoveredSpaceOutlines(
+  data: any,
+  at: { x: number; y: number }
+): number[][] {
+  const grid = (canvas as any).grid;
+  if (!grid || grid.isGridless) return [];
+
+  let box: { minX: number; minY: number; maxX: number; maxY: number };
+  if (data.type === "circle") {
+    box = {
+      minX: data.x - data.radius,
+      minY: data.y - data.radius,
+      maxX: data.x + data.radius,
+      maxY: data.y + data.radius
+    };
+  } else {
+    const pts: number[] =
+      data.type === "rectangle" ? rectanglePoints(data) : data.points;
+    const xs = pts.filter((_, i) => i % 2 === 0);
+    const ys = pts.filter((_, i) => i % 2 === 1);
+    box = {
+      minX: Math.min(...xs),
+      minY: Math.min(...ys),
+      maxX: Math.max(...xs),
+      maxY: Math.max(...ys)
+    };
+  }
+
+  const [i0, j0, i1, j1] = grid.getOffsetRange(
+    new PIXI.Rectangle(
+      at.x + box.minX,
+      at.y + box.minY,
+      box.maxX - box.minX,
+      box.maxY - box.minY
+    ).pad(grid.size)
+  );
+  const outlines: number[][] = [];
+  for (let i = i0; i < i1; i++) {
+    for (let j = j0; j < j1; j++) {
+      const center = grid.getCenterPoint({ i, j });
+      if (!shapeContainsPoint(data, { x: center.x - at.x, y: center.y - at.y })) continue;
+      outlines.push(
+        grid.getVertices({ i, j }).flatMap((v: { x: number; y: number }) => [v.x, v.y])
+      );
+    }
+  }
+  return outlines;
 }
 
 /**
@@ -275,6 +328,9 @@ export async function createEffectRegion(
       name: opts.name,
       color: opts.color,
       visibility: opts.visibility,
+      // Highlight the grid spaces the area covers rather than just its outline
+      // (core falls back to the plain shape on gridless scenes)
+      highlightMode: "coverage",
       shapes: [shapeData],
       behaviors: opts.behaviors
     }

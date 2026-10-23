@@ -39,6 +39,7 @@ import {
   aimDirection,
   buildStaticRegionShapeData,
   rectanglePoints,
+  getCoveredSpaceOutlines,
   getTokensInEffectShape,
   type EffectRegionShapeConfig
 } from "./region-effects";
@@ -111,6 +112,27 @@ function rangeError(drag: RemoteAreaDrag, point: Point): string | null {
   return `That spot is ${Math.round(distance)} ${unit} away - the most it can be placed is ${max} ${unit}.`;
 }
 
+/**
+ * Fills the grid spaces the shape covers, drawn into a Graphics positioned at
+ * `graphicsAt` (shape data is local to `at`, the scene point it's placed on).
+ */
+function drawCoveredSquares(
+  g: any,
+  data: any,
+  at: Point,
+  graphicsAt: Point,
+  color: number
+) {
+  g.lineStyle(1, color, 0.6);
+  g.beginFill(color, 0.2);
+  for (const ring of getCoveredSpaceOutlines(data, at)) {
+    g.drawPolygon(
+      ring.map((value, i) => value - (i % 2 === 0 ? graphicsAt.x : graphicsAt.y))
+    );
+  }
+  g.endFill();
+}
+
 function drawPreview(point: Point, inRange: boolean) {
   if (!preview || !activeDrag) return;
   const { aoe } = activeDrag;
@@ -123,6 +145,7 @@ function drawPreview(point: Point, inRange: boolean) {
 
   const g = preview.shape;
   g.clear();
+  drawCoveredSquares(g, data, point, point, color);
   g.lineStyle(2, color, 0.9);
   g.beginFill(color, 0.25);
   if (data.type === "circle") g.drawCircle(data.x, data.y, data.radius);
@@ -276,18 +299,19 @@ function drawManual(s: ManualSession) {
   const scene = (canvas as any).scene;
   const rect = manualRect(s);
   const color = Color.from(s.drag.aoe.color || "#ff0000").valueOf();
+  const rectData = {
+    type: "rectangle",
+    x: rect.center.x - rect.length / 2,
+    y: rect.center.y - rect.width / 2,
+    width: rect.length,
+    height: rect.width,
+    rotation: s.rotation
+  };
   s.gfx.clear();
+  drawCoveredSquares(s.gfx, rectData, { x: 0, y: 0 }, { x: 0, y: 0 }, color);
   s.gfx.lineStyle(2, color, 0.9);
   s.gfx.beginFill(color, 0.25);
-  s.gfx.drawPolygon(
-    rectanglePoints({
-      x: rect.center.x - rect.length / 2,
-      y: rect.center.y - rect.width / 2,
-      width: rect.length,
-      height: rect.width,
-      rotation: s.rotation
-    })
-  );
+  s.gfx.drawPolygon(rectanglePoints(rectData));
   s.gfx.endFill();
 
   const perUnit = scene.grid.distance / scene.grid.size;
@@ -384,6 +408,7 @@ function startRadialPlacement(drag: RemoteAreaDrag, origin: Point) {
       { x: 0, y: 0 }
     );
     gfx.clear();
+    drawCoveredSquares(gfx, data, origin, origin, color);
     gfx.lineStyle(2, color, 0.9);
     gfx.beginFill(color, 0.25);
     if (data.type === "rectangle") gfx.drawPolygon(rectanglePoints(data));
