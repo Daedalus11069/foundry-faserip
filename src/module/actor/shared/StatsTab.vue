@@ -608,7 +608,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
         talentCS,
         actionsBeforeUnarmed,
         snapshotTemporaryModifiers(actor),
-        getDefenderTemporaryModifiers()
+        getDefenderTemporaryModifiers(),
+        actor
       );
 
       if (comboResult === null) {
@@ -863,7 +864,8 @@ async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
     totalCS,
     undefined,
     snapshotTemporaryModifiers(actor),
-    getDefenderTemporaryModifiers()
+    getDefenderTemporaryModifiers(),
+    actor
   );
 
   if (comboResult === null) {
@@ -1005,7 +1007,8 @@ async function rollMultiWeaponAttack(weaponList: Weapon[]) {
     talentCS,
     getActionsThisTurn(reactiveActor.system),
     snapshotTemporaryModifiers(actor),
-    getDefenderTemporaryModifiers()
+    getDefenderTemporaryModifiers(),
+    actor
   );
 
   if (comboResult === null) return;
@@ -1256,7 +1259,8 @@ async function rollAllEquippedWeapons() {
     0,
     getActionsThisTurn(reactiveActor.system),
     snapshotTemporaryModifiers(actor),
-    getDefenderTemporaryModifiers()
+    getDefenderTemporaryModifiers(),
+    actor
   );
 
   if (comboResult === null) return;
@@ -1565,7 +1569,8 @@ async function rollWeapon(
     talentCS,
     actionsBeforeWeapon,
     snapshotTemporaryModifiers(actor),
-    getDefenderTemporaryModifiers()
+    getDefenderTemporaryModifiers(),
+    actor
   );
 
   if (comboResult === null) {
@@ -2467,7 +2472,8 @@ async function rollPower(
       totalCS,
       actionsBeforePower,
       snapshotTemporaryModifiers(actor),
-      getDefenderTemporaryModifiers()
+      getDefenderTemporaryModifiers(),
+      actor
     );
 
     if (comboResult === null) {
@@ -2672,7 +2678,8 @@ async function rollPower(
     totalCS,
     undefined,
     snapshotTemporaryModifiers(actor),
-    getDefenderTemporaryModifiers()
+    getDefenderTemporaryModifiers(),
+    actor
   );
 
   if (comboResult === null) {

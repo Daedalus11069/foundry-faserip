@@ -14,6 +14,8 @@ import type { SyncDecisions, SyncDiff } from "../charman-sync-diff";
 import { Rank } from "../enums";
 import type { Talent, SelectedTalent } from "../types";
 import type { TemporaryModifierSnapshot } from "../utils/temp-effects";
+import type { FaseripActor } from "../documents";
+import { getArmorTargetingAccess } from "../utils/armor-targeting";
 
 export interface KarmaSpendResult {
   karmaSpent: number;
@@ -334,7 +336,8 @@ export async function showActionOptionsDialog(
   talentCS?: number,
   actionsBeforeThisCombo?: number,
   temporaryModifiers?: TemporaryModifierSnapshot[],
-  defenderTemporaryModifiers?: TemporaryModifierSnapshot[]
+  defenderTemporaryModifiers?: TemporaryModifierSnapshot[],
+  attackerActor?: FaseripActor
 ): Promise<{
   comboCount: number;
   attackKarmaSettings: Array<{
@@ -359,7 +362,8 @@ export async function showActionOptionsDialog(
       talentCS,
       actionsBeforeThisCombo,
       temporaryModifiers,
-      defenderTemporaryModifiers
+      defenderTemporaryModifiers,
+      armorTargeting: getArmorTargetingAccess(attackerActor)
     },
     {
       window: {

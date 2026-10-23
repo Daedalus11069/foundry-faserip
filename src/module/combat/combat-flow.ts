@@ -997,7 +997,9 @@ export async function executeCombatAttack(
         powerName,
         talentCS,
         attackData.actionsBeforeThisCombo,
-        snapshotTemporaryModifiers(attacker)
+        snapshotTemporaryModifiers(attacker),
+        undefined,
+        attacker
       );
 
       if (!attackOptions) {
@@ -1126,7 +1128,8 @@ export async function executeCombatAttack(
       talentCS,
       attackData.actionsBeforeThisCombo,
       snapshotTemporaryModifiers(attacker),
-      defenderSnapshot
+      defenderSnapshot,
+      attacker
     );
 
     if (!attackOptions) {
@@ -2198,9 +2201,13 @@ export async function executeCombatAttack(
         let damageApplicationText = "";
         if (damageApplication) {
           // Check degrading armor setting for display
-          const degradingMode =
+          let degradingMode =
             (game.settings.get("faserip", "degradingArmor") as string) ??
             "none";
+          // Sundering attacks always wear armor down (see applyDamageToActor)
+          if (attackData.targetArmorOnly && degradingMode === "none") {
+            degradingMode = "full";
+          }
 
           // Show armor-piercing breakdown when it actually reduced armor
           let piercingText = "";
@@ -2587,8 +2594,12 @@ export async function applyPendingDamages(
       .join("");
 
     // Check degrading armor setting for display
-    const degradingMode =
+    let degradingMode =
       (game.settings.get("faserip", "degradingArmor") as string) ?? "none";
+    // Sundering attacks always wear armor down (see applyDamageToActor)
+    if (pending.targetArmorOnly && degradingMode === "none") {
+      degradingMode = "full";
+    }
     const hitCount = pending.hits.length;
 
     let damageApplicationText = "";

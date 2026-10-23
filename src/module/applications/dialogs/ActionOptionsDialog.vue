@@ -9,6 +9,7 @@ import {
   formatRankDisplay
 } from "../../enums";
 import type { TemporaryModifierSnapshot } from "../../utils/temp-effects";
+import type { ArmorTargetingAccess } from "../../utils/armor-targeting";
 
 interface Props {
   attackerName: string;
@@ -20,6 +21,7 @@ interface Props {
   actionsBeforeThisCombo?: number; // Attacks already taken this turn (shifts all combo penalties)
   temporaryModifiers?: TemporaryModifierSnapshot[];
   defenderTemporaryModifiers?: TemporaryModifierSnapshot[];
+  armorTargeting?: ArmorTargetingAccess;
   dialog: VueDialog;
 }
 
@@ -99,6 +101,20 @@ const comboCount = ref(1);
 const manualChartShift = ref(0);
 const damageRankBump = ref(0);
 const targetArmorOnly = ref(false);
+
+// Targeting armor costs chart shifts on the attack roll; folded into every
+// rank calculation below so combo limits and exhaustion warnings stay accurate.
+const armorTargetingAllowed = computed(
+  () => props.armorTargeting?.allowed ?? false
+);
+const armorTargetingPenalty = computed(() =>
+  targetArmorOnly.value && armorTargetingAllowed.value
+    ? props.armorTargeting?.penalty ?? 0
+    : 0
+);
+const effectiveManualShift = computed(
+  () => manualChartShift.value - armorTargetingPenalty.value
+);
 const attackKarmaSettings = ref<AttackKarma[]>([
   { columnShifts: 0, resultShift: 0, damageRankShift: 0, damageBonus: 0 }
 ]);
@@ -109,7 +125,7 @@ const maxComboCount = computed(() => {
   if (baseRankIndex === -1) return 1;
 
   // Calculate effective rank with all non-combo modifiers
-  const bonuses = (props.talentCS || 0) + manualChartShift.value;
+  const bonuses = (props.talentCS || 0) + effectiveManualShift.value;
   const effectiveRankIndex = Math.max(
     0,
     Math.min(RANK_ORDER.length - 1, baseRankIndex + bonuses)
@@ -158,7 +174,7 @@ watch(comboCount, (newCount, oldCount) => {
 });
 
 // Also watch manual chart shift to re-validate max combo
-watch(manualChartShift, () => {
+watch(effectiveManualShift, () => {
   const max = maxComboCount.value;
   if (comboCount.value > max) {
     comboCount.value = max;
@@ -235,7 +251,7 @@ const canAfford = computed(() => totalKarmaCost.value <= props.availableKarma);
 // applied
 const displayedAttackRank = computed(() => {
   const totalShifts =
-    manualChartShift.value +
+    effectiveManualShift.value +
     (props.talentCS || 0) +
     pendingStatShiftTotal.value +
     pendingIncomingShiftTotal.value;
@@ -249,7 +265,7 @@ const displayedAttackRank = computed(() => {
 // Check if rank has been modified from base
 const rankIsModified = computed(() => {
   return (
-    manualChartShift.value !== 0 ||
+    effectiveManualShift.value !== 0 ||
     (props.talentCS && props.talentCS !== 0) ||
     pendingStatShiftTotal.value !== 0 ||
     pendingIncomingShiftTotal.value !== 0
@@ -280,7 +296,7 @@ function getEffectiveRank(attackIndex: number, columnShifts: number = 0): Rank {
     comboPenalty +
     columnShifts +
     (props.talentCS || 0) +
-    manualChartShift.value;
+    effectiveManualShift.value;
   return applyChartShift(props.attackRank, totalShifts);
 }
 
@@ -337,9 +353,9 @@ function handleSubmit() {
   props.dialog.submit({
     comboCount: comboCount.value,
     attackKarmaSettings: attackKarmaSettings.value,
-    manualChartShift: manualChartShift.value,
+    manualChartShift: effectiveManualShift.value,
     damageRankBump: damageRankBump.value,
-    targetArmorOnly: targetArmorOnly.value,
+    targetArmorOnly: targetArmorOnly.value && armorTargetingAllowed.value,
     hasExhaustion: hasExhaustionWarning.value
   });
 }
@@ -367,7 +383,7 @@ function handleCancel() {
           }}</span>
           →
           <span
-            :class="manualChartShift + (talentCS || 0) + pendingStatShiftTotal + pendingIncomingShiftTotal > 0
+            :class="effectiveManualShift + (talentCS || 0) + pendingStatShiftTotal + pendingIncomingShiftTotal > 0
               ? 'text-green-400 font-semibold'
               : 'text-red-400 font-semibold'
               "
@@ -537,15 +553,37 @@ function handleCancel() {
     </div>
 
     <!-- Target Armor -->
-    <div class="f-group mb-4 p-3 bg-gray-800 rounded border border-gray-700">
-      <label class="flex items-center gap-2 text-sm font-semibold cursor-pointer">
-        <input type="checkbox" v-model="targetArmorOnly" />
+    <div
+      class="f-group mb-4 p-3 bg-gray-800 rounded border border-gray-700"
+      :class="{ 'opacity-60': !armorTargetingAllowed }"
+    >
+      <label
+        class="flex items-center gap-2 text-sm font-semibold"
+        :class="armorTargetingAllowed ? 'cursor-pointer' : 'cursor-not-allowed'"
+      >
+        <input
+          type="checkbox"
+          v-model="targetArmorOnly"
+          :disabled="!armorTargetingAllowed"
+        />
         Target Armor
+        <span
+          v-if="armorTargetingAllowed && (armorTargeting?.penalty ?? 0) > 0"
+          class="text-xs font-normal text-red-300"
+        >
+          (-{{ armorTargeting?.penalty }} CS to hit)
+        </span>
       </label>
       <div class="text-xs text-gray-400 mt-1">
         Aim the attack at the target's armor instead of their body. Ignores
-        armor piercing, and damage that exceeds the armor's capacity is
-        wasted rather than spilling over to health.
+        armor piercing and always wears the armor down. Damage beyond the
+        armor's capacity spills over to the target's health.
+      </div>
+      <div
+        v-if="!armorTargetingAllowed && armorTargeting?.reason"
+        class="text-xs text-yellow-400 mt-1"
+      >
+        {{ armorTargeting.reason }}
       </div>
     </div>
 

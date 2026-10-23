@@ -185,7 +185,7 @@ export interface DamageApplicationData {
   armorRank?: string; // Target's armor rank (optional)
   hitCount?: number; // Number of hits that contributed to this damage (for per-hit degradation)
   hitDamages?: number[]; // Per-hit damage amounts for cumulative combo damage (single-type path only - see hitDamages/damageComponents note in applyDamageToActor)
-  targetArmorOnly?: boolean; // Attack is aimed at armor specifically: ignores armor piercing and any overflow beyond armor's capacity is not applied to health
+  targetArmorOnly?: boolean; // Attack is aimed at armor specifically: ignores armor piercing and always wears armor down; overflow beyond armor's capacity still spills to health
 }
 
 /**
@@ -197,7 +197,13 @@ export interface DamageApplicationData {
 export async function applyDamageToActor(
   data: DamageApplicationData
 ): Promise<DamageApplicationResult> {
-  const { actor, degradingArmorMode = "none" } = data;
+  const { actor } = data;
+  // A sundering attack always wears armor down, regardless of the world setting
+  const degradingArmorMode =
+    data.targetArmorOnly &&
+    (data.degradingArmorMode ?? "none") === "none"
+      ? "full"
+      : (data.degradingArmorMode ?? "none");
   // Use reactiveSystem if provided, otherwise extract from actor
   const system = data.reactiveSystem || (actor.system as any);
 
@@ -408,12 +414,6 @@ export async function applyDamageToActor(
       }
       // "none" mode: No degradation, armor soaks but keeps full value
 
-      // An attack aimed at armor only damages armor - any overflow beyond what
-      // the armor could soak is wasted rather than spilling into health.
-      if (data.targetArmorOnly) {
-        overflow = 0;
-      }
-
       // Check resistance for overflow damage (roll-based system), per type
       if (overflow > 0 && type && type !== "none") {
         resistanceRollResult = await rollResistance(
@@ -427,9 +427,6 @@ export async function applyDamageToActor(
           overflow = resistanceRollResult.finalDamage;
         }
       }
-    } else if (data.targetArmorOnly) {
-      // No armor to target - an armor-only attack has nothing to hit.
-      overflow = 0;
     } else {
       // No armor - check resistance for all damage (roll-based system)
       let actualDamage = damage;

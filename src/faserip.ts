@@ -389,6 +389,40 @@ const initHandler = () => {
     }
   });
 
+  // House Rules: Armor Targeting
+  game.settings.register("faserip", "armorTargeting", {
+    name: "FASERIP.Settings.armorTargeting.name",
+    hint: "FASERIP.Settings.armorTargeting.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      off: "Disabled",
+      talent: "Requires a talent",
+      anyone: "Anyone can target armor"
+    },
+    default: "talent"
+  });
+
+  game.settings.register("faserip", "armorTargetingTalent", {
+    name: "FASERIP.Settings.armorTargetingTalent.name",
+    hint: "FASERIP.Settings.armorTargetingTalent.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    default: "Sunder"
+  });
+
+  game.settings.register("faserip", "armorTargetingPenalty", {
+    name: "FASERIP.Settings.armorTargetingPenalty.name",
+    hint: "FASERIP.Settings.armorTargetingPenalty.hint",
+    scope: "world",
+    config: true,
+    type: Number,
+    range: { min: 0, max: 5, step: 1 },
+    default: 2
+  });
+
   // House Rules: Vulnerability Powers
   game.settings.register("faserip", "vulnerabilityPowers", {
     name: "FASERIP.Settings.vulnerabilityPowers.name",

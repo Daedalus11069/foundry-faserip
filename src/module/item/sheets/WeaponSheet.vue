@@ -345,7 +345,7 @@
         >
           <div class="flex items-center justify-end">
             <button
-              @click="reactiveItem.system.statDebuffs.splice(idx, 1)"
+              @click="removeEntry(reactiveItem.system.statDebuffs, idx, 'stat debuff')"
               class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
               title="Remove"
             >
@@ -428,7 +428,7 @@
         >
           <div class="flex items-center justify-end">
             <button
-              @click="reactiveItem.system.damageBuffs.splice(idx, 1)"
+              @click="removeEntry(reactiveItem.system.damageBuffs, idx, 'damage buff')"
               class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
               title="Remove"
             >
@@ -502,7 +502,7 @@
         >
           <div class="flex items-center justify-end">
             <button
-              @click="reactiveItem.system.dots.splice(idx, 1)"
+              @click="removeEntry(reactiveItem.system.dots, idx, 'damage-over-time effect')"
               class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
               title="Remove"
             >
@@ -593,7 +593,7 @@
         >
           <div class="flex items-center justify-end">
             <button
-              @click="reactiveItem.system.statusEffects.splice(idx, 1)"
+              @click="removeEntry(reactiveItem.system.statusEffects, idx, 'status effect')"
               class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
               title="Remove"
             >
@@ -865,6 +865,18 @@ function addTalent() {
     reactiveItem.system.talents = [];
   }
   reactiveItem.system.talents.push("");
+}
+
+async function removeEntry(list: unknown[], idx: number, label: string) {
+  // @ts-expect-error - DialogV2 path not fully typed
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove this ${label}?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
+  list.splice(idx, 1);
 }
 
 function removeTalent(index: number) {

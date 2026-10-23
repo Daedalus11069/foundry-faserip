@@ -205,6 +205,18 @@
         "name": "Armor Degradation Mode",
         "hint": "How armor degrades when taking damage (requires Armor system). None: Armor soaks but never degrades. Full: Armor reduced by damage soaked (40 armor soaks 30 = 10 remaining). Per-Hit: Armor reduced by 1 per hit that penetrates (30 armor, 35 damage = 5 through, armor becomes 29)."
       },
+      "armorTargeting": {
+        "name": "Armor Targeting",
+        "hint": "Lets attackers aim at a target's armor instead of their body. A targeted attack ignores armor piercing and always wears the armor down (even if Armor Degradation is None); damage beyond the armor's capacity spills over to health. Choose whether it is disabled, requires a specific talent (see Armor Targeting Talent), or is open to everyone."
+      },
+      "armorTargetingTalent": {
+        "name": "Armor Targeting Talent",
+        "hint": "Name of the talent a character needs to target armor when Armor Targeting is set to require a talent. Matched by name, ignoring case. Defaults to Sunder."
+      },
+      "armorTargetingPenalty": {
+        "name": "Armor Targeting Penalty (CS)",
+        "hint": "Column shifts subtracted from the attack roll when targeting armor."
+      },
       "vulnerabilityPowers": {
         "name": "Enable Vulnerability Powers",
         "hint": "When enabled, powers with a vulnerabilityType set will increase incoming damage of that type. The percentage increase is configured in the 'Vulnerability Damage Increase' setting below."
