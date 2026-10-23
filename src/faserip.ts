@@ -879,6 +879,12 @@ const initHandler = () => {
     ) => {
       const actor = tokenDocument.actor;
 
+      // Vision follows the actor's sight sources, not the prototype defaults
+      if (actor && "resolvedTokenVision" in actor) {
+        const { sight, detectionModes } = (actor as any).resolvedTokenVision;
+        tokenDocument.updateSource({ sight, detectionModes });
+      }
+
       // PC actors: bar1 for health, bar2 for armor, bars always visible
       if (actor?.type === ActorType.Pc) {
         // Always set displayBars to ALWAYS (visible to everyone)
@@ -1369,6 +1375,16 @@ Hooks.on(
   (tokenDoc: TokenDocument, changes: any, _options: any, _userId: string) => {
     const actor = tokenDoc.actor;
     if (!actor) return;
+
+    // Token vision can't be toggled on for an actor with no sight, nor off
+    // for one that has it: the sight sources are the source of truth.
+    if (changes.sight && "resolvedTokenVision" in actor) {
+      const { sight } = (actor as any).resolvedTokenVision;
+      changes.sight.enabled = sight.enabled;
+      if ("range" in changes.sight) changes.sight.range = sight.range;
+      if ("visionMode" in changes.sight)
+        changes.sight.visionMode = sight.visionMode;
+    }
 
     // If this update doesn't touch bar config, check if we need to add it
     if (!changes.bar1 && !changes.bar2 && !changes.displayBars) {

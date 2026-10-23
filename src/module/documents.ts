@@ -228,6 +228,21 @@ export class FaseripActor<
    * (e.g. Basic Sight + Tremorsense) can be active at once.
    */
   #syncVisionToTokens(): void {
+    const { sight, detectionModes, mode } = this.resolvedTokenVision;
+    this.#applyVisionToTokens(sight, detectionModes, mode);
+  }
+
+  /**
+   * The token sight/detection config derived from the current form's vision
+   * sources. Also used by token create/update hooks to enforce that an actor
+   * with sight always has token vision enabled (and one without has none).
+   */
+  get resolvedTokenVision(): {
+    sight: { enabled: boolean; range: number; visionMode: string };
+    detectionModes: Record<string, { enabled: boolean; range: number }>;
+    range: number;
+    mode: string;
+  } {
     const entries = this.resolvedVisionEntries;
     const sightEntries = entries.filter(e => e.type.startsWith("sight:"));
     const detectEntries = entries.filter(e => e.type.startsWith("detect:"));
@@ -239,9 +254,14 @@ export class FaseripActor<
     const range = primarySight?.range ?? 0;
     const mode = primarySight ? primarySight.type.slice("sight:".length) : "basic";
 
+    // In Foundry, sight.range on the "basic" vision mode is a darkvision
+    // radius (the token sees that far even in total darkness). Basic sight
+    // should still depend on light, so keep it at 0 there and let the
+    // basicSight detection mode below enforce the actual distance limit.
+    // Other modes (e.g. darkvision) use sight.range as their real range.
     const sight = {
       enabled: range > 0,
-      range,
+      range: mode === "basic" ? 0 : range,
       visionMode: mode
     };
 
@@ -258,6 +278,14 @@ export class FaseripActor<
       detectionModes[id] = { enabled: detectRange > 0, range: detectRange };
     }
 
+    return { sight, detectionModes, range, mode };
+  }
+
+  #applyVisionToTokens(
+    sight: { enabled: boolean; range: number; visionMode: string },
+    detectionModes: Record<string, { enabled: boolean; range: number }>,
+    mode: string
+  ): void {
     const detectionModesEqual = (
       a: Record<string, { enabled: boolean; range: number }> | undefined,
       b: Record<string, { enabled: boolean; range: number }>
@@ -309,7 +337,7 @@ export class FaseripActor<
     const prototypeToken = (this as any).prototypeToken;
     if (
       !(this as any).isToken &&
-      (prototypeToken?.sight?.range !== range ||
+      (prototypeToken?.sight?.range !== sight.range ||
         prototypeToken?.sight?.visionMode !== mode ||
         prototypeToken?.sight?.enabled !== sight.enabled ||
         !detectionModesEqual(prototypeToken?.detectionModes, detectionModes))
@@ -336,7 +364,7 @@ export class FaseripActor<
       const updates = tokens
         .filter(
           (t: any) =>
-            t.sight?.range !== range ||
+            t.sight?.range !== sight.range ||
             t.sight?.visionMode !== mode ||
             t.sight?.enabled !== sight.enabled ||
             !detectionModesEqual(t.detectionModes, detectionModes)
