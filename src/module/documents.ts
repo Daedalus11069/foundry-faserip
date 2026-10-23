@@ -665,10 +665,13 @@ export class FaseripActor<
       updatedHealthByForm[formId] = targetHealth;
     }
 
+    // resources.health.value is deliberately omitted: it's re-derived from
+    // healthByForm[currentFormId]. Including it makes a form swap look like
+    // damage/healing to modules that diff health.value in preUpdateActor
+    // (e.g. tokenmagic-automatic-wounds splatters blood on a full-health actor).
     const updateData: Record<string, any> = {
       "system.currentFormId": formId,
-      "system.healthByForm": updatedHealthByForm,
-      "system.resources.health.value": targetHealth
+      "system.healthByForm": updatedHealthByForm
     };
 
     // Update token name to match the actor's alias (falls back to actor name)
