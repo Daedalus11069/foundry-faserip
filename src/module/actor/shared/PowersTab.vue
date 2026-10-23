@@ -298,6 +298,18 @@ async function removePower(index: number) {
   reactiveActor.system.powers.splice(index, 1);
 }
 
+async function removePowerEntry(list: unknown[], idx: number, label: string) {
+  // @ts-expect-error - DialogV2 path not fully typed
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove this ${label}?</p>`,
+    rejectClose: false,
+    modal: true
+  });
+
+  if (!confirmed) return;
+  list.splice(idx, 1);
+}
+
 const ARMOR_DAMAGE_TYPES = [
   { key: "physical", label: "Physical / Ballistic" },
   { key: "energy", label: "Energy" },
@@ -1133,7 +1145,7 @@ function toggleItem(id: string) {
             >
               <div class="flex items-center justify-end">
                 <button
-                  @click="ensureStatDebuffs(power).splice(idx, 1)"
+                  @click="removePowerEntry(ensureStatDebuffs(power), idx, 'stat debuff')"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
                   title="Remove"
                 >
@@ -1241,7 +1253,7 @@ function toggleItem(id: string) {
             >
               <div class="flex items-center justify-end">
                 <button
-                  @click="ensureDamageBuffs(power).splice(idx, 1)"
+                  @click="removePowerEntry(ensureDamageBuffs(power), idx, 'damage buff')"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
                   title="Remove"
                 >
@@ -1335,7 +1347,7 @@ function toggleItem(id: string) {
             >
               <div class="flex items-center justify-end">
                 <button
-                  @click="ensureDots(power).splice(idx, 1)"
+                  @click="removePowerEntry(ensureDots(power), idx, 'damage-over-time effect')"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
                   title="Remove"
                 >
@@ -1431,7 +1443,7 @@ function toggleItem(id: string) {
             >
               <div class="flex items-center justify-end">
                 <button
-                  @click="ensureStatusEffects(power).splice(idx, 1)"
+                  @click="removePowerEntry(ensureStatusEffects(power), idx, 'status effect')"
                   class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
                   title="Remove"
                 >

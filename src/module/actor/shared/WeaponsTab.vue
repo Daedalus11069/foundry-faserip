@@ -379,7 +379,17 @@ async function addWeaponStatDebuff(weaponId: string) {
   await item.update({ "system.statDebuffs": arr } as Record<string, unknown>);
 }
 
+async function confirmRemoveEntry(label: string): Promise<boolean> {
+  // @ts-expect-error - DialogV2 path not fully typed
+  return !!(await foundry.applications.api.DialogV2.confirm({
+    content: `<p>Remove this ${label}?</p>`,
+    rejectClose: false,
+    modal: true
+  }));
+}
+
 async function removeWeaponStatDebuff(weaponId: string, index: number) {
+  if (!(await confirmRemoveEntry("stat debuff"))) return;
   const item = actor.items.get(weaponId) as WeaponItem | undefined;
   if (!item) return;
   const arr = foundry.utils.deepClone(item.system.statDebuffs ?? []);
@@ -396,6 +406,7 @@ async function addWeaponDamageBuff(weaponId: string) {
 }
 
 async function removeWeaponDamageBuff(weaponId: string, index: number) {
+  if (!(await confirmRemoveEntry("damage buff"))) return;
   const item = actor.items.get(weaponId) as WeaponItem | undefined;
   if (!item) return;
   const arr = foundry.utils.deepClone(item.system.damageBuffs ?? []);
@@ -412,6 +423,7 @@ async function addWeaponDot(weaponId: string) {
 }
 
 async function removeWeaponDot(weaponId: string, index: number) {
+  if (!(await confirmRemoveEntry("damage-over-time effect"))) return;
   const item = actor.items.get(weaponId) as WeaponItem | undefined;
   if (!item) return;
   const arr = foundry.utils.deepClone(item.system.dots ?? []);

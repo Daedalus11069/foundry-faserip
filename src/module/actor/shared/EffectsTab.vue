@@ -743,8 +743,22 @@ async function toggleForceNextRoll(outcome: "critical" | "failure") {
 
   // Clicking the same outcome again removes it; clicking the other outcome replaces it.
   if (existing) {
-    await existing.delete();
-    if (existing.flags?.faserip?.forcedOutcome === outcome) return;
+    const isRemoval = existing.flags?.faserip?.forcedOutcome === outcome;
+
+    if (isRemoval) {
+      // @ts-expect-error - Foundry DialogV2 is not typed in the current version
+      const confirmed = await foundry.applications.api.DialogV2.confirm({
+        content: `<p>Remove forced-result modifier from <strong>${existing.flags?.faserip?.sourcePowerName || existing.name || 'Unknown Source'}</strong>?</p>`,
+        rejectClose: false,
+        modal: true
+      });
+
+      if (!confirmed) return;
+    }
+
+    // The effect may have expired while the confirm dialog was open.
+    if (actor.effects.get(existing.id)) await existing.delete();
+    if (isRemoval) return;
   }
 
   await applyTemporaryModifier(actor, {
