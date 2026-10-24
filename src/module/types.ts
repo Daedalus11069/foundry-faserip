@@ -60,6 +60,7 @@ export interface Form {
   tokenScale?: number;
 
   weaponSlots?: number; // Per-form override; undefined = use actor default
+  healthOverride?: number; // NPC-only exact max health; undefined = FASE sum
 
   // Token vision - any number of simultaneous vision methods (e.g. Basic
   // Sight + Tremorsense). See VisionSourceData / FaseripActor#syncVisionToTokens.

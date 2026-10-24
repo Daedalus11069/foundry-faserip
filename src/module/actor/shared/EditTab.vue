@@ -4,7 +4,7 @@ import {
   getCharmanService,
   describeCharmanError
 } from "../../charman-service";
-import { getRankValue } from "../../utils";
+import { calculateHealth, getRankValue } from "../../utils";
 import { showCharmanSyncDiffDialog } from "../../applications/dialog-utils";
 import { hasChosenChanges } from "../../charman-sync-diff";
 import { listNodeHackerGraphNames } from "../../integrations/node-hacker-hacking";
@@ -61,6 +61,14 @@ watchEffect(() => {
 const editForm = computed<Form | undefined>(
   () => forms.value.find(f => f.id === editFormId.value) ?? forms.value[0]
 );
+
+// A blank input clears the override (back to the calculated health) rather
+// than writing 0/"" into the schema's min:1 field
+function setHealthOverride(form: Form, event: Event) {
+  const raw = (event.target as HTMLInputElement).value;
+  const value = Math.floor(Number(raw));
+  form.healthOverride = raw !== "" && value >= 1 ? value : undefined;
+}
 
 // Ensure token properties exist on a form (for backward compatibility)
 function ensureTokenProperties(form: Form) {
@@ -979,6 +987,29 @@ async function browseTokenImage() {
           <p class="text-xs text-gray-500">
             Arms for this form. Leave blank to use the actor default
             ({{ reactiveActor.system.weaponSlots ?? 2 }}).
+          </p>
+        </div>
+      </div>
+
+      <!-- Max Health override for this form (NPCs only) -->
+      <div
+        v-if="reactiveActor.type === 'npc'"
+        class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700"
+      >
+        <h3 class="text-sm font-bold text-yellow-400 mb-2">Max Health</h3>
+        <div class="flex items-center gap-3">
+          <input
+            :value="editForm.healthOverride"
+            type="number"
+            class="fsr-input w-20 text-center"
+            :placeholder="String(calculateHealth(editForm))"
+            min="1"
+            :disabled="!canEditStats"
+            @input="setHealthOverride(editForm, $event)"
+          />
+          <p class="text-xs text-gray-500">
+            Exact max health for this form. Leave blank to calculate it from
+            the physical attributes ({{ calculateHealth(editForm) }}).
           </p>
         </div>
       </div>

@@ -74,6 +74,7 @@ export interface FormData {
   visionSources?: VisionSourceData[];
 
   weaponSlots?: number; // Per-form override for weapon-bearing arms; falls back to system.weaponSlots
+  healthOverride?: number; // NPC-only exact max health; undefined = calculated from attributes
 
   attributes: FormAttributeSet;
 }

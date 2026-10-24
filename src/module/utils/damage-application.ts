@@ -543,7 +543,7 @@ export async function applyHealingToActor(
   const forms = system.forms || [];
   const currentForm =
     forms.find((f: any) => f.id === currentFormId) || forms[0];
-  const maxHealth = currentForm ? calculateHealth(currentForm) : 0;
+  const maxHealth = currentForm ? calculateHealth(currentForm, actor?.type) : 0;
 
   // Calculate new health (capped at max)
   const newHealthValue = Math.min(maxHealth, currentHealth + healAmount);

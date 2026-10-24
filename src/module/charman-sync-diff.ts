@@ -203,6 +203,9 @@ function canonicalFields(
         tokenHeight: Number(raw.tokenHeight) || 1,
         tokenScale: Number(raw.tokenScale) || 1,
         weaponSlots: isBlank(raw.weaponSlots) ? null : Number(raw.weaponSlots),
+        healthOverride: isBlank(raw.healthOverride)
+          ? null
+          : Number(raw.healthOverride),
         vision: (raw.visionSources ?? []).map((vs: any) => ({
           type: vs.type || "sight:basic",
           rangeSource: vs.rangeSource || "flat",

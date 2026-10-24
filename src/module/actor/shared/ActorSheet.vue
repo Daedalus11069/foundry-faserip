@@ -179,7 +179,7 @@ const healthMax = computedWithControl(
     // void actorUpdateKey.value; // Force dependency tracking for external updates
     const form = currentForm.value;
     if (!form) return reactiveActor.system.resources.health.max || 0;
-    return calculateHealth(form);
+    return calculateHealth(form, reactiveActor.type);
   },
   {
     deep: true

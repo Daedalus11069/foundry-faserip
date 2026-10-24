@@ -192,6 +192,7 @@ export interface CharmanForm {
   tokenWidth?: number; // Token width in grid squares (default: 1)
   tokenHeight?: number; // Token height in grid squares (default: 1)
   tokenScale?: number; // Token scale multiplier (default: 1)
+  healthOverride?: number | null; // NPC-only exact max health; null = FASE sum
   visionSources?: CharmanVisionSource[]; // Vision methods for this form (e.g. Basic Sight + Tremorsense)
   fighting: any;
   agility: any;
@@ -662,6 +663,7 @@ export class CharmanService {
                 tokenHeight: form.tokenHeight || 1,
                 tokenScale: form.tokenScale || 1,
                 weaponSlots: form.weaponSlots ?? undefined,
+                healthOverride: form.healthOverride || undefined,
                 visionSources: (form.visionSources || []).map((vs: CharmanVisionSource) => ({
                   id: nanoid(),
                   type: vs.type || "sight:basic",
@@ -1563,6 +1565,7 @@ export class CharmanService {
         tokenHeight: form.tokenHeight || 1,
         tokenScale: form.tokenScale || 1,
         weaponSlots: form.weaponSlots ?? null,
+        healthOverride: form.healthOverride ?? null,
         visionSources: (form.visionSources ?? []).map((vs: any) => ({
           type: vs.type || "sight:basic",
           rangeSource: vs.rangeSource || "flat",

@@ -290,6 +290,14 @@ export function defineFormSchema() {
       initial: undefined
     }),
 
+    // NPC-only exact max health; undefined = derive from the FASE attributes
+    healthOverride: new NumberField({
+      required: false,
+      integer: true,
+      min: 1,
+      initial: undefined
+    }),
+
     attributes: new SchemaField({
       fighting: defineAttributeSchema(),
       agility: defineAttributeSchema(),

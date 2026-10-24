@@ -151,7 +151,7 @@ export class FaseripActor<
     ) {
       const defaultForm = data.system.forms?.[0];
       if (defaultForm) {
-        const calculatedHealth = calculateHealth(defaultForm);
+        const calculatedHealth = calculateHealth(defaultForm, data.type);
         if (!data.system.healthByForm) data.system.healthByForm = {};
         data.system.healthByForm[defaultForm.id] = calculatedHealth;
 
@@ -437,7 +437,7 @@ export class FaseripActor<
 
     if (currentForm) {
       // Calculate max health from FASE attributes (Fighting + Agility + Strength + Endurance)
-      const calculatedHealth = calculateHealth(currentForm);
+      const calculatedHealth = calculateHealth(currentForm, this.type);
 
       // Always update max health when attributes change
       system.resources.health.max = calculatedHealth;
@@ -661,7 +661,7 @@ export class FaseripActor<
     let targetHealth = updatedHealthByForm[formId];
     if (targetHealth === undefined) {
       // Calculate max health for target form
-      targetHealth = calculateHealth(form);
+      targetHealth = calculateHealth(form, this.type);
       updatedHealthByForm[formId] = targetHealth;
     }
 
