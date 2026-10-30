@@ -70,7 +70,22 @@ export async function convertActorType(actor: Actor): Promise<boolean> {
   const oldSheet = actor.sheet;
   await oldSheet?.close();
 
-  await actor.update({ type: target, ...prototypeTokenUpdates(target) });
+  // Foundry only accepts a type change when `system` is replaced wholesale
+  // (ForcedReplacement). Carry the current source over; the schemas match
+  // except for PC-only `popularity`.
+  const system = foundry.utils.deepClone(actor.toObject().system) as Record<
+    string,
+    unknown
+  >;
+  if (target !== ActorType.Pc) delete system.popularity;
+
+  await actor.update({
+    type: target,
+    system: (globalThis as any).foundry.data.operators.ForcedReplacement.create(
+      system
+    ),
+    ...prototypeTokenUpdates(target)
+  });
 
   if (actor.type !== target) {
     ui.notifications?.error(
