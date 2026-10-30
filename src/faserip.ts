@@ -924,7 +924,13 @@ const initHandler = () => {
       // Vision follows the actor's sight sources, not the prototype defaults
       if (actor && "resolvedTokenVision" in actor) {
         const { sight, detectionModes } = (actor as any).resolvedTokenVision;
-        tokenDocument.updateSource({ sight, detectionModes });
+        // Disable (not delete) prototype modes the actor doesn't have, since
+        // updateSource merges nested objects
+        const merged: Record<string, any> = {};
+        for (const id of Object.keys((tokenDocument as any).detectionModes ?? {}))
+          merged[id] = { enabled: false, range: 0 };
+        Object.assign(merged, detectionModes);
+        tokenDocument.updateSource({ sight, detectionModes: merged });
       }
 
       // PC actors: bar1 for health, bar2 for armor, bars always visible
@@ -1441,12 +1447,28 @@ Hooks.on(
 
     // Token vision can't be toggled on for an actor with no sight, nor off
     // for one that has it: the sight sources are the source of truth.
-    if (changes.sight && "resolvedTokenVision" in actor) {
-      const { sight } = (actor as any).resolvedTokenVision;
-      changes.sight.enabled = sight.enabled;
-      if ("range" in changes.sight) changes.sight.range = sight.range;
-      if ("visionMode" in changes.sight)
-        changes.sight.visionMode = sight.visionMode;
+    if (
+      (changes.sight || changes.detectionModes) &&
+      "resolvedTokenVision" in actor
+    ) {
+      const { sight, detectionModes } = (actor as any).resolvedTokenVision;
+      if (changes.sight) {
+        changes.sight.enabled = sight.enabled;
+        if ("range" in changes.sight) changes.sight.range = sight.range;
+        if ("visionMode" in changes.sight)
+          changes.sight.visionMode = sight.visionMode;
+      }
+      if (changes.detectionModes) {
+        // Force every mode the user touched back to the actor's config
+        for (const id of Object.keys(changes.detectionModes)) {
+          const key = id.replace(/^-=/, "");
+          changes.detectionModes[key] = detectionModes[key] ?? {
+            enabled: false,
+            range: 0
+          };
+          if (key !== id) delete changes.detectionModes[id];
+        }
+      }
     }
 
     // If this update doesn't touch bar config, check if we need to add it

@@ -254,14 +254,11 @@ export class FaseripActor<
     const range = primarySight?.range ?? 0;
     const mode = primarySight ? primarySight.type.slice("sight:".length) : "basic";
 
-    // In Foundry, sight.range on the "basic" vision mode is a darkvision
-    // radius (the token sees that far even in total darkness). Basic sight
-    // should still depend on light, so keep it at 0 there and let the
-    // basicSight detection mode below enforce the actual distance limit.
-    // Other modes (e.g. darkvision) use sight.range as their real range.
+    // The actor's configured range is the source of truth for the token's
+    // vision range, whatever the mode.
     const sight = {
       enabled: range > 0,
-      range: mode === "basic" ? 0 : range,
+      range,
       visionMode: mode
     };
 
@@ -305,11 +302,12 @@ export class FaseripActor<
     // new/updated ones.
     const buildDetectionModesUpdate = (
       pathPrefix: string,
-      existing: Record<string, { enabled: boolean; range: number }> | undefined
+      existing: Record<string, { enabled: boolean; range: number }> | undefined,
+      target: Record<string, { enabled: boolean; range: number }> = detectionModes
     ) => {
       const update: Record<string, unknown> = {};
       for (const id of Object.keys(existing ?? {})) {
-        if (!(id in detectionModes)) {
+        if (!(id in target)) {
           // v14 deprecated the "-=key": null deletion syntax in favour of
           // the ForcedDeletion operator; v13 (our minimum) only knows the
           // old syntax.
@@ -322,7 +320,7 @@ export class FaseripActor<
           }
         }
       }
-      for (const [id, value] of Object.entries(detectionModes)) {
+      for (const [id, value] of Object.entries(target)) {
         update[`${pathPrefix}.${id}`] = value;
       }
       return update;
@@ -361,18 +359,24 @@ export class FaseripActor<
     for (const scene of game.scenes!) {
       const tokens = scene.tokens.filter((t: any) => t.actor?.id === this.id);
       if (!tokens.length) continue;
+      // Resolve per token: an unlinked token's synthetic actor can carry its
+      // own form/vision data, and a synthetic actor's update must not push its
+      // vision onto sibling tokens of the same base actor.
       const updates = tokens
+        .filter((t: any) => !(this as any).isToken || t.actor === this)
+        .map((t: any) => ({ t, v: t.actor?.resolvedTokenVision ?? null }))
         .filter(
-          (t: any) =>
-            t.sight?.range !== sight.range ||
-            t.sight?.visionMode !== mode ||
-            t.sight?.enabled !== sight.enabled ||
-            !detectionModesEqual(t.detectionModes, detectionModes)
+          ({ t, v }: any) =>
+            v &&
+            (t.sight?.range !== v.sight.range ||
+              t.sight?.visionMode !== v.mode ||
+              t.sight?.enabled !== v.sight.enabled ||
+              !detectionModesEqual(t.detectionModes, v.detectionModes))
         )
-        .map((t: any) => ({
+        .map(({ t, v }: any) => ({
           _id: t.id,
-          sight,
-          ...buildDetectionModesUpdate("detectionModes", t.detectionModes)
+          sight: v.sight,
+          ...buildDetectionModesUpdate("detectionModes", t.detectionModes, v.detectionModes)
         }));
       if (updates.length) {
         scene.updateEmbeddedDocuments("Token", updates).catch((err: unknown) =>
