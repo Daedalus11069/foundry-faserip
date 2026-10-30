@@ -27,6 +27,12 @@ import {
   parseRankExpression
 } from "./module/chat-commands";
 import { rollIntuitionCheck } from "./module/utils/token-hud";
+import {
+  areTokensLinked,
+  getLinkedTokenIds,
+  linkTokens,
+  unlinkTokens
+} from "./module/utils/linked-tokens";
 import { installManualTableRolls } from "./module/utils/manual-roll-handler";
 import {
   presentHackToActor,
@@ -187,7 +193,8 @@ class FsrTokenHUD extends foundry.applications.hud.TokenHUD {
     super.DEFAULT_OPTIONS,
     {
       actions: {
-        intuition: FsrTokenHUD.#onSelectIntuition
+        intuition: FsrTokenHUD.#onSelectIntuition,
+        linkTokens: FsrTokenHUD.#onToggleLinkTokens
       }
     },
     { inplace: false }
@@ -222,6 +229,41 @@ class FsrTokenHUD extends foundry.applications.hud.TokenHUD {
     }
   }
 
+  /**
+   * Link the selected tokens so they attack together, or unlink them if they
+   * are already all linked to each other.
+   */
+  static async #onToggleLinkTokens(
+    this: FsrTokenHUD,
+    _event: PointerEvent,
+    _target: HTMLElement
+  ): Promise<void> {
+    const docs = getHudLinkableTokenDocs(this);
+    if (docs.length === 1) {
+      // A lone token can only be unlinked from its group.
+      await unlinkTokens(docs);
+      ui.notifications?.info("Token unlinked.");
+    } else if (areTokensLinked(docs)) {
+      await unlinkTokens(docs);
+      ui.notifications?.info(`Unlinked ${docs.length} tokens.`);
+    } else {
+      await linkTokens(docs);
+      ui.notifications?.info(
+        `Linked ${docs.length} tokens - they will now attack together.`
+      );
+    }
+    // @ts-expect-error - TypeScript doesn't recognize render on TokenHUD
+    this.render();
+  }
+}
+
+/** Selected tokens' documents, falling back to the HUD's own token. */
+function getHudLinkableTokenDocs(hud: any): any[] {
+  const controlled = ((canvas as any)?.tokens?.controlled ?? []) as any[];
+  const docs = controlled.length
+    ? controlled.map(t => t.document)
+    : [hud.document].filter(Boolean);
+  return docs.filter((d: any) => d?.isOwner);
 }
 
 // ─── System Initialization ──────────────────────────────────────────────────────
@@ -1108,6 +1150,27 @@ Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
   intuitionBtn.dataset.tooltip = "Roll Intuition Check";
   intuitionBtn.innerHTML = `<i class="fas fa-eye"></i>`;
   leftCol.appendChild(intuitionBtn);
+
+  // Link button: with 2+ tokens selected it links them (or unlinks if they
+  // already are); otherwise it only shows if this token has a link to remove.
+  const hudDocs = getHudLinkableTokenDocs(_hud);
+  const isLinked = areTokensLinked(hudDocs);
+  const hasAnyLink = hudDocs.some(d => getLinkedTokenIds(d).length > 0);
+  if (hudDocs.length >= 2 || hasAnyLink) {
+    const linkBtn = document.createElement("button");
+    linkBtn.type = "button";
+    linkBtn.classList.add("control-icon");
+    if (isLinked || (hudDocs.length === 1 && hasAnyLink)) {
+      linkBtn.classList.add("active");
+    }
+    linkBtn.dataset.action = "linkTokens";
+    linkBtn.dataset.tooltip =
+      isLinked || (hudDocs.length === 1 && hasAnyLink)
+        ? "Unlink Tokens"
+        : "Link Selected Tokens (attack together)";
+    linkBtn.innerHTML = `<i class="fas fa-link"></i>`;
+    leftCol.appendChild(linkBtn);
+  }
 });
 
 // ─── Scene Controls: Present Hack Tool ──────────────────────────────────────────

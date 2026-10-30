@@ -16,6 +16,15 @@
       "Pc": "Player Character",
       "Npc": "Non-Player Character"
     },
+    "ActorConvert": {
+      "Button": "Convert PC/NPC",
+      "Title": "Convert Actor",
+      "Confirm": "Convert {name} from {from} to {to}? PC-only data such as popularity is dropped when converting to an NPC. Tokens already on a scene keep their current link setting.",
+      "GMOnly": "Only a GM can convert an actor between PC and NPC.",
+      "UnlinkedToken": "Convert the base actor from the sidebar; an unlinked token's actor cannot change type.",
+      "Failed": "The actor type could not be changed.",
+      "Done": "{name} is now a {to}."
+    },
     "BEHAVIOR": {
       "TYPES": {
         "powerNegation": {

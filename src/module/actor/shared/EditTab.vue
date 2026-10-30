@@ -64,6 +64,11 @@ const editForm = computed<Form | undefined>(
 
 // A blank input clears the override (back to the calculated health) rather
 // than writing 0/"" into the schema's min:1 field
+// Calculated max health ignoring any override, for the placeholder/hint
+function baseHealth(form: Form): number {
+  return calculateHealth({ ...form, healthOverride: undefined });
+}
+
 function setHealthOverride(form: Form, event: Event) {
   const raw = (event.target as HTMLInputElement).value;
   const value = Math.floor(Number(raw));
@@ -991,25 +996,22 @@ async function browseTokenImage() {
         </div>
       </div>
 
-      <!-- Max Health override for this form (NPCs only) -->
-      <div
-        v-if="reactiveActor.type === 'npc'"
-        class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700"
-      >
+      <!-- Max Health override for this form -->
+      <div class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
         <h3 class="text-sm font-bold text-yellow-400 mb-2">Max Health</h3>
         <div class="flex items-center gap-3">
           <input
             :value="editForm.healthOverride"
             type="number"
             class="fsr-input w-20 text-center"
-            :placeholder="String(calculateHealth(editForm))"
+            :placeholder="String(baseHealth(editForm))"
             min="1"
             :disabled="!canEditStats"
             @input="setHealthOverride(editForm, $event)"
           />
           <p class="text-xs text-gray-500">
             Exact max health for this form. Leave blank to calculate it from
-            the physical attributes ({{ calculateHealth(editForm) }}).
+            the physical attributes ({{ baseHealth(editForm) }}).
           </p>
         </div>
       </div>

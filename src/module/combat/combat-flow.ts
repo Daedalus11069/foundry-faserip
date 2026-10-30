@@ -26,6 +26,11 @@ import { type ArmorItem, isArmorItem } from "../types/items";
 import { createRoll } from "../utils/manual-roll-handler";
 import { getCharmanService } from "../charman-service";
 import {
+  getAttackerTokenDocument,
+  getLinkedTokenDocuments
+} from "../utils/linked-tokens";
+import { getActionsThisTurn } from "../utils/turn-actions-tracker";
+import {
   applyHealingToActor,
   isActorDead,
   isActorUnconscious,
@@ -98,6 +103,8 @@ interface AttackData {
   resolveTargetsAfterRoll?: (roll: FaseripRoll) => Promise<Token[]>; // Remote-placed areas: the attack is rolled with no targets, then this decides where the area lands (the roll can scatter it) and returns whoever is inside
   deferDamageApplication?: boolean; // True to accumulate damage without applying (for cumulative combo damage)
   comboBotchCount?: number; // Optional: Number of botches so far in this combo (for cumulative penalty)
+  linkedMirror?: boolean; // Internal: this attack is a linked token repeating a partner's attack - never mirrors further
+  linkState?: { rolled: boolean }; // Internal: set once an attack roll was actually made, so a cancelled dialog doesn't trigger linked token attacks
 }
 
 /**
@@ -877,6 +884,70 @@ export async function applyDamageToActor(
 export async function executeCombatAttack(
   attackData: AttackData
 ): Promise<CombatAttackResult | null> {
+  const linkState = { rolled: false };
+  const result = await executeCombatAttackInner({ ...attackData, linkState });
+  if (linkState.rolled && !attackData.linkedMirror) {
+    await mirrorLinkedAttacks(attackData);
+  }
+  return result;
+}
+
+/**
+ * Have every token linked to the attacker's token repeat this attack. Each
+ * linked token is prompted for its own attack options, rolls independently,
+ * and the attack counts toward its own actions this turn.
+ *
+ * Karma/chart-shift presets from the original attacker's dialog are dropped so
+ * the partner gets its own dialog. Damage is applied per hit rather than
+ * deferred, since the caller's cumulative combo damage only covers the
+ * original attacker.
+ */
+async function mirrorLinkedAttacks(attackData: AttackData): Promise<void> {
+  const attackerTokenDoc = getAttackerTokenDocument(
+    attackData.attacker,
+    attackData.attackerToken
+  );
+  if (!attackerTokenDoc) return;
+
+  for (const partnerDoc of getLinkedTokenDocuments(attackerTokenDoc)) {
+    const partnerActor = partnerDoc.actor as FaseripActor | null;
+    if (!partnerActor) continue;
+
+    const comboIndex = attackData.comboIndex ?? 1;
+    // Earlier hits of this combo were already added to the partner's count
+    // below, so back them out to get the count from before the combo began.
+    const actionsBefore = Math.max(
+      0,
+      getActionsThisTurn(partnerActor.system) - (comboIndex - 1)
+    );
+
+    const result = await executeCombatAttackInner({
+      ...attackData,
+      attacker: partnerActor,
+      attackerToken: partnerDoc.object ?? undefined,
+      karmaColumnShifts: undefined,
+      karmaResultShift: undefined,
+      manualChartShift: undefined,
+      damageRankBump: undefined,
+      perAttackKarma: undefined,
+      deferDamageApplication: false,
+      actionsBeforeThisCombo: actionsBefore,
+      comboBotchCount: 0,
+      linkedMirror: true,
+      linkState: undefined
+    });
+
+    if (result !== null) {
+      await partnerActor.update({
+        "system.actionsThisTurn": getActionsThisTurn(partnerActor.system) + 1
+      } as any);
+    }
+  }
+}
+
+async function executeCombatAttackInner(
+  attackData: AttackData
+): Promise<CombatAttackResult | null> {
   const {
     attacker,
     attackAttribute,
@@ -921,7 +992,7 @@ export async function executeCombatAttack(
     let cumulativeBotches = attackData.comboBotchCount ?? 0;
 
     for (let i = 0; i < targets.length; i++) {
-      const result = await executeCombatAttack({
+      const result = await executeCombatAttackInner({
         ...attackData,
         targets: [targets[i]], // Single target
         comboIndex: i + 1, // 1-based index for combo penalty
@@ -1061,6 +1132,8 @@ export async function executeCombatAttack(
       karmaResultShift,
       false // Show message
     );
+
+    if (attackData.linkState) attackData.linkState.rolled = true;
 
     // Return attack total for combo botch detection
     const noTargetTotal =
@@ -1334,6 +1407,8 @@ export async function executeCombatAttack(
     }
   );
 
+  if (attackData.linkState) attackData.linkState.rolled = true;
+
   // Wait for dice animation to complete before showing defense dialog
   if ((game as any).dice3d && attackMessage) {
     await (game as any).dice3d.waitFor3DAnimationByMessageID(attackMessage.id);
@@ -1584,7 +1659,7 @@ export async function executeCombatAttack(
               (t: Token) => t.actor?.id === attacker.id
             );
 
-            await executeCombatAttack({
+            await executeCombatAttackInner({
               attacker: targetActor,
               targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",
@@ -1633,7 +1708,7 @@ export async function executeCombatAttack(
               (t: Token) => t.actor?.id === attacker.id
             );
 
-            await executeCombatAttack({
+            await executeCombatAttackInner({
               attacker: targetActor,
               targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",
@@ -1679,7 +1754,7 @@ export async function executeCombatAttack(
               (t: Token) => t.actor?.id === attacker.id
             );
 
-            await executeCombatAttack({
+            await executeCombatAttackInner({
               attacker: targetActor,
               targets: attackerToken ? [attackerToken] : [],
               attackAttribute: "fighting",

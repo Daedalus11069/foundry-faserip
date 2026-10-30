@@ -11,6 +11,7 @@ import { assignIfChanged } from "./shared/assign-if-changed";
 import { deepEqual, mergeThreeWay } from "./shared/merge-data";
 import { getRankValue } from "../utils";
 import type { FaseripActor } from "../documents";
+import { convertActorType } from "../utils/actor-type-conversion";
 
 // @ts-expect-error - TypeScript doesn't recognize custom Actor subclass
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -71,6 +72,27 @@ export abstract class FsrBaseSheet extends ActorSheetV2 {
         _userId: string
       ) => void)
     | null = null;
+
+  static DEFAULT_OPTIONS: Record<string, any> = {
+    actions: {
+      convertActorType: async function (this: FsrBaseSheet) {
+        await convertActorType(this.actor);
+      }
+    }
+  };
+
+  /** GM-only header button to convert between PC and NPC. */
+  _getHeaderControls(): Record<string, unknown>[] {
+    const controls = super._getHeaderControls() as Record<string, unknown>[];
+    if ((game as any).user?.isGM && !this.actor.isToken) {
+      controls.push({
+        action: "convertActorType",
+        icon: "fa-solid fa-repeat",
+        label: "FASERIP.ActorConvert.Button"
+      });
+    }
+    return controls;
+  }
 
   /** Expose the reactive actor for components that need the sheet ref. */
   get reactiveActor() {

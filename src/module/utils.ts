@@ -1,4 +1,4 @@
-import { ActorType, Rank, RANK_VALUES } from "./enums";
+import { Rank, RANK_VALUES } from "./enums";
 
 /**
  * Convert a rank string to its numerical value
@@ -40,14 +40,14 @@ export function getInitiativeDie(rank: Rank | string): number {
  * - "faseSum": Fighting + Agility + Strength + Endurance (default)
  * - "enduranceX2": Endurance × 2
  *
- * NPC forms may set an exact max health (`healthOverride`), which wins over
- * the calculation. It is ignored for any other actor type, and when unset the
+ * A form may set an exact max health (`healthOverride`), e.g. from charman,
+ * which wins over the calculation for any actor type. When unset the
  * calculation applies.
  */
-export function calculateHealth(form: any, actorType?: string): number {
+export function calculateHealth(form: any, _actorType?: string): number {
   if (!form || !form.attributes) return 24; // Default for 4x typical (6)
 
-  if (actorType === ActorType.Npc && form.healthOverride > 0) {
+  if (form.healthOverride > 0) {
     return form.healthOverride;
   }
 

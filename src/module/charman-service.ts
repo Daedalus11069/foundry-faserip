@@ -1,4 +1,5 @@
 import {
+  calculateHealth,
   parseRankFromCharman,
   nanoid,
   valueToRank,
@@ -874,13 +875,9 @@ export class CharmanService {
       })
     );
 
-    // Calculate initial health from first form's FASE attributes (Fighting + Agility + Strength + Endurance)
+    // Initial health: first form's healthOverride if given, else the configured calculation
     const firstForm = forms[0];
-    const initialHealth =
-      firstForm.attributes.fighting.value +
-      firstForm.attributes.agility.value +
-      firstForm.attributes.strength.value +
-      firstForm.attributes.endurance.value;
+    const initialHealth = calculateHealth(firstForm, "pc");
 
     // Name is the main character name (displayed as actor name)
     // Callname is the civilian/call name (displayed below as smaller text)
