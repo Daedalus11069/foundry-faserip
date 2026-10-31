@@ -1083,6 +1083,9 @@ export class CharmanService {
       const updateData: Record<string, any> = {
         name: actorData.name,
         img: actorData.img,
+        // Keep the prototype token's name from going stale across renames
+        "prototypeToken.name":
+          (existingActor as any).system?.alias || actorData.name,
         "prototypeToken.texture.src": actorData.prototypeToken.texture.src,
         "prototypeToken.texture.scaleX":
           actorData.prototypeToken.texture.scaleX,

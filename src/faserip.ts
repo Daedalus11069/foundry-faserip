@@ -921,6 +921,15 @@ const initHandler = () => {
     ) => {
       const actor = tokenDocument.actor;
 
+      // Name follows the actor sheet (alias, else actor name), not whatever
+      // stale value the prototype token happens to carry
+      if (actor) {
+        const displayName = (actor.system as any)?.alias || actor.name;
+        if (displayName && tokenDocument.name !== displayName) {
+          tokenDocument.updateSource({ name: displayName });
+        }
+      }
+
       // Vision follows the actor's sight sources, not the prototype defaults
       if (actor && "resolvedTokenVision" in actor) {
         const { sight, detectionModes } = (actor as any).resolvedTokenVision;
