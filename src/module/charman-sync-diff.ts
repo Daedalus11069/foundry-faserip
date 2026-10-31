@@ -274,7 +274,7 @@ function canonicalFields(
       return {
         rank: rankKey(raw.rank),
         value: Number(raw.value) || 0,
-        maxValue: Number(raw.maxValue) || 0,
+        maxValue: Number(raw.maxValue) || Number(raw.value) || 0,
         equipped: !!raw.equipped,
         description: raw.description ?? "",
         forms: sortedNames(raw.formNames)

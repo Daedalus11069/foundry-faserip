@@ -404,6 +404,11 @@ function isBodyArmor(power: PowerData): boolean {
   return power.name.toLowerCase().replace(/[\s_-]+/g, "") === "bodyarmor";
 }
 
+/** Powers that carry a degradable armor value (Body Armor or an armor layer). */
+function hasArmorValue(power: PowerData): boolean {
+  return isBodyArmor(power) || !!power.grantsArmor;
+}
+
 async function repairPower(power: PowerData) {
   const maxValue = power.maxValue || power.value;
   const currentDamage = maxValue - power.value;
@@ -569,7 +574,7 @@ function toggleItem(id: string) {
           >
             {{ blendInStatusLabel(power) }}
           </button>
-          <span v-if="degradingEnabled && isBodyArmor(power)" class="text-xs shrink-0"
+          <span v-if="degradingEnabled && hasArmorValue(power)" class="text-xs shrink-0"
             :class="power.value < (power.maxValue || power.value) ? 'text-yellow-400' : 'text-blue-300'">
             {{ power.value }}/{{ power.maxValue || power.value }} armor
           </span>
@@ -1618,7 +1623,7 @@ function toggleItem(id: string) {
 
           <!-- Body Armor value display and repair (when degrading armor is enabled) -->
           <div
-            v-if="degradingEnabled && isBodyArmor(power)"
+            v-if="degradingEnabled && hasArmorValue(power)"
             class="mb-2 p-2 bg-blue-900/20 border border-blue-700 rounded"
           >
             <div class="flex items-center justify-between">

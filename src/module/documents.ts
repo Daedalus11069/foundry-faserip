@@ -1,6 +1,7 @@
 import { markRaw } from "vue";
 import { ActorType } from "./enums";
 import { Rank } from "./enums";
+import { isArmorPowerActive } from "./utils/damage-application";
 import {
   calculateHealth,
   calculateMentalPoints,
@@ -559,6 +560,16 @@ export class FaseripActor<
       const armorSystem = armorItem.system as any;
       currentArmor += armorSystem.value || 0;
       maxArmor += armorSystem.maxValue || 0;
+    }
+
+    // Armor-layer powers (Grants Armor Layer) that are currently active
+    for (const power of system.powers || []) {
+      if (power === bodyArmorPower || !isArmorPowerActive(power)) continue;
+      if (power.formIds?.length && !power.formIds.includes(activeFormId)) {
+        continue;
+      }
+      currentArmor += power.value || 0;
+      maxArmor += power.maxValue || power.value || 0;
     }
 
     // Ensure armor resource exists (for backwards compatibility)

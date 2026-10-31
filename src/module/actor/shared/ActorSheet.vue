@@ -15,7 +15,8 @@ import { Rank } from "../../enums";
 import { getCharmanService } from "../../charman-service";
 import {
   applyDamageToActor,
-  applyHealingToActor
+  applyHealingToActor,
+  isArmorPowerActive
 } from "../../utils/damage-application";
 import { useActorField } from "./use-actor-field";
 import type { ReactiveActorData } from "../../types/actor-system";
@@ -302,6 +303,22 @@ const armorList = computedWithControl<
         icon: "🦾",
         name: bodyArmorPower.value.name,
         title: `${bodyArmorPower.value.rank}, ${absorbs}`
+      });
+    }
+
+    const activeFormId = reactiveActor.system.currentFormId;
+    for (const power of reactiveActor.system.powers || []) {
+      if (power === bodyArmorPower.value || !isArmorPowerActive(power)) continue;
+      if (power.formIds?.length && !power.formIds.includes(activeFormId)) {
+        continue;
+      }
+      const absorbs = degradingEnabled.value
+        ? `absorbs ${power.value}/${power.maxValue || power.value}`
+        : `absorbs ${power.value}`;
+      armors.push({
+        icon: "✨",
+        name: power.name,
+        title: `${power.rank}, ${absorbs}`
       });
     }
 

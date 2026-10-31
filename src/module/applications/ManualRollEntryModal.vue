@@ -23,8 +23,8 @@
               :max="totalMax"
               :step="1"
               class="fsr-input"
-              @input="updateExpression"
-              @keyup.enter="submit"
+              @blur="updateExpression"
+              @keyup.enter="updateExpression(); submit()"
               ref="totalInputEl"
             />
           </div>

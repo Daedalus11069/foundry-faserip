@@ -946,7 +946,8 @@ export class CharmanService {
           name: armor.name,
           rank: armor.rank,
           value: armor.value,
-          maxValue: armor.maxValue,
+          // Charman's maxValue is optional (null/0 unless set), so fall back to the current value
+          maxValue: armor.maxValue || armor.value,
           equipped: armor.equipped,
           description: armor.description || "",
           formIds: (armor.formNames || [])
