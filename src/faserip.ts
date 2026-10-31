@@ -239,6 +239,12 @@ class FsrTokenHUD extends foundry.applications.hud.TokenHUD {
     _target: HTMLElement
   ): Promise<void> {
     const docs = getHudLinkableTokenDocs(this);
+    if (docs.length === 1 && getLinkedTokenIds(docs[0]).length === 0) {
+      ui.notifications?.warn(
+        "Select two or more tokens (shift-click) to link them."
+      );
+      return;
+    }
     if (docs.length === 1) {
       // A lone token can only be unlinked from its group.
       await unlinkTokens(docs);
@@ -1166,26 +1172,21 @@ Hooks.on("renderTokenHUD", (_hud: any, html: HTMLElement, _data: any) => {
   intuitionBtn.innerHTML = `<i class="fas fa-eye"></i>`;
   leftCol.appendChild(intuitionBtn);
 
-  // Link button: with 2+ tokens selected it links them (or unlinks if they
-  // already are); otherwise it only shows if this token has a link to remove.
+  // Link button: always shown. With 2+ tokens selected it links them (or
+  // unlinks if they already are); on a single linked token it unlinks.
   const hudDocs = getHudLinkableTokenDocs(_hud);
-  const isLinked = areTokensLinked(hudDocs);
   const hasAnyLink = hudDocs.some(d => getLinkedTokenIds(d).length > 0);
-  if (hudDocs.length >= 2 || hasAnyLink) {
-    const linkBtn = document.createElement("button");
-    linkBtn.type = "button";
-    linkBtn.classList.add("control-icon");
-    if (isLinked || (hudDocs.length === 1 && hasAnyLink)) {
-      linkBtn.classList.add("active");
-    }
-    linkBtn.dataset.action = "linkTokens";
-    linkBtn.dataset.tooltip =
-      isLinked || (hudDocs.length === 1 && hasAnyLink)
-        ? "Unlink Tokens"
-        : "Link Selected Tokens (attack together)";
-    linkBtn.innerHTML = `<i class="fas fa-link"></i>`;
-    leftCol.appendChild(linkBtn);
-  }
+  const willUnlink = areTokensLinked(hudDocs) || (hudDocs.length === 1 && hasAnyLink);
+  const linkBtn = document.createElement("button");
+  linkBtn.type = "button";
+  linkBtn.classList.add("control-icon");
+  if (willUnlink) linkBtn.classList.add("active");
+  linkBtn.dataset.action = "linkTokens";
+  linkBtn.dataset.tooltip = willUnlink
+    ? "Unlink Tokens"
+    : "Link Selected Tokens (select 2+ with shift-click)";
+  linkBtn.innerHTML = `<i class="fas fa-link"></i>`;
+  leftCol.appendChild(linkBtn);
 });
 
 // ─── Scene Controls: Present Hack Tool ──────────────────────────────────────────

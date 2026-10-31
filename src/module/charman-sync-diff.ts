@@ -1,4 +1,4 @@
-import { parseRankFromCharman, stringToRank, valueToRank } from "./utils";
+import { charmanBool, parseRankFromCharman, stringToRank, valueToRank } from "./utils";
 import { RANK_VALUES } from "./enums";
 
 /**
@@ -198,7 +198,7 @@ function canonicalFields(
     case "forms": {
       const attributes = raw.attributes ?? raw;
       const fields: Record<string, any> = {
-        primary: !!raw.isPrimary,
+        primary: charmanBool(raw.isPrimary),
         tokenWidth: Number(raw.tokenWidth) || 1,
         tokenHeight: Number(raw.tokenHeight) || 1,
         tokenScale: Number(raw.tokenScale) || 1,
@@ -229,53 +229,53 @@ function canonicalFields(
         effectType: raw.effectType || "none",
         attackType: raw.attackType || "none",
         damageTypes: normalizeDamageTypes(raw),
-        skipDialogs: !!raw.skipDialogs,
+        skipDialogs: charmanBool(raw.skipDialogs),
         resistanceType: raw.resistanceType || null,
         vulnerabilityType: raw.vulnerabilityType || null,
-        multiHit: !!raw.multiHit,
+        multiHit: charmanBool(raw.multiHit),
         armorPiercing: rankKey(raw.armorPiercing),
         leechPercent: Number(raw.leechPercent) || 0,
         targetType: raw.targetType || "any",
         ...normBuffFields(raw),
-        isAura: !!raw.isAura,
+        isAura: charmanBool(raw.isAura),
         auraDisposition: raw.auraDisposition || "any",
-        auraIncludeSelf: !!raw.auraIncludeSelf,
+        auraIncludeSelf: charmanBool(raw.auraIncludeSelf),
         auraRange: Number(raw.auraRange) || 0,
         massEffect: {
-          enabled: !!raw.massEffect?.enabled,
+          enabled: charmanBool(raw.massEffect?.enabled),
           scope: raw.massEffect?.scope === "targets" ? "targets" : "area",
           baseRangeFeet: Number(raw.massEffect?.baseRangeFeet ?? 20),
           falloffFeet: Number(raw.massEffect?.falloffFeet ?? 20),
-          includeSelf: !!raw.massEffect?.includeSelf,
+          includeSelf: charmanBool(raw.massEffect?.includeSelf),
           resistAttribute: raw.massEffect?.resistAttribute || "",
           resistResult: raw.massEffect?.resistResult || "green"
         },
         areaOfEffect: { ...AOE_DEFAULTS, ...(raw.areaOfEffect ?? {}) },
-        grantsArmor: !!raw.grantsArmor,
+        grantsArmor: charmanBool(raw.grantsArmor),
         armorTypes: Array.isArray(raw.armorTypes) ? raw.armorTypes : [],
         armorLayer: Number(raw.armorLayer ?? 1),
-        armorToggle: !!raw.armorToggle,
-        armorBlocksAttacks: !!raw.armorBlocksAttacks,
-        blendIn: !!raw.blendIn,
+        armorToggle: charmanBool(raw.armorToggle),
+        armorBlocksAttacks: charmanBool(raw.armorBlocksAttacks),
+        blendIn: charmanBool(raw.blendIn),
         blendInDurationFormula: raw.blendInDurationFormula || "",
-        isLifeLink: !!raw.isLifeLink,
+        isLifeLink: charmanBool(raw.isLifeLink),
         lifeLinkPercent: Number(raw.lifeLinkPercent) || 0,
         lifeLinkDirection: raw.lifeLinkDirection || "protect",
-        autoHealEachRound: !!raw.autoHealEachRound
+        autoHealEachRound: charmanBool(raw.autoHealEachRound)
       };
     }
     case "talents":
       return {
         bonus: Number(raw.bonus) || 0,
         description: raw.description ?? "",
-        grantsDualWield: !!raw.grantsDualWield
+        grantsDualWield: charmanBool(raw.grantsDualWield)
       };
     case "armors":
       return {
         rank: rankKey(raw.rank),
         value: Number(raw.value) || 0,
         maxValue: Number(raw.maxValue) || Number(raw.value) || 0,
-        equipped: !!raw.equipped,
+        equipped: charmanBool(raw.equipped),
         description: raw.description ?? "",
         forms: sortedNames(raw.formNames)
       };
@@ -291,7 +291,7 @@ function canonicalFields(
           : ["physical"],
         armorPiercing: rankKey(raw.armorPiercing),
         description: raw.description ?? "",
-        multiHit: !!raw.multiHit,
+        multiHit: charmanBool(raw.multiHit),
         ...normBuffFields(raw),
         areaOfEffect: { ...AOE_DEFAULTS, ...(raw.areaOfEffect ?? {}) }
       };

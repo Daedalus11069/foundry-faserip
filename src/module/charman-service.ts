@@ -1,5 +1,6 @@
 import {
   calculateHealth,
+  charmanBool,
   parseRankFromCharman,
   nanoid,
   valueToRank,
@@ -45,11 +46,11 @@ export interface CharmanMassEffect {
 
 function normalizeMassEffect(raw: any): CharmanMassEffect {
   return {
-    enabled: !!raw?.enabled,
+    enabled: charmanBool(raw?.enabled),
     scope: raw?.scope === "targets" ? "targets" : "area",
     baseRangeFeet: Math.max(0, Math.round(Number(raw?.baseRangeFeet ?? 20))),
     falloffFeet: Math.max(0, Math.round(Number(raw?.falloffFeet ?? 20))),
-    includeSelf: !!raw?.includeSelf,
+    includeSelf: charmanBool(raw?.includeSelf),
     resistAttribute: raw?.resistAttribute || "",
     resistResult: ["yellow", "red"].includes(raw?.resistResult)
       ? raw.resistResult
@@ -65,15 +66,15 @@ function weaponDamageTypes(raw: any): string[] {
 
 function normalizeAreaOfEffect(raw: any): CharmanWeaponAreaOfEffect {
   return {
-    enabled: raw?.enabled ?? false,
+    enabled: charmanBool(raw?.enabled),
     shape: raw?.shape ?? "circle",
     size: raw?.size ?? 10,
     width: raw?.width ?? 5,
     angle: raw?.angle ?? 53,
     color: raw?.color ?? "#ff0000",
     durationRounds: raw?.durationRounds ?? "",
-    remotePlaced: raw?.remotePlaced ?? false,
-    instant: raw?.instant ?? false,
+    remotePlaced: charmanBool(raw?.remotePlaced),
+    instant: charmanBool(raw?.instant),
     maxRangeFeet: Math.max(0, Number(raw?.maxRangeFeet) || 0)
   };
 }
@@ -793,15 +794,15 @@ export class CharmanService {
         attackType: power.attackType || "none",
         damageType: normalizeDamageTypes(power)[0] ?? "none",
         damageTypes: normalizeDamageTypes(power),
-        skipDialogs: power.skipDialogs || false,
+        skipDialogs: charmanBool(power.skipDialogs),
         resistanceType: power.resistanceType || undefined,
         vulnerabilityType: power.vulnerabilityType || undefined,
-        multiHit: power.multiHit || false,
+        multiHit: charmanBool(power.multiHit),
         armorPiercing: toRankKey(power.armorPiercing),
         leechPercent: power.leechPercent || 0,
         targetType: power.targetType || "any",
         statDebuffs: (power.statDebuffs || []).map(sd => ({
-          enabled: sd.enabled ?? false,
+          enabled: charmanBool(sd.enabled),
           attribute: sd.attribute,
           greenShift: sd.greenShift ?? 0,
           yellowShift: sd.yellowShift ?? 0,
@@ -809,37 +810,37 @@ export class CharmanService {
           durationFormula: sd.durationFormula ?? ""
         })),
         damageBuffs: (power.damageBuffs || []).map(db => ({
-          enabled: db.enabled ?? false,
+          enabled: charmanBool(db.enabled),
           greenShift: db.greenShift ?? 0,
           yellowShift: db.yellowShift ?? 0,
           redShift: db.redShift ?? 0,
           durationFormula: db.durationFormula ?? ""
         })),
         dots: (power.dots || []).map(d => ({
-          enabled: d.enabled ?? false,
+          enabled: charmanBool(d.enabled),
           rank: toRankKey(d.rank) ?? "",
           armorPiercing: toRankKey(d.armorPiercing) ?? "",
           durationFormula: d.durationFormula ?? ""
         })),
         statusEffects: (power.statusEffects || []).map(se => ({
-          enabled: se.enabled ?? false,
+          enabled: charmanBool(se.enabled),
           statusId: se.statusId ?? "",
           durationFormula: se.durationFormula ?? ""
         })),
-        isAura: power.isAura || false,
+        isAura: charmanBool(power.isAura),
         auraDisposition: power.auraDisposition || "any",
-        auraIncludeSelf: power.auraIncludeSelf || false,
+        auraIncludeSelf: charmanBool(power.auraIncludeSelf),
         auraRange: power.auraRange || 0,
         massEffect: normalizeMassEffect(power.massEffect),
         areaOfEffect: normalizeAreaOfEffect(power.areaOfEffect),
-        grantsArmor: power.grantsArmor || false,
+        grantsArmor: charmanBool(power.grantsArmor),
         armorTypes: Array.isArray(power.armorTypes) ? power.armorTypes : [],
         armorLayer: power.armorLayer ?? 1,
-        armorToggle: power.armorToggle || false,
-        armorBlocksAttacks: power.armorBlocksAttacks || false,
-        blendIn: power.blendIn || false,
+        armorToggle: charmanBool(power.armorToggle),
+        armorBlocksAttacks: charmanBool(power.armorBlocksAttacks),
+        blendIn: charmanBool(power.blendIn),
         blendInDurationFormula: power.blendInDurationFormula || "",
-        isLifeLink: power.isLifeLink || false,
+        isLifeLink: charmanBool(power.isLifeLink),
         lifeLinkPercent: power.lifeLinkPercent || 0,
         lifeLinkDirection: power.lifeLinkDirection || "protect",
         value: power.value || getRankValue(rankName),
@@ -871,7 +872,7 @@ export class CharmanService {
         name: talent.name,
         bonus: Number(talent.bonus) || 0,
         description: talent.description || "",
-        grantsDualWield: talent.grantsDualWield || false
+        grantsDualWield: charmanBool(talent.grantsDualWield)
       })
     );
 
@@ -1002,11 +1003,11 @@ export class CharmanService {
               : [],
             damageTypes: weaponDamageTypes(weapon),
             description: weapon.description || "",
-            equipped: weapon.equipped || false,
-            multiHit: weapon.multiHit || false,
+            equipped: charmanBool(weapon.equipped),
+            multiHit: charmanBool(weapon.multiHit),
             armorPiercing: toRankKey(weapon.armorPiercing) ?? "",
             statDebuffs: (weapon.statDebuffs || []).map(sd => ({
-              enabled: sd.enabled ?? false,
+              enabled: charmanBool(sd.enabled),
               attribute: sd.attribute,
               greenShift: sd.greenShift ?? 0,
               yellowShift: sd.yellowShift ?? 0,
@@ -1014,20 +1015,20 @@ export class CharmanService {
               durationFormula: sd.durationFormula ?? ""
             })),
             damageBuffs: (weapon.damageBuffs || []).map(db => ({
-              enabled: db.enabled ?? false,
+              enabled: charmanBool(db.enabled),
               greenShift: db.greenShift ?? 0,
               yellowShift: db.yellowShift ?? 0,
               redShift: db.redShift ?? 0,
               durationFormula: db.durationFormula ?? ""
             })),
             dots: (weapon.dots || []).map(d => ({
-              enabled: d.enabled ?? false,
+              enabled: charmanBool(d.enabled),
               rank: toRankKey(d.rank) ?? "",
               armorPiercing: toRankKey(d.armorPiercing) ?? "",
               durationFormula: d.durationFormula ?? ""
             })),
             statusEffects: (weapon.statusEffects || []).map(se => ({
-              enabled: se.enabled ?? false,
+              enabled: charmanBool(se.enabled),
               statusId: se.statusId ?? "",
               durationFormula: se.durationFormula ?? ""
             })),
@@ -1210,7 +1211,7 @@ export class CharmanService {
           description: charmanWeapon.description || "",
           talents: charmanWeapon.applicableTalents || [],
           damageTypes: weaponDamageTypes(charmanWeapon),
-          multiHit: charmanWeapon.multiHit || false,
+          multiHit: charmanBool(charmanWeapon.multiHit),
           armorPiercing: toRankKey(charmanWeapon.armorPiercing) ?? "",
           statDebuffs: charmanWeapon.statDebuffs || [],
           damageBuffs: charmanWeapon.damageBuffs || [],
@@ -1355,7 +1356,7 @@ export class CharmanService {
               description: weapon.description || "",
               talents: weapon.applicableTalents || [],
               damageTypes: weaponDamageTypes(weapon),
-              multiHit: weapon.multiHit || false,
+              multiHit: charmanBool(weapon.multiHit),
               armorPiercing: toRankKey(weapon.armorPiercing) ?? "",
               statDebuffs: weapon.statDebuffs || [],
               damageBuffs: weapon.damageBuffs || [],
@@ -1604,31 +1605,31 @@ export class CharmanService {
         // Legacy single type kept in step for older Charman readers
         damageType: normalizeDamageTypes(power)[0] ?? "none",
         damageTypes: normalizeDamageTypes(power),
-        skipDialogs: !!power.skipDialogs,
+        skipDialogs: charmanBool(power.skipDialogs),
         resistanceType: power.resistanceType || null,
         vulnerabilityType: power.vulnerabilityType || null,
-        multiHit: !!power.multiHit,
+        multiHit: charmanBool(power.multiHit),
         armorPiercing: power.armorPiercing || null,
         leechPercent: Number(power.leechPercent) || 0,
         targetType: power.targetType || "any",
         ...buffFields(power),
-        isAura: !!power.isAura,
+        isAura: charmanBool(power.isAura),
         auraDisposition: power.auraDisposition || "any",
-        auraIncludeSelf: !!power.auraIncludeSelf,
+        auraIncludeSelf: charmanBool(power.auraIncludeSelf),
         auraRange: Math.round(Number(power.auraRange)) || 0,
         massEffect: normalizeMassEffect(power.massEffect),
         areaOfEffect: normalizeAreaOfEffect(power.areaOfEffect),
-        grantsArmor: !!power.grantsArmor,
+        grantsArmor: charmanBool(power.grantsArmor),
         armorTypes: Array.isArray(power.armorTypes) ? power.armorTypes : [],
         armorLayer: Number(power.armorLayer ?? 1),
-        armorToggle: !!power.armorToggle,
-        armorBlocksAttacks: !!power.armorBlocksAttacks,
-        blendIn: !!power.blendIn,
+        armorToggle: charmanBool(power.armorToggle),
+        armorBlocksAttacks: charmanBool(power.armorBlocksAttacks),
+        blendIn: charmanBool(power.blendIn),
         blendInDurationFormula: power.blendInDurationFormula || "",
-        isLifeLink: !!power.isLifeLink,
+        isLifeLink: charmanBool(power.isLifeLink),
         lifeLinkPercent: Number(power.lifeLinkPercent) || 0,
         lifeLinkDirection: power.lifeLinkDirection || "protect",
-        autoHealEachRound: !!power.autoHealEachRound
+        autoHealEachRound: charmanBool(power.autoHealEachRound)
       })),
       talents: (system.talents ?? []).map((talent: any) => ({
         name: talent.name,

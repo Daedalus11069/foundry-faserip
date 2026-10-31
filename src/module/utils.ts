@@ -152,6 +152,18 @@ export function stringToRank(rankStr: string): Rank {
 /**
  * Parse rank from charman data (could be rank name, number, or object)
  */
+/**
+ * Charman exports booleans as "0"/"1" strings in places, and "0" is truthy,
+ * so `!!raw.flag` reads every disabled flag as on.
+ */
+export function charmanBool(value: unknown): boolean {
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    return v !== "" && v !== "0" && v !== "false";
+  }
+  return !!value;
+}
+
 export function parseRankFromCharman(rankData: any): {
   rank: Rank;
   value: number;
