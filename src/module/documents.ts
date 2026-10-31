@@ -185,8 +185,32 @@ export class FaseripActor<
     // @ts-expect-error - game.user type not fully recognized
     const isGM = game.user?.isGM;
 
-    const aliasChanged = foundry.utils.hasProperty(changed, "system.alias");
-    const nameChanged = foundry.utils.hasProperty(changed, "name");
+    // The Vue sheet layer submits flattened dot keys (see below), so check the
+    // literal key as well as the nested path.
+    const aliasChanged =
+      foundry.utils.hasProperty(changed, "system.alias") ||
+      "system.alias" in changed;
+    const nameChanged =
+      foundry.utils.hasProperty(changed, "name") || "name" in changed;
+
+    // Unlinked token actor: its alias/name edits land on the ActorDelta, so
+    // rename only that token (the loop below would hit every token that shares
+    // the base actor's id, and the prototype update can't persist from here).
+    const tokenDoc = (this as any).isToken ? (this as any).token : null;
+    if (
+      tokenDoc &&
+      !tokenDoc.actorLink &&
+      (aliasChanged || nameChanged) &&
+      // @ts-expect-error - game.user type not fully recognized
+      userId === game.user?.id
+    ) {
+      const displayName = (this.system as any).alias || this.name;
+      if (tokenDoc.name !== displayName) {
+        tokenDoc.update({ name: displayName });
+      }
+      return;
+    }
+
     if (isGM && (aliasChanged || nameChanged)) {
       const displayName = (this.system as any).alias || this.name;
 
@@ -198,7 +222,10 @@ export class FaseripActor<
 
       // @ts-expect-error - game.scenes type not fully recognized
       for (const scene of game.scenes!) {
-        const tokens = scene.tokens.filter((t: any) => t.actor?.id === this.id);
+        // Unlinked tokens carry their own name via their delta
+        const tokens = scene.tokens.filter(
+          (t: any) => t.actorId === this.id && t.actorLink
+        );
         if (!tokens.length) continue;
         const updates = tokens.map((t: any) => ({
           _id: t.id,
