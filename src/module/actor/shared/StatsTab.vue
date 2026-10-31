@@ -1905,8 +1905,10 @@ async function rollPower(
   }
 
   // Mass-effect powers hit everyone in range / every target, each with a
-  // resist roll, instead of one attack roll against one defender.
-  if (power.massEffect?.enabled) {
+  // resist roll, instead of one attack roll against one defender. A
+  // remote-placed area takes precedence: it's dragged onto the canvas and only
+  // hits whoever is inside the placed region, not everyone around the caster.
+  if (power.massEffect?.enabled && !isRemotePlaced(power)) {
     await activateMassEffect(actor, power);
     return;
   }
