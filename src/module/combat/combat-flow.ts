@@ -39,6 +39,11 @@ import {
   type DamageComponent
 } from "../utils/damage-application";
 import { isPowersNegated } from "../utils/power-negation";
+import {
+  cannotPhysicallyDefend,
+  getActionBlockReason,
+  getIncomingAttackStatusShift
+} from "../utils/status-mechanics";
 import { getPowerAuraDamageShift } from "../utils/power-aura";
 import {
   getEffectiveAttributeData,
@@ -973,6 +978,15 @@ async function executeCombatAttackInner(
     return null;
   }
 
+  // Unconscious/asleep/stunned actors can't act; paralysis only stops physical attacks
+  const actionBlock = getActionBlockReason(attacker, {
+    physical: attackAttribute !== "psyche"
+  });
+  if (actionBlock) {
+    ui.notifications?.warn(`${attacker.name} is ${actionBlock} and cannot attack.`);
+    return null;
+  }
+
   // Initialize array for accumulating damage when deferDamageApplication is true
   const pendingDamages: PendingDamage[] = [];
 
@@ -1242,7 +1256,8 @@ async function executeCombatAttackInner(
   // than via consumeTriggeredModifiers (which only looks at the attacker).
   const defenderActor = targets[0]?.actor as FaseripActor | undefined;
   const incomingAttackCS = defenderActor
-    ? await consumeIncomingAttackModifiers(defenderActor)
+    ? (await consumeIncomingAttackModifiers(defenderActor)) +
+      getIncomingAttackStatusShift(defenderActor)
     : 0;
 
   // Calculate total chart shift (manual + talent bonuses + combo penalty + botch penalty)
@@ -1488,7 +1503,8 @@ async function executeCombatAttackInner(
             : "fighting";
 
     if (
-      isActorUnconscious(targetActor) &&
+      (isActorUnconscious(targetActor) ||
+        cannotPhysicallyDefend(targetActor)) &&
       isPhysicalDefenseAttribute(defenseAttributeForAttackType)
     ) {
       ChatMessage.create({

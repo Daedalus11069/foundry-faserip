@@ -4,6 +4,10 @@ import { stringToRank } from "../utils";
 import { getActiveStatModifierEffects } from "./temp-effects";
 import { getPowerAuraStatShift } from "./power-aura";
 import { getWeaponAreaEffectStatShift } from "./area-of-effect";
+import {
+  applyStatusRankOverride,
+  getStatusAttributeModifiers
+} from "./status-mechanics";
 
 export const ATTRIBUTE_KEYS = [
   "fighting",
@@ -65,6 +69,11 @@ export function getEffectiveAttributeData(
       )
     : [];
 
+  // Status conditions (prone, blind, upgrade, ...) contribute shifts too - see status-mechanics.ts
+  if (isActor) {
+    modifiers.push(...getStatusAttributeModifiers(actorOrSystem, attributeKey));
+  }
+
   const auraShift = isActor
     ? getPowerAuraStatShift(actorOrSystem, attributeKey) +
       getWeaponAreaEffectStatShift(actorOrSystem, attributeKey)
@@ -72,7 +81,10 @@ export function getEffectiveAttributeData(
   const totalShift =
     modifiers.reduce((sum, modifier) => sum + Number(modifier.chartShift || 0), 0) +
     auraShift;
-  const rank = applyChartShift(baseRank, totalShift);
+  const shiftedRank = applyChartShift(baseRank, totalShift);
+  const rank = isActor
+    ? applyStatusRankOverride(actorOrSystem, attributeKey, shiftedRank)
+    : shiftedRank;
   const value = RANK_VALUES[rank] ?? baseValue;
 
   return {

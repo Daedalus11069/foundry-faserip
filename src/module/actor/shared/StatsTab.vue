@@ -72,6 +72,7 @@ import {
 import { applyHealingToActor } from "../../utils/damage-application";
 import { useActorField } from "./use-actor-field";
 import { pickEffects } from "../../utils/effects";
+import { getPowerBlockReason } from "../../utils/status-mechanics";
 import { isWeaponItem, type WeaponItem } from "../../types/items";
 import {
   getEffectiveAttributeData,
@@ -1863,6 +1864,15 @@ async function rollPower(
   if (powersEffectivelyNegated.value) {
     ui.notifications?.warn(
       `Powers are negated in this area. ${power.name} cannot be used.`
+    );
+    return;
+  }
+
+  // Unconscious/asleep/stunned/paralyzed actors can't act, and Silence stops sound-based powers
+  const statusBlock = getPowerBlockReason(actor, power);
+  if (statusBlock) {
+    ui.notifications?.warn(
+      `${actor.name} is ${statusBlock} and cannot use ${power.name}.`
     );
     return;
   }

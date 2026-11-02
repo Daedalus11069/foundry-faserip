@@ -23,6 +23,7 @@ import {
 } from "../utils/region-effects";
 import type { ArmorPiercingResult } from "../utils/armor-piercing";
 import { getEffectiveAttributeData } from "../utils/stat-debuffs";
+import { cannotPhysicallyDefend } from "../utils/status-mechanics";
 import { applyTemporaryModifier } from "../utils/temp-effects";
 import { PvpDefenderView } from "../applications/pvp-defender-view";
 import {
@@ -1268,7 +1269,7 @@ async function handleDefensePrompt(
     return { defenseType: "takeHit" };
   }
   if (
-    isActorUnconscious(targetActor) &&
+    (isActorUnconscious(targetActor) || cannotPhysicallyDefend(targetActor)) &&
     isPhysicalDefenseAttribute(defenseAttribute)
   ) {
     return { defenseType: "takeHit" };

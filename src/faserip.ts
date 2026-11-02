@@ -83,6 +83,8 @@ import {
   clearExhaustionStuns,
   resetActionsThisTurnForCombatants
 } from "./module/utils/turn-actions-tracker";
+import { tickStatusEffectsForCombatants } from "./module/utils/status-ticks";
+import { registerStatusHooks } from "./module/utils/status-hooks";
 import { PowerNegationRegionBehaviorType } from "./module/region/PowerNegationRegionBehaviorType";
 import { PowerDampeningRegionBehaviorType } from "./module/region/PowerDampeningRegionBehaviorType";
 import { PowerEnhancementRegionBehaviorType } from "./module/region/PowerEnhancementRegionBehaviorType";
@@ -1000,6 +1002,7 @@ if (import.meta.env.DEV) {
 Hooks.once("init", () => {
   initLocknKeyDoorOverlay();
   registerRemoteAreaHooks();
+  registerStatusHooks();
 });
 
 // ─── Actor Update Hook: Sync health changes to healthByForm ────────────────────
@@ -1399,6 +1402,7 @@ Hooks.on("updateCombat", async (combat: any, changes: any) => {
 
     if (combatantsToTick.length > 0) {
       await tickDotEffectsForCombatant(combat, combatantsToTick);
+      await tickStatusEffectsForCombatants(combatantsToTick);
       await tickWeaponAreaEffectRegions(combatantsToTick.map(c => c.id));
       await resetActionsThisTurnForCombatants(combatantsToTick);
     }
