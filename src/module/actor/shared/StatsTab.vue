@@ -72,7 +72,10 @@ import {
 import { applyHealingToActor } from "../../utils/damage-application";
 import { useActorField } from "./use-actor-field";
 import { pickEffects } from "../../utils/effects";
-import { getPowerBlockReason } from "../../utils/status-mechanics";
+import {
+  getActionBlockReason,
+  getPowerBlockReason
+} from "../../utils/status-mechanics";
 import { isWeaponItem, type WeaponItem } from "../../types/items";
 import {
   getEffectiveAttributeData,
@@ -509,8 +512,28 @@ function getArmorOptions(targetActor: any) {
   return options;
 }
 
+/**
+ * Warn and return true when a status (unconscious, asleep, stunned,
+ * paralyzed) stops this actor attacking - checked at the button click, before
+ * any dialog or dice. Paralysis only stops physical actions.
+ */
+function isAttackBlockedByStatus(physical: boolean = true): boolean {
+  const reason = getActionBlockReason(actor, { physical });
+  if (!reason) return false;
+  ui.notifications?.warn(`${actor.name} is ${reason} and cannot attack.`);
+  return true;
+}
+
 async function rollAttribute(attrKey: string, skipTalents: boolean = false) {
   if (!currentForm.value) return;
+
+  // Fighting/Agility rolls are attacks; other attributes stay rollable as checks
+  if (
+    (attrKey === "fighting" || attrKey === "agility") &&
+    isAttackBlockedByStatus()
+  ) {
+    return;
+  }
 
   const attr = getEffectiveAttributeData(actor, attrKey as AttributeKey);
   if (!attr) return;
@@ -1214,6 +1237,7 @@ function getWeaponTalents(weapon: Weapon): { names: string[]; cs: number } {
 
 async function rollAllEquippedWeapons() {
   if (!currentForm.value) return;
+  if (isAttackBlockedByStatus()) return;
 
   const equipped = equippedWeapons.value;
   if (equipped.length === 0) {
@@ -1461,6 +1485,7 @@ async function rollWeapon(
   remotePoint?: { x: number; y: number }
 ) {
   if (!currentForm.value) return;
+  if (isAttackBlockedByStatus()) return;
 
   // Only equipped weapons may be attacked with
   if (!weapon.equipped) {

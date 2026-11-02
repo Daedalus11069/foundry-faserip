@@ -377,6 +377,10 @@ export async function tickTemporaryModifiers(combat: any): Promise<void> {
 
         if (flags.indefinite) continue;
 
+        // Display-only indicators (Powers Negated, Life-Linked) carry faserip
+        // flags but no round counter - they're managed by their regions, not ticked
+        if (flags.roundsRemaining === undefined) continue;
+
         const current = Number(flags.roundsRemaining ?? 0);
         const next = Math.max(0, current - 1);
         try {

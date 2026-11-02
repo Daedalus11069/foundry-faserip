@@ -50,6 +50,7 @@ const STATUS_ATTRIBUTE_SHIFTS: Record<
   Partial<Record<AttributeKey, number>>
 > = {
   prone: { fighting: -1, agility: -1 },
+  restrain: { fighting: -2, agility: -2 },
   blind: { fighting: -2, agility: -2 },
   fear: { fighting: -1, agility: -1 }
 };
