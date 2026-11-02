@@ -39,11 +39,9 @@ import { getCharmanService } from "../../charman-service";
 import { isPowerAuraActive } from "../../utils/power-aura";
 import { activateBlendIn, deactivateBlendIn, getBlendInFlag, getBlendBaseRange } from "../../utils/blend-in";
 import { useActorField } from "./use-actor-field";
-import type {
-  ReactiveActorData,
-  PowerData,
-  WeaponAreaOfEffectData
-} from "../../types/actor-system";
+import EffectsEditor from "../../components/EffectsEditor.vue";
+import { defaultAreaOfEffect } from "../../utils/effects";
+import type { ReactiveActorData, PowerData } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
 
 const reactiveActor = inject("reactiveActor") as ReactiveActorData;
@@ -71,99 +69,6 @@ const rankChoicesWithValues = computed(() => {
   return choices;
 });
 
-const attributeChoices = [
-  { value: "fighting", label: "Fighting" },
-  { value: "agility", label: "Agility" },
-  { value: "strength", label: "Strength" },
-  { value: "endurance", label: "Endurance" },
-  { value: "reasoning", label: "Reasoning" },
-  { value: "intuition", label: "Intuition" },
-  { value: "psyche", label: "Psyche" }
-];
-
-function newStatDebuff() {
-  return {
-    enabled: true,
-    attribute: "intuition" as const,
-    greenShift: 0,
-    yellowShift: 0,
-    redShift: 0,
-    durationFormula: "1d3"
-  };
-}
-
-function newDamageBuff() {
-  return {
-    enabled: true,
-    greenShift: 0,
-    yellowShift: 0,
-    redShift: 0,
-    durationFormula: "1d3"
-  };
-}
-
-function newDot() {
-  return {
-    enabled: true,
-    rank: "",
-    armorPiercing: "",
-    durationFormula: "1d3"
-  };
-}
-
-function newStatusEffect() {
-  return {
-    enabled: true,
-    statusId: "",
-    durationFormula: "1d3"
-  };
-}
-
-// Mirrors Foundry's own registered status conditions (sleep, stun, prone,
-// etc.) instead of a hand-maintained list, so any core/module-added status
-// shows up here automatically.
-const statusEffectChoices = computed(() => {
-  return ((CONFIG.statusEffects as any[]) || [])
-    .map(s => ({
-      value: s.id,
-      // @ts-expect-error - Foundry game.i18n global
-      label: typeof s.name === "string" ? game.i18n.localize(s.name) : s.id
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-});
-
-function ensureStatDebuffs(power: PowerData) {
-  if (!power.statDebuffs) {
-    power.statDebuffs = [];
-  }
-
-  return power.statDebuffs;
-}
-
-function ensureDamageBuffs(power: PowerData) {
-  if (!power.damageBuffs) {
-    power.damageBuffs = [];
-  }
-
-  return power.damageBuffs;
-}
-
-function ensureDots(power: PowerData) {
-  if (!power.dots) {
-    power.dots = [];
-  }
-
-  return power.dots;
-}
-
-function ensureStatusEffects(power: PowerData) {
-  if (!power.statusEffects) {
-    power.statusEffects = [];
-  }
-
-  return power.statusEffects;
-}
-
 const filteredPowers = computed(() => {
   const all = powers.value.map(power => {
     // Ensure powers without armor piercing have it set to null for consistency
@@ -179,10 +84,6 @@ const filteredPowers = computed(() => {
     if (!power.lifeLinkDirection) {
       power.lifeLinkDirection = "protect";
     }
-    ensureStatDebuffs(power);
-    ensureDamageBuffs(power);
-    ensureDots(power);
-    ensureStatusEffects(power);
     return power;
   });
   if (!filterFormId.value) return all;
@@ -247,6 +148,7 @@ function addPower() {
     damageBuffs: [],
     dots: [],
     statusEffects: [],
+    areaOfEffect: defaultAreaOfEffect(),
     isAura: false,
     auraDisposition: "any",
     auraIncludeSelf: false,
@@ -259,17 +161,6 @@ function addPower() {
       includeSelf: false,
       resistAttribute: "",
       resistResult: "green"
-    },
-    areaOfEffect: {
-      enabled: false,
-      shape: "circle",
-      size: 10,
-      width: 5,
-      angle: 53,
-      color: "#ff0000",
-      durationRounds: "",
-      remotePlaced: false,
-      maxRangeFeet: 0
     },
     grantsArmor: false,
     armorTypes: [],
@@ -296,18 +187,6 @@ async function removePower(index: number) {
 
   if (!confirmed) return;
   reactiveActor.system.powers.splice(index, 1);
-}
-
-async function removePowerEntry(list: unknown[], idx: number, label: string) {
-  // @ts-expect-error - DialogV2 path not fully typed
-  const confirmed = await foundry.applications.api.DialogV2.confirm({
-    content: `<p>Remove this ${label}?</p>`,
-    rejectClose: false,
-    modal: true
-  });
-
-  if (!confirmed) return;
-  list.splice(idx, 1);
 }
 
 const ARMOR_DAMAGE_TYPES = [
@@ -337,23 +216,6 @@ function setMassEffect(power: PowerData, patch: Record<string, unknown>) {
     ...(power.massEffect ?? {}),
     ...patch
   } as PowerData["massEffect"];
-}
-
-function ensureAreaOfEffect(power: PowerData): WeaponAreaOfEffectData {
-  if (!power.areaOfEffect) {
-    power.areaOfEffect = {
-      enabled: false,
-      shape: "circle",
-      size: 10,
-      width: 5,
-      angle: 53,
-      color: "#ff0000",
-      durationRounds: "",
-      remotePlaced: false,
-      maxRangeFeet: 0
-    };
-  }
-  return power.areaOfEffect;
 }
 
 function toggleArmorType(power: PowerData, type: string) {
@@ -928,110 +790,6 @@ function toggleItem(id: string) {
             </div>
           </div>
 
-          <!-- Area of Effect (region on hit, or dragged onto the map) -->
-          <div
-            class="px-2 py-1.5 bg-orange-950/30 border border-orange-800 rounded space-y-2"
-            :class="{ 'w-full': power.areaOfEffect?.enabled }"
-          >
-            <label class="flex items-center gap-2 cursor-pointer mb-0">
-              <input
-                v-model="ensureAreaOfEffect(power).enabled"
-                type="checkbox"
-                class="w-4 h-4 rounded border-gray-600 text-orange-500"
-              />
-              <span class="fsr-label mb-0" title="leaves a region that damages / debuffs anyone inside, using this power's Stat/Damage (De)buffs and DoT. Placed centered on the target on hit, or dragged onto the map when Project Remotely is on"
-                >Area of Effect <span class="fsr-help-text cursor-help">&#9432;</span></span
-              >
-            </label>
-            <div v-if="power.areaOfEffect?.enabled" class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="fsr-label">Shape</label>
-                <select v-model="power.areaOfEffect.shape" class="fsr-select text-sm">
-                  <option value="circle">Circle</option>
-                  <option value="cone">Cone</option>
-                  <option value="ray">Ray (Line)</option>
-                  <option value="rect">Rectangle</option>
-                </select>
-              </div>
-              <div>
-                <label class="fsr-label">
-                  {{ power.areaOfEffect.shape === "circle" ? "Radius" : "Length" }} (scene units)
-                </label>
-                <input
-                  v-model.number="power.areaOfEffect.size"
-                  type="number"
-                  min="0"
-                  class="fsr-input text-sm"
-                />
-              </div>
-              <div v-if="['ray', 'rect'].includes(power.areaOfEffect.shape)">
-                <label class="fsr-label">Width (scene units)</label>
-                <input
-                  v-model.number="power.areaOfEffect.width"
-                  type="number"
-                  min="0"
-                  class="fsr-input text-sm"
-                />
-              </div>
-              <div v-if="power.areaOfEffect.shape === 'cone'">
-                <label class="fsr-label">Angle (degrees)</label>
-                <input
-                  v-model.number="power.areaOfEffect.angle"
-                  type="number"
-                  min="0"
-                  max="360"
-                  class="fsr-input text-sm"
-                />
-              </div>
-              <div>
-                <label class="fsr-label">Color</label>
-                <input
-                  v-model="power.areaOfEffect.color"
-                  type="color"
-                  class="fsr-input h-10 p-1"
-                />
-              </div>
-              <div>
-                <label class="fsr-label">Auto-Remove After (rounds)</label>
-                <input
-                  v-model="power.areaOfEffect.durationRounds"
-                  type="text"
-                  class="fsr-input text-sm"
-                  placeholder="e.g. 3 or 1d3; blank = stays"
-                />
-              </div>
-              <label class="flex items-center gap-2 cursor-pointer col-span-2">
-                <input
-                  v-model="power.areaOfEffect.instant"
-                  type="checkbox"
-                  class="w-4 h-4 rounded border-gray-600 text-orange-500"
-                />
-                <span class="fsr-label mb-0" title="the shape only decides who is hit, like a ray of disintegration or a cone of flame. No region stays on the map."
-                  >Instant (leaves no region) <span class="fsr-help-text cursor-help">&#9432;</span></span
-                >
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer col-span-2">
-                <input
-                  v-model="power.areaOfEffect.remotePlaced"
-                  type="checkbox"
-                  class="w-4 h-4 rounded border-gray-600 text-orange-500"
-                />
-                <span class="fsr-label mb-0" title="drag this power's button onto the map instead of targeting. The power rolls its own rank to land: any result but white lands on the spot, a white scatters it. Everyone inside, including the user, is then attacked"
-                  >Project Remotely <span class="fsr-help-text cursor-help">&#9432;</span></span
-                >
-              </label>
-              <div v-if="power.areaOfEffect.remotePlaced" class="col-span-2">
-                <label class="fsr-label">Max projection range (scene units from the user's token; 0 = unlimited)</label>
-                <input
-                  v-model.number="power.areaOfEffect.maxRangeFeet"
-                  type="number"
-                  min="0"
-                  class="fsr-input text-sm"
-                />
-              </div>
-            </div>
-          </div>
-
           <!-- Armor layer (e.g. Light-Shield) -->
           <div
             class="px-2 py-1.5 bg-yellow-950/30 border border-yellow-800 rounded space-y-2"
@@ -1130,381 +888,12 @@ function toggleItem(id: string) {
 
           </div>
 
-          <div
-            class="mb-2 p-2 bg-indigo-950/30 border border-indigo-800 rounded space-y-2"
-          >
-            <div class="flex items-center justify-between">
-              <span class="fsr-label mb-0">Temporary Stat (De)buffs</span>
-              <button
-                @click="ensureStatDebuffs(power).push(newStatDebuff())"
-                class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs"
-              >
-                + Add
-              </button>
-            </div>
-
-            <div
-              v-for="(entry, idx) in ensureStatDebuffs(power)"
-              :key="idx"
-              class="border border-indigo-700 rounded p-2 space-y-2"
-            >
-              <div class="flex items-center justify-end">
-                <button
-                  @click="removePowerEntry(ensureStatDebuffs(power), idx, 'stat debuff')"
-                  class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
-                  title="Remove"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div class="space-y-2">
-                <div>
-                  <label class="fsr-label">Target Attribute</label>
-                  <select v-model="entry.attribute" class="fsr-select text-sm">
-                    <option
-                      v-for="option in attributeChoices"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </div>
-
-                <div class="grid grid-cols-3 gap-2">
-                  <div>
-                    <label class="fsr-label">Half Success</label>
-                    <input
-                      v-model.number="entry.greenShift"
-                      type="number"
-                      class="fsr-input"
-                      placeholder="-1"
-                    />
-                  </div>
-                  <div>
-                    <label class="fsr-label">Yellow</label>
-                    <input
-                      v-model.number="entry.yellowShift"
-                      type="number"
-                      class="fsr-input"
-                      placeholder="-2"
-                    />
-                  </div>
-                  <div>
-                    <label class="fsr-label">Red</label>
-                    <input
-                      v-model.number="entry.redShift"
-                      type="number"
-                      class="fsr-input"
-                      placeholder="-3"
-                    />
-                  </div>
-                </div>
-
-                <div class="text-xs text-gray-400">
-                  Positive values apply a buff. Negative values apply a debuff.
-                </div>
-
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    :checked="entry.durationFormula === 'indefinite'"
-                    @change="
-                      e =>
-                        (entry.durationFormula = (e.target as HTMLInputElement).checked
-                          ? 'indefinite'
-                          : '1d3')
-                    "
-                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
-                </label>
-
-                <div v-if="entry.durationFormula !== 'indefinite'">
-                  <label class="fsr-label">Duration Formula</label>
-                  <input
-                    v-model="entry.durationFormula"
-                    type="text"
-                    class="fsr-input"
-                    placeholder="1d3"
-                  />
-                  <div class="text-xs text-gray-400 mt-1">
-                    Rolled when the effect lands, in rounds. For an Aura power, this is rolled once when the aura is activated - not per entrant.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            class="px-2 py-1.5 bg-purple-950/30 border border-purple-800 rounded space-y-2"
-            :class="{ 'w-full': power.isAura }"
-          >
-            <div class="flex items-center justify-between">
-              <span class="fsr-label mb-0">Temporary Damage (De)buffs</span>
-              <button
-                @click="ensureDamageBuffs(power).push(newDamageBuff())"
-                class="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs"
-              >
-                + Add
-              </button>
-            </div>
-
-            <div
-              v-for="(entry, idx) in ensureDamageBuffs(power)"
-              :key="idx"
-              class="border border-purple-700 rounded p-2 space-y-2"
-            >
-              <div class="flex items-center justify-end">
-                <button
-                  @click="removePowerEntry(ensureDamageBuffs(power), idx, 'damage buff')"
-                  class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
-                  title="Remove"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div class="space-y-2">
-                <div class="grid grid-cols-3 gap-2">
-                  <div>
-                    <label class="fsr-label">Half Success</label>
-                    <input
-                      v-model.number="entry.greenShift"
-                      type="number"
-                      class="fsr-input"
-                      placeholder="-1"
-                    />
-                  </div>
-                  <div>
-                    <label class="fsr-label">Yellow</label>
-                    <input
-                      v-model.number="entry.yellowShift"
-                      type="number"
-                      class="fsr-input"
-                      placeholder="-2"
-                    />
-                  </div>
-                  <div>
-                    <label class="fsr-label">Red</label>
-                    <input
-                      v-model.number="entry.redShift"
-                      type="number"
-                      class="fsr-input"
-                      placeholder="-3"
-                    />
-                  </div>
-                </div>
-
-                <div class="text-xs text-gray-400">
-                  Affects target's damage output. Positive values buff damage, negative values debuff damage.
-                </div>
-
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    :checked="entry.durationFormula === 'indefinite'"
-                    @change="
-                      e =>
-                        (entry.durationFormula = (e.target as HTMLInputElement).checked
-                          ? 'indefinite'
-                          : '1d3')
-                    "
-                    class="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-2 focus:ring-purple-500"
-                  />
-                  <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
-                </label>
-
-                <div v-if="entry.durationFormula !== 'indefinite'">
-                  <label class="fsr-label">Duration Formula</label>
-                  <input
-                    v-model="entry.durationFormula"
-                    type="text"
-                    class="fsr-input"
-                    placeholder="1d3"
-                  />
-                  <div class="text-xs text-gray-400 mt-1">
-                    Rolled when the effect lands, in rounds. For an Aura power, this is rolled once when the aura is activated - not per entrant.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            class="mb-2 p-2 bg-green-950/30 border border-green-800 rounded space-y-2"
-          >
-            <div class="flex items-center justify-between">
-              <span class="fsr-label mb-0">Damage Over Time</span>
-              <button
-                @click="ensureDots(power).push(newDot())"
-                class="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
-              >
-                + Add
-              </button>
-            </div>
-
-            <div
-              v-for="(entry, idx) in ensureDots(power)"
-              :key="idx"
-              class="border border-green-700 rounded p-2 space-y-2"
-            >
-              <div class="flex items-center justify-end">
-                <button
-                  @click="removePowerEntry(ensureDots(power), idx, 'damage-over-time effect')"
-                  class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
-                  title="Remove"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div class="space-y-2">
-                <div class="grid grid-cols-2 gap-2">
-                  <div>
-                    <label class="fsr-label">Rank</label>
-                    <select v-model="entry.rank" class="fsr-select text-sm">
-                      <option value="">Use Power's Rank</option>
-                      <option
-                        v-for="(label, value) in rankChoicesWithValues"
-                        :key="value"
-                        :value="value"
-                      >
-                        {{ label }}
-                      </option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="fsr-label">Armor Piercing</label>
-                    <select
-                      v-model="entry.armorPiercing"
-                      class="fsr-select text-sm"
-                    >
-                      <option value="">None</option>
-                      <option
-                        v-for="(label, value) in rankChoicesWithValues"
-                        :key="value"
-                        :value="value"
-                      >
-                        {{ label }}
-                      </option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="text-xs text-gray-400">
-                  Deals damage at this rank to the target at the start of each of their rounds, using the same armor-piercing rules as a normal hit, until it is removed or its duration expires.
-                </div>
-
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    :checked="entry.durationFormula === 'indefinite'"
-                    @change="
-                      e =>
-                        (entry.durationFormula = (e.target as HTMLInputElement).checked
-                          ? 'indefinite'
-                          : '1d3')
-                    "
-                    class="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-2 focus:ring-green-500"
-                  />
-                  <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
-                </label>
-
-                <div v-if="entry.durationFormula !== 'indefinite'">
-                  <label class="fsr-label">Duration Formula</label>
-                  <input
-                    v-model="entry.durationFormula"
-                    type="text"
-                    class="fsr-input"
-                    placeholder="1d3"
-                  />
-                  <div class="text-xs text-gray-400 mt-1">
-                    Rolled when the effect lands, in rounds.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            class="mb-2 p-2 bg-indigo-950/30 border border-indigo-800 rounded space-y-2"
-          >
-            <div class="flex items-center justify-between">
-              <span class="fsr-label mb-0">Status Effects</span>
-              <button
-                @click="ensureStatusEffects(power).push(newStatusEffect())"
-                class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs"
-              >
-                + Add
-              </button>
-            </div>
-
-            <div
-              v-for="(entry, idx) in ensureStatusEffects(power)"
-              :key="idx"
-              class="border border-indigo-700 rounded p-2 space-y-2"
-            >
-              <div class="flex items-center justify-end">
-                <button
-                  @click="removePowerEntry(ensureStatusEffects(power), idx, 'status effect')"
-                  class="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
-                  title="Remove"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div class="space-y-2">
-                <div>
-                  <label class="fsr-label">Status</label>
-                  <select v-model="entry.statusId" class="fsr-select text-sm">
-                    <option value="">Select a status...</option>
-                    <option
-                      v-for="choice in statusEffectChoices"
-                      :key="choice.value"
-                      :value="choice.value"
-                    >
-                      {{ choice.label }}
-                    </option>
-                  </select>
-                </div>
-
-                <div class="text-xs text-gray-400">
-                  Applies this Foundry status condition (sleep, stun, prone, etc.) to the target on a successful hit.
-                </div>
-
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    :checked="entry.durationFormula === 'indefinite'"
-                    @change="
-                      e =>
-                        (entry.durationFormula = (e.target as HTMLInputElement).checked
-                          ? 'indefinite'
-                          : '1d3')
-                    "
-                    class="w-4 h-4 rounded border-gray-600 text-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <span class="fsr-label mb-0">Until Removed (no duration limit)</span>
-                </label>
-
-                <div v-if="entry.durationFormula !== 'indefinite'">
-                  <label class="fsr-label">Duration Formula</label>
-                  <input
-                    v-model="entry.durationFormula"
-                    type="text"
-                    class="fsr-input"
-                    placeholder="1d3"
-                  />
-                  <div class="text-xs text-gray-400 mt-1">
-                    Rolled when the effect lands, in rounds.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <EffectsEditor
+            class="mb-2"
+            owner="power"
+            :effects="power"
+            @update="(field, value) => ((power as any)[field] = value)"
+          />
 
           <!-- Multi-Hit checkbox (for AoE/multi-target attacks) -->
           <div

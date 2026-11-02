@@ -1,8 +1,5 @@
 import { Rank } from "../enums";
-import {
-  buildAreaOfEffectFieldSchema,
-  buildStatusEffectFieldSchema
-} from "./ItemDataModels";
+import { buildEffectsSchema } from "./ItemDataModels";
 import type {
   CharmanData,
   FormData,
@@ -130,102 +127,7 @@ export function defineWeaponSchema() {
       initial: false,
       label: "Multi-Hit (AoE)"
     }),
-    statDebuffs: new ArrayField(
-      new SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        attribute: new StringField({
-          required: false,
-          initial: "intuition",
-          choices: [
-            "fighting",
-            "agility",
-            "strength",
-            "endurance",
-            "reasoning",
-            "intuition",
-            "psyche"
-          ]
-        }),
-        greenShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        yellowShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        redShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      { required: false, initial: () => [] }
-    ),
-    damageBuffs: new ArrayField(
-      new SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        greenShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        yellowShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        redShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      { required: false, initial: () => [] }
-    ),
-    dots: new ArrayField(
-      new SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        rank: new StringField({
-          required: false,
-          blank: true,
-          initial: ""
-        }),
-        armorPiercing: new StringField({
-          required: false,
-          blank: true,
-          initial: ""
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      { required: false, initial: () => [] }
-    ),
-    statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
-      required: false,
-      initial: () => []
-    })
+    ...buildEffectsSchema()
   });
 }
 
@@ -421,102 +323,7 @@ export function definePowerRefSchema() {
       required: false,
       initial: false
     }),
-    statDebuffs: new ArrayField(
-      new SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        attribute: new StringField({
-          required: false,
-          initial: "intuition",
-          choices: [
-            "fighting",
-            "agility",
-            "strength",
-            "endurance",
-            "reasoning",
-            "intuition",
-            "psyche"
-          ]
-        }),
-        greenShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        yellowShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        redShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      { required: false, initial: () => [] }
-    ),
-    damageBuffs: new ArrayField(
-      new SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        greenShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        yellowShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        redShift: new NumberField({
-          required: false,
-          integer: true,
-          initial: 0
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      { required: false, initial: () => [] }
-    ),
-    dots: new ArrayField(
-      new SchemaField({
-        enabled: new BooleanField({
-          required: false,
-          initial: false
-        }),
-        rank: new StringField({
-          required: false,
-          blank: true,
-          initial: ""
-        }),
-        armorPiercing: new StringField({
-          required: false,
-          blank: true,
-          initial: ""
-        }),
-        durationFormula: new StringField({
-          required: false,
-          initial: "1d3"
-        })
-      }),
-      { required: false, initial: () => [] }
-    ),
-    statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
-      required: false,
-      initial: () => []
-    }),
+    ...buildEffectsSchema(),
     isAura: new BooleanField({
       required: false,
       initial: false
@@ -572,9 +379,6 @@ export function definePowerRefSchema() {
         choices: ["green", "yellow", "red"]
       })
     }),
-    // Region placed on hit, or dragged onto the canvas when remotePlaced - see
-    // utils/area-of-effect.ts and utils/remote-area.ts
-    areaOfEffect: buildAreaOfEffectFieldSchema(),
     // Armor layer granted by this power (e.g. Light-Shield). Soaks damage of
     // armorTypes at the power's value, in layer armorLayer alongside worn armor.
     grantsArmor: new BooleanField({

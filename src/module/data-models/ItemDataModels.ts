@@ -1,11 +1,5 @@
 import { Rank, DamageType } from "../enums";
-import type {
-  PowerStatDebuffData,
-  PowerDamageDebuffData,
-  PowerDotData,
-  PowerStatusEffectData,
-  WeaponAreaOfEffectData
-} from "../types/actor-system";
+import type { EffectsData } from "../types/actor-system";
 
 const {
   ArrayField,
@@ -101,6 +95,48 @@ export function buildAreaOfEffectFieldSchema() {
   });
 }
 
+/**
+ * Shared schema for a single damage-over-time entry. A blank rank means "use
+ * the owning power/weapon's own rank".
+ */
+export function buildDotFieldSchema() {
+  return new SchemaField({
+    enabled: new BooleanField({ required: false, initial: false }),
+    rank: new StringField({ required: false, blank: true, initial: "" }),
+    armorPiercing: new StringField({ required: false, blank: true, initial: "" }),
+    durationFormula: new StringField({ required: false, initial: "1d3" })
+  });
+}
+
+/**
+ * The effects system (stat/damage (de)buffs, damage over time, status
+ * conditions and the on-hit area of effect). Spread into the schema of
+ * anything that applies effects - powers and weapons, both as items and as
+ * the entries synced into an actor's system.powers/system.weapons - so they
+ * can never drift apart. The matching TS shape is EffectsData.
+ */
+export function buildEffectsSchema() {
+  return {
+    statDebuffs: new ArrayField(buildStatDebuffFieldSchema(), {
+      required: false,
+      initial: () => []
+    }),
+    damageBuffs: new ArrayField(buildDamageBuffFieldSchema(), {
+      required: false,
+      initial: () => []
+    }),
+    dots: new ArrayField(buildDotFieldSchema(), {
+      required: false,
+      initial: () => []
+    }),
+    statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
+      required: false,
+      initial: () => []
+    }),
+    areaOfEffect: buildAreaOfEffectFieldSchema()
+  };
+}
+
 function migrateBuffDebuffArrayFields(source: any): any {
   const renames: Array<[string, string]> = [
     ["statDebuff", "statDebuffs"],
@@ -142,10 +178,11 @@ export class PowerDataModel extends ItemDataModel {
   declare rank: string;
   declare category: string;
   declare armorPiercing?: string;
-  declare statDebuffs?: PowerStatDebuffData[];
-  declare damageBuffs?: PowerDamageDebuffData[];
-  declare dots?: PowerDotData[];
-  declare statusEffects?: PowerStatusEffectData[];
+  declare statDebuffs?: EffectsData["statDebuffs"];
+  declare damageBuffs?: EffectsData["damageBuffs"];
+  declare dots?: EffectsData["dots"];
+  declare statusEffects?: EffectsData["statusEffects"];
+  declare areaOfEffect?: EffectsData["areaOfEffect"];
   declare isAura?: boolean;
   declare auraDisposition?: string;
   declare auraIncludeSelf?: boolean;
@@ -184,43 +221,7 @@ export class PowerDataModel extends ItemDataModel {
       }),
       blendIn: new BooleanField({ required: false, initial: false }),
       blendInDurationFormula: new StringField({ required: false, blank: true, initial: "" }),
-      statDebuffs: new ArrayField(buildStatDebuffFieldSchema(), {
-        required: false,
-        initial: []
-      }),
-      damageBuffs: new ArrayField(buildDamageBuffFieldSchema(), {
-        required: false,
-        initial: []
-      }),
-      dots: new ArrayField(
-        new SchemaField({
-          enabled: new BooleanField({
-            required: false,
-            initial: false
-          }),
-          rank: new StringField({
-            required: false,
-            blank: true,
-            initial: "",
-            choices: ["", ...Object.values(Rank)]
-          }),
-          armorPiercing: new StringField({
-            required: false,
-            blank: true,
-            initial: "",
-            choices: ["", ...Object.values(Rank)]
-          }),
-          durationFormula: new StringField({
-            required: false,
-            initial: "1d3"
-          })
-        }),
-        { required: false, initial: [] }
-      ),
-      statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
-        required: false,
-        initial: []
-      })
+      ...buildEffectsSchema()
     };
   }
 }
@@ -416,11 +417,11 @@ export class WeaponDataModel extends ItemDataModel {
   declare talents?: string[];
   declare armorPiercing?: string;
   declare multiHit?: boolean;
-  declare statDebuffs?: PowerStatDebuffData[];
-  declare damageBuffs?: PowerDamageDebuffData[];
-  declare dots?: PowerDotData[];
-  declare statusEffects?: PowerStatusEffectData[];
-  declare areaOfEffect?: WeaponAreaOfEffectData;
+  declare statDebuffs?: EffectsData["statDebuffs"];
+  declare damageBuffs?: EffectsData["damageBuffs"];
+  declare dots?: EffectsData["dots"];
+  declare statusEffects?: EffectsData["statusEffects"];
+  declare areaOfEffect?: EffectsData["areaOfEffect"];
 
   static override migrateData(source: any): any {
     source = super.migrateData(source);
@@ -469,105 +470,7 @@ export class WeaponDataModel extends ItemDataModel {
         initial: false,
         label: "Multi-Hit (AoE)"
       }),
-      statDebuffs: new ArrayField(
-        new SchemaField({
-          enabled: new BooleanField({
-            required: false,
-            initial: false
-          }),
-          attribute: new StringField({
-            required: false,
-            initial: "intuition",
-            choices: [
-              "fighting",
-              "agility",
-              "strength",
-              "endurance",
-              "reasoning",
-              "intuition",
-              "psyche"
-            ]
-          }),
-          greenShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          yellowShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          redShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          durationFormula: new StringField({
-            required: false,
-            initial: "1d3"
-          })
-        }),
-        { required: false, initial: [] }
-      ),
-      damageBuffs: new ArrayField(
-        new SchemaField({
-          enabled: new BooleanField({
-            required: false,
-            initial: false
-          }),
-          greenShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          yellowShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          redShift: new NumberField({
-            required: false,
-            integer: true,
-            initial: 0
-          }),
-          durationFormula: new StringField({
-            required: false,
-            initial: "1d3"
-          })
-        }),
-        { required: false, initial: [] }
-      ),
-      dots: new ArrayField(
-        new SchemaField({
-          enabled: new BooleanField({
-            required: false,
-            initial: false
-          }),
-          rank: new StringField({
-            required: false,
-            blank: true,
-            initial: "",
-            choices: ["", ...Object.values(Rank)]
-          }),
-          armorPiercing: new StringField({
-            required: false,
-            blank: true,
-            initial: "",
-            choices: ["", ...Object.values(Rank)]
-          }),
-          durationFormula: new StringField({
-            required: false,
-            initial: "1d3"
-          })
-        }),
-        { required: false, initial: [] }
-      ),
-      statusEffects: new ArrayField(buildStatusEffectFieldSchema(), {
-        required: false,
-        initial: []
-      }),
-      areaOfEffect: buildAreaOfEffectFieldSchema()
+      ...buildEffectsSchema()
     };
   }
 }

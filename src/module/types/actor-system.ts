@@ -152,6 +152,18 @@ export interface WeaponAreaOfEffectData {
   maxRangeFeet?: number; // Remote placement only: farthest the region may be dropped from the user's token, in scene distance units; 0 = unlimited
 }
 
+/**
+ * The effects system, shared by powers and weapons: what a hit (or an aura /
+ * area region) applies to its victims. Mirrors buildEffectsSchema().
+ */
+export interface EffectsData {
+  statDebuffs?: PowerStatDebuffData[];
+  damageBuffs?: PowerDamageDebuffData[];
+  dots?: PowerDotData[];
+  statusEffects?: PowerStatusEffectData[]; // Foundry status conditions (sleep, stun, prone, etc.) to apply on hit
+  areaOfEffect?: WeaponAreaOfEffectData; // Region placed centered on the target on hit, or (remotePlaced) dragged onto the canvas
+}
+
 export interface PowerMassEffectData {
   enabled: boolean;
   scope: "area" | "targets"; // area = everyone in range of the owner; targets = the selected target tokens
@@ -162,7 +174,7 @@ export interface PowerMassEffectData {
   resistResult: "green" | "yellow" | "red"; // Result needed to resist at full strength
 }
 
-export interface PowerData {
+export interface PowerData extends EffectsData {
   id: string;
   name: string;
   rank: string;
@@ -189,16 +201,11 @@ export interface PowerData {
   multiHit?: boolean; // True for AoE/multi-target powers (one roll, no combo penalty)
   armorPiercing?: string | null; // Armor-piercing rank (for damage powers that pierce armor)
   leechPercent?: number; // Life-link/leech: % of health damage dealt to the target that heals the attacker (0-100)
-  statDebuffs?: PowerStatDebuffData[];
-  damageBuffs?: PowerDamageDebuffData[];
-  dots?: PowerDotData[];
-  statusEffects?: PowerStatusEffectData[]; // Foundry status conditions (sleep, stun, prone, etc.) to apply on hit
   isAura?: boolean; // Spawns a region attached to the owner's token that (de)buffs actors inside instead of applying on-hit
   auraDisposition?: "ally" | "enemy" | "any"; // Who the aura affects, relative to the owner token's disposition
   auraIncludeSelf?: boolean; // Whether the owner is affected by their own aura
   auraRange?: number; // Radius in scene distance units (e.g. feet); 0/unset falls back to the rank-based movement table
   massEffect?: PowerMassEffectData; // Affects everyone in range / all targets, each with a resist roll; applies statusEffects on failure
-  areaOfEffect?: WeaponAreaOfEffectData; // Region placed centered on the target on hit, or (remotePlaced) dragged onto the canvas; rolls the power's own rank to place
   grantsArmor?: boolean; // Grants an armor layer: soaks armorTypes at the power's value (degrades like Body Armor)
   armorTypes?: string[]; // Damage types the layer protects against
   armorLayer?: number; // Layer slot, same numbering as armor items (0/1 = outermost). Pieces in the same layer add together
@@ -231,7 +238,7 @@ export interface ArmorData {
   description?: string;
 }
 
-export interface WeaponData {
+export interface WeaponData extends EffectsData {
   id: string;
   name: string;
   type: "melee" | "ranged" | "thrown"; // Weapon type determines which stat is used for to-hit
@@ -242,11 +249,6 @@ export interface WeaponData {
   equipped?: boolean; // Whether weapon is equipped
   armorPiercing?: string | null; // Armor-piercing rank (for damage calculation)
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
-  areaOfEffect?: WeaponAreaOfEffectData; // Region template placed centered on the target on hit
-  statDebuffs?: PowerStatDebuffData[];
-  damageBuffs?: PowerDamageDebuffData[];
-  dots?: PowerDotData[];
-  statusEffects?: PowerStatusEffectData[]; // Foundry status conditions (sleep, stun, prone, etc.) to apply on hit - e.g. tranq darts, net guns
 }
 
 /**

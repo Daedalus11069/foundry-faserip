@@ -57,12 +57,9 @@ import {
   type PendingDamage
 } from "../../combat/combat-flow";
 import type {
+  EffectsData,
   ReactiveActorData,
   PowerData,
-  PowerStatDebuffData,
-  PowerDamageDebuffData,
-  PowerDotData,
-  PowerStatusEffectData,
   WeaponAreaOfEffectData
 } from "../../types/actor-system";
 import type { FaseripActor } from "../../documents";
@@ -74,6 +71,7 @@ import {
 } from "../../utils/turn-actions-tracker";
 import { applyHealingToActor } from "../../utils/damage-application";
 import { useActorField } from "./use-actor-field";
+import { pickEffects } from "../../utils/effects";
 import { isWeaponItem, type WeaponItem } from "../../types/items";
 import {
   getEffectiveAttributeData,
@@ -82,7 +80,7 @@ import {
   type AttributeKey
 } from "../../utils/stat-debuffs";
 
-interface Weapon {
+interface Weapon extends EffectsData {
   id: string;
   name: string;
   type: "melee" | "ranged" | "thrown"; // Weapon type determines which stat is used for to-hit
@@ -93,11 +91,6 @@ interface Weapon {
   equipped?: boolean;
   armorPiercing?: string | null; // Armor-piercing rank (optional)
   multiHit?: boolean; // True for AoE/multi-target weapons (one roll, no combo penalty)
-  statDebuffs?: PowerStatDebuffData[];
-  damageBuffs?: PowerDamageDebuffData[];
-  dots?: PowerDotData[];
-  statusEffects?: PowerStatusEffectData[];
-  areaOfEffect?: WeaponAreaOfEffectData;
   damageTypes?: string[]; // Damage type(s) this weapon deals (defaults to Physical)
 }
 
@@ -185,17 +178,7 @@ const weapons = computed<Weapon[]>(() => {
     applicableTalents: item.system.talents || [],
     armorPiercing: item.system.armorPiercing || "", // Add armor piercing
     multiHit: item.system.multiHit || false,
-    statDebuffs: item.system.statDebuffs as PowerStatDebuffData[] | undefined,
-    damageBuffs: item.system.damageBuffs as
-      | PowerDamageDebuffData[]
-      | undefined,
-    dots: item.system.dots as PowerDotData[] | undefined,
-    statusEffects: item.system.statusEffects as
-      | PowerStatusEffectData[]
-      | undefined,
-    areaOfEffect: item.system.areaOfEffect as
-      | WeaponAreaOfEffectData
-      | undefined,
+    ...pickEffects(item.system as EffectsData),
     damageTypes: item.system.damageTypes as string[] | undefined
   }));
 
@@ -1365,11 +1348,7 @@ async function rollAllEquippedWeapons() {
           damageBonus: attackKarma?.damageBonus ?? 0
         },
         multiHit: weapon.multiHit || false,
-        statDebuffs: weapon.statDebuffs,
-        damageBuffs: weapon.damageBuffs,
-        dots: weapon.dots,
-        statusEffects: weapon.statusEffects,
-        areaOfEffect: weapon.areaOfEffect,
+        ...pickEffects(weapon),
         actionsBeforeThisCombo: actionsBefore,
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount,
@@ -1687,11 +1666,7 @@ async function rollWeapon(
         comboIndex: i + 1,
         comboTotal: comboResult.comboCount,
         multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
-        statDebuffs: weapon.statDebuffs,
-        damageBuffs: weapon.damageBuffs,
-        dots: weapon.dots,
-        statusEffects: weapon.statusEffects,
-        areaOfEffect: weapon.areaOfEffect,
+        ...pickEffects(weapon),
         deferDamageApplication: true, // Defer damage for cumulative application
         comboBotchCount, // Pass current botch count
         ...remoteExtras
@@ -1778,11 +1753,7 @@ async function rollWeapon(
         damageBonus: firstAttackKarma?.damageBonus ?? 0
       },
       multiHit: weapon.multiHit || false, // Add multiHit flag for AoE weapons
-      statDebuffs: weapon.statDebuffs,
-      damageBuffs: weapon.damageBuffs,
-      dots: weapon.dots,
-      statusEffects: weapon.statusEffects,
-      areaOfEffect: weapon.areaOfEffect,
+      ...pickEffects(weapon),
       actionsBeforeThisCombo: actionsBeforeWeapon,
       ...remoteExtras
     });
@@ -2519,11 +2490,7 @@ async function rollPower(
           multiHit: power.multiHit || false,
           armorPiercing: power.armorPiercing, // Add armor piercing
           leechPercent: power.leechPercent || undefined,
-          statDebuffs: power.statDebuffs,
-          damageBuffs: power.damageBuffs,
-          dots: power.dots,
-          statusEffects: power.statusEffects,
-          areaOfEffect: power.areaOfEffect,
+          ...pickEffects(power),
           deferDamageApplication: true, // Defer damage for cumulative application
           comboBotchCount, // Pass current botch count
           ...remoteExtras
@@ -2600,11 +2567,7 @@ async function rollPower(
         multiHit: power.multiHit || false,
         armorPiercing: power.armorPiercing, // Add armor piercing
         leechPercent: power.leechPercent || undefined,
-        statDebuffs: power.statDebuffs,
-        damageBuffs: power.damageBuffs,
-        dots: power.dots,
-        statusEffects: power.statusEffects,
-        areaOfEffect: power.areaOfEffect,
+        ...pickEffects(power),
         actionsBeforeThisCombo: actionsBeforePower,
         ...remoteExtras
       });
