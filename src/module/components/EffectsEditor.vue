@@ -7,7 +7,7 @@
  * `update` so the parent decides how to persist it - assign onto a reactive
  * actor power, or `item.update()` a weapon item.
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type {
   EffectsData,
   WeaponAreaOfEffectData
@@ -94,6 +94,14 @@ function setAoe(key: keyof WeaponAreaOfEffectData, value: boolean | number | str
   emit("update", "areaOfEffect", { ...clone(aoe.value), [key]: value });
 }
 
+type EffectTab = "aoe" | EffectListField;
+const activeTab = ref<EffectTab>("aoe");
+
+function tabCount(tab: EffectTab): number {
+  if (tab === "aoe") return aoe.value.enabled ? 1 : 0;
+  return entries(tab).length;
+}
+
 const inputValue = (e: Event) => (e.target as HTMLInputElement).value;
 const inputNumber = (e: Event) => Number(inputValue(e));
 const inputChecked = (e: Event) => (e.target as HTMLInputElement).checked;
@@ -149,12 +157,45 @@ const LISTS: Array<{
     check: "text-indigo-500 focus:ring-indigo-500"
   }
 ];
+
+const TABS: Array<{ id: EffectTab; label: string; active: string }> = [
+  { id: "aoe", label: "Area", active: "border-orange-500 text-orange-200" },
+  { id: "statDebuffs", label: "Stat", active: "border-indigo-500 text-indigo-200" },
+  { id: "damageBuffs", label: "Damage", active: "border-purple-500 text-purple-200" },
+  { id: "dots", label: "DoT", active: "border-green-500 text-green-200" },
+  { id: "statusEffects", label: "Status", active: "border-indigo-500 text-indigo-200" }
+];
 </script>
 
 <template>
   <div class="space-y-2">
+    <div class="flex flex-wrap gap-1 border-b border-gray-700">
+      <button
+        v-for="tab in TABS"
+        :key="tab.id"
+        type="button"
+        @click="activeTab = tab.id"
+        class="px-3 py-1 text-xs font-semibold border-b-2 -mb-px"
+        :class="
+          activeTab === tab.id
+            ? tab.active
+            : 'border-transparent text-gray-400 hover:text-gray-200'
+        "
+      >
+        {{ tab.label }}
+        <span
+          v-if="tabCount(tab.id)"
+          class="ml-1 px-1.5 rounded-full bg-gray-700 text-gray-200"
+          >{{ tabCount(tab.id) }}</span
+        >
+      </button>
+    </div>
+
     <!-- Area of Effect (region on hit, or dragged onto the map) -->
-    <div class="p-2 bg-orange-950/30 border border-orange-800 rounded space-y-2">
+    <div
+      v-if="activeTab === 'aoe'"
+      class="p-2 bg-orange-950/30 border border-orange-800 rounded space-y-2"
+    >
       <label class="flex items-center gap-2 cursor-pointer mb-0">
         <input
           :checked="aoe.enabled"
@@ -284,9 +325,9 @@ const LISTS: Array<{
     </div>
 
     <!-- Stat / damage buffs, damage over time, status conditions -->
+    <template v-for="list in LISTS" :key="list.field">
     <div
-      v-for="list in LISTS"
-      :key="list.field"
+      v-if="activeTab === list.field"
       class="p-2 border rounded space-y-2"
       :class="list.box"
     >
@@ -478,5 +519,6 @@ const LISTS: Array<{
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
